@@ -1,0 +1,98 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================================
+// Pushakin Flows — Permohonan Pemberitaan with Fast Track
+// ============================================================
+
+model User {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  name      String
+  role      String   // MANAGER | REPORTER | FOTOGRAFER | EDITOR | PUBLISHER_WEB | PUBLISHER_SOCIAL_MEDIA
+  avatarUrl String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  managedPermohonan    Permohonan[] @relation("ManagerPermohonan")
+  reporterAssignments  Permohonan[] @relation("ReporterAssignment")
+  fotograferAssignments Permohonan[] @relation("FotograferAssignment")
+  editorAssignments    Permohonan[] @relation("EditorAssignment")
+  publisherWebAssignments  Permohonan[] @relation("PublisherWebAssignment")
+  publisherSocialAssignments Permohonan[] @relation("PublisherSocialAssignment")
+}
+
+model Permohonan {
+  id        String   @id @default(cuid())
+  judul     String   // Judul berita / permohonan
+  deskripsi String?  // Deskripsi detail
+  fastTrack Boolean  @default(false)
+  status    String   @default("DRAFT") // DRAFT | IN_PROGRESS | PUBLISHING | COMPLETED | REJECTED
+
+  // Creator (Manager)
+  managerId String
+  manager   User  @relation("ManagerPermohonan", fields: [managerId], references: [id])
+
+  // ── Normal-flow assignments (SKIPPED when fastTrack = true) ──
+  reporterId   String?
+  reporter     User?  @relation("ReporterAssignment", fields: [reporterId], references: [id])
+  fotograferId String?
+  fotografer   User?  @relation("FotograferAssignment", fields: [fotograferId], references: [id])
+  editorId     String?
+  editor       User?  @relation("EditorAssignment", fields: [editorId], references: [id])
+
+  // ── Publisher assignments (used in BOTH flows) ──
+  publisherWebId    String?
+  publisherWeb      User?  @relation("PublisherWebAssignment", fields: [publisherWebId], references: [id])
+  publisherSocialId String?
+  publisherSocial   User?  @relation("PublisherSocialAssignment", fields: [publisherSocialId], references: [id])
+
+  // ── Per-step status tracking ──
+  reporterStatus        String @default("PENDING") // PENDING | SKIPPED | IN_PROGRESS | COMPLETED
+  fotograferStatus      String @default("PENDING")
+  editorStatus          String @default("PENDING")
+  publisherWebStatus    String @default("PENDING")
+  publisherSocialStatus String @default("PENDING")
+
+  // ── Content fields (filled during workflow) ──
+  kontenBerita        String? // Berita text (from reporter)
+  fotoUrls            String? // JSON array of photo URLs (from fotografer)
+  editedContent       String? // Final edited content (from editor)
+  linkPublikasiWeb    String? // URL of published web article
+  linkPublikasiSocial String? // URL of social media post
+
+  // ── Completion timestamps per step ──
+  reporterCompletedAt       DateTime?
+  fotograferCompletedAt     DateTime?
+  editorCompletedAt         DateTime?
+  publisherWebCompletedAt   DateTime?
+  publisherSocialCompletedAt DateTime?
+
+  // ── Rekapitulasi ──
+  rekapitulasi Rekapitulasi?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Rekapitulasi {
+  id               String    @id @default(cuid())
+  permohonanId     String    @unique
+  permohonan       Permohonan @relation(fields: [permohonanId], references: [id], onDelete: Cascade)
+  judul            String
+  isFastTrack      Boolean
+  tanggalSelesai   DateTime?
+  linkWeb          String?
+  linkSocial       String?
+  namaPublisherWeb String?
+  namaPublisherSocial String?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+}
