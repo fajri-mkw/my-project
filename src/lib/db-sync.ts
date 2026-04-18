@@ -58,6 +58,15 @@ async function syncPostgres(): Promise<void> {
   await addColumnIfNotExists('settings', 'notifEmailUser', 'TEXT')
   await addColumnIfNotExists('settings', 'notifEmailPass', 'TEXT')
   await addColumnIfNotExists('settings', 'notifEmailFromName', 'TEXT')
+
+  // === Projects table: add isFastTrack column ===
+  await addColumnIfNotExists('projects', 'isFastTrack', 'Boolean DEFAULT false')
+
+  // === Projects table: add publicToken column ===
+  await addColumnIfNotExists('projects', 'publicToken', 'TEXT UNIQUE')
+
+  // === Projects table: add documents column ===
+  await addColumnIfNotExists('projects', 'documents', 'TEXT DEFAULT \'[]\'')
 }
 
 async function addColumnIfNotExists(
