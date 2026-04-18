@@ -1,4 +1,4 @@
-// Prisma Schema - PostgreSQL (Neon)
+// Prisma Schema - SQLite (Local Development)
 // Pushakin Flows - Media Workflow Management System
 
 generator client {
@@ -6,9 +6,8 @@ generator client {
 }
 
 datasource db {
-  provider  = "postgresql"
-  url       = env("DATABASE_URL")
-  directUrl = env("DIRECT_DATABASE_URL")
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
 }
 
 model User {
