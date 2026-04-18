@@ -1,0 +1,1640 @@
+'use client'
+
+import { Button } from '@/components/ui/button'
+import { Card, CardContent } from '@/components/ui/card'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import { Checkbox } from '@/components/ui/checkbox'
+import { Badge } from '@/components/ui/badge'
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
+import { ScrollArea } from '@/components/ui/scroll-area'
+import { useAppStore, STAGES, ROLE_CONFIG, getRoleDisplayName } from '@/lib/store'
+import { FileUpload } from '@/components/pushakin/file-upload'
+import { 
+  ArrowLeft, 
+  Edit, 
+  Trash2, 
+  CheckCircle2, 
+  Clock, 
+  Lock, 
+  Folder, 
+  Users,
+  ChevronRight,
+  Download,
+  UploadCloud,
+  Link as LinkIcon,
+  AlertCircle,
+  ShieldAlert,
+  PlayCircle,
+  FileVideo,
+  FileImage,
+  FileText,
+  FileAudio,
+  Save,
+  Plus,
+  X,
+  Globe,
+  ExternalLink,
+  ArrowDownCircle,
+  Paperclip,
+  File,
+  Loader2,
+  Zap,
+  SkipForward
+} from 'lucide-react'
+import { useState, useMemo } from 'react'
+import { cn } from '@/lib/utils'
+import type { Task, DriveFolder } from '@/lib/store'
+
+const ICON_MAP: Record<string, React.ElementType> = {
+  'FileText': FileText,
+  'FileImage': FileImage,
+  'FileVideo': FileVideo,
+  'FileAudio': FileAudio,
+  'PlayCircle': PlayCircle,
+  'AlertCircle': AlertCircle,
+  'Link': LinkIcon
+}
+
+// Platform options for publishers
+const PUBLISH_PLATFORMS = [
+  { id: 'website', label: 'Website Resmi', icon: '🌐' },
+  { id: 'instagram', label: 'Instagram', icon: '📱' },
+  { id: 'facebook', label: 'Facebook', icon: '📘' },
+  { id: 'twitter', label: 'Twitter / X', icon: '🐦' },
+  { id: 'youtube', label: 'YouTube', icon: '▶️' },
+  { id: 'tiktok', label: 'TikTok', icon: '🎵' },
+  { id: 'linkedin', label: 'LinkedIn', icon: '💼' },
+  { id: 'newsletter', label: 'Newsletter', icon: '📧' },
+  { id: 'portal', label: 'Portal Berita', icon: '📰' },
+  { id: 'other', label: 'Lainnya', icon: '🔗' },
+]
+
+interface PublishLink {
+  id: string
+  platform: string
+  url: string
+}
+
+export function ProjectDetailView() {
+  const {
+    currentUser, projects, selectedProjectId, users,
+    setActiveView, setSelectedProjectId, deleteProject,
+    completeTask, rejectReview, showAlert, showConfirm,
+    updateProject, isEditProjectModalOpen, setIsEditProjectModalOpen,
+    editProjectData, setEditProjectData
+  } = useAppStore()
+
+  const project = projects.find(p => p.id === selectedProjectId)
+  
+  const [isEditDriveOpen, setIsEditDriveOpen] = useState(false)
+  const [isRejectDialogOpen, setIsRejectDialogOpen] = useState(false)
+  const [rejectReason, setRejectReason] = useState('')
+  const [driveForm, setDriveForm] = useState<Record<string, string>>({})
+  const [taskInputs, setTaskInputs] = useState<Record<string, string>>({})
+  const [taskVerified, setTaskVerified] = useState<Record<string, boolean>>({})
+  const [isUploadingDetailDoc, setIsUploadingDetailDoc] = useState(false)
+  
+  // State for multiple publish links per task
+  const [taskPublishLinks, setTaskPublishLinks] = useState<Record<string, PublishLink[]>>({})
+
+  // Calculate initial task inputs using useMemo
+  const initialTaskState = useMemo(() => {
+    if (!project) return { inputs: {}, verified: {}, publishLinks: {} }
+    const inputs: Record<string, string> = {}
+    const verified: Record<string, boolean> = {}
+    const publishLinks: Record<string, PublishLink[]> = {}
+    
+    project.tasks.forEach(t => {
+      inputs[t.id] = t.data?.link || ''
+      verified[t.id] = false
+      
+      // Initialize publish links from existing data
+      if (t.data?.publishLinks && Array.isArray(t.data.publishLinks)) {
+        publishLinks[t.id] = t.data.publishLinks
+      } else {
+        publishLinks[t.id] = []
+      }
+    })
+    return { inputs, verified, publishLinks }
+  }, [project])
+
+  // Use initial values directly
+  const currentTaskInputs = Object.keys(taskInputs).length === 0 ? initialTaskState.inputs : taskInputs
+  const currentTaskVerified = Object.keys(taskVerified).length === 0 ? initialTaskState.verified : taskVerified
+  const currentTaskPublishLinks = Object.keys(taskPublishLinks).length === 0 ? initialTaskState.publishLinks : taskPublishLinks
+
+  if (!project) return null
+
+  const isManagerOrAdmin = currentUser ? ['Manager', 'Admin'].includes(currentUser.role) : false
+  const canManageProject = isManagerOrAdmin
+
+  const formatDateTime = (dateString: string) => {
+    if (!dateString) return '-'
+    const d = new Date(dateString)
+    return d.toLocaleString('id-ID', { dateStyle: 'medium', timeStyle: 'short' })
+  }
+
+  const getUserDetails = (userId: string | null) => {
+    const user = users.find(u => u.id === userId)
+    return user ? { name: user.name, avatar: user.avatar } : { name: '', avatar: '' }
+  }
+
+  const handleOpenEditDrive = () => {
+    const formState: Record<string, string> = {}
+    project.driveFolders.forEach(f => {
+      formState[f.id] = f.link
+    })
+    setDriveForm(formState)
+    setIsEditDriveOpen(true)
+  }
+
+  const handleSaveDriveLinks = async (e: React.FormEvent) => {
+    e.preventDefault()
+    const folders = project.driveFolders.map(f => ({
+      id: f.id,
+      link: driveForm[f.id] || f.link
+    }))
+    
+    try {
+      await fetch('/api/drive-folders', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ projectId: project.id, folders })
+      })
+      
+      const updatedFolders = project.driveFolders.map(f => ({
+        ...f,
+        link: driveForm[f.id] || f.link
+      }))
+      updateProject({ ...project, driveFolders: updatedFolders })
+      setIsEditDriveOpen(false)
+    } catch {
+      showAlert('Gagal menyimpan tautan drive')
+    }
+  }
+
+  const handleDeleteProject = () => {
+    showConfirm(
+      'Peringatan: Yakin ingin menghapus proyek ini secara permanen? Aksi ini tidak dapat dibatalkan.',
+      async () => {
+        try {
+          await fetch(`/api/projects?id=${project.id}`, { method: 'DELETE' })
+          deleteProject(project.id)
+        } catch {
+          showAlert('Gagal menghapus proyek')
+        }
+      }
+    )
+  }
+
+  const handleTaskComplete = async (taskId: string, taskData: { link?: string; publishLinks?: PublishLink[] }) => {
+    try {
+      const response = await fetch('/api/tasks', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          projectId: project.id,
+          taskId,
+          taskData
+        })
+      })
+      
+      if (response.ok) {
+        completeTask(project.id, taskId, taskData)
+      } else {
+        showAlert('Gagal menyelesaikan tugas')
+      }
+    } catch {
+      showAlert('Terjadi kesalahan')
+    }
+  }
+
+  const handleReviewReject = async () => {
+    // Buka dialog input alasan terlebih dahulu
+    setIsRejectDialogOpen(true)
+    setRejectReason('')
+  }
+
+  const handleConfirmReject = async () => {
+    try {
+      const response = await fetch('/api/tasks', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          projectId: project.id,
+          isReviewReject: true,
+          rejectReason: rejectReason.trim()
+        })
+      })
+      
+      if (response.ok) {
+        rejectReview(project.id)
+        setIsRejectDialogOpen(false)
+        setRejectReason('')
+      } else {
+        showAlert('Gagal menolak review')
+      }
+    } catch {
+      showAlert('Terjadi kesalahan')
+    }
+  }
+
+  const handleSaveEditedProject = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!editProjectData) return
+    
+    try {
+      await fetch('/api/projects', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(editProjectData)
+      })
+      updateProject(editProjectData)
+      setIsEditProjectModalOpen(false)
+    } catch {
+      showAlert('Gagal menyimpan perubahan')
+    }
+  }
+
+  // Upload document from project detail view (Manager only)
+  const handleDocUploadFromDetail = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files
+    if (!files || files.length === 0) return
+
+    setIsUploadingDetailDoc(true)
+
+    for (const file of Array.from(files)) {
+      try {
+        const formData = new FormData()
+        formData.append('file', file)
+        formData.append('projectId', project.id)
+        formData.append('label', 'Dokumen Pendukung')
+
+        const res = await fetch('/api/projects/upload-document', {
+          method: 'POST',
+          body: formData,
+        })
+
+        if (res.ok) {
+          const data = await res.json()
+          if (data.success && data.document) {
+            const updatedDocs = [...(project.documents || []), data.document]
+            updateProject({ ...project, documents: updatedDocs })
+          }
+        } else {
+          showAlert('Gagal mengunggah: ' + file.name)
+        }
+      } catch (err) {
+        console.error('[DOC UPLOAD DETAIL] Failed:', err)
+        showAlert('Terjadi kesalahan saat mengunggah dokumen.')
+      }
+    }
+
+    setIsUploadingDetailDoc(false)
+    e.target.value = '' // Reset input so same file can be selected again
+  }
+
+  // Delete document from project detail view (Manager only)
+  const handleDeleteDocument = async (documentId: string) => {
+    showConfirm('Yakin ingin menghapus dokumen ini?', async () => {
+      try {
+        const res = await fetch(`/api/projects/upload-document?projectId=${project.id}&documentId=${documentId}`, {
+          method: 'DELETE',
+        })
+
+        if (res.ok) {
+          const updatedDocs = (project.documents || []).filter(d => d.id !== documentId)
+          updateProject({ ...project, documents: updatedDocs })
+        } else {
+          showAlert('Gagal menghapus dokumen.')
+        }
+      } catch {
+        showAlert('Terjadi kesalahan saat menghapus dokumen.')
+      }
+    })
+  }
+
+  const visibleFolders = project.driveFolders.filter(folder => {
+    // For managers/admins, show all folders
+    if (canManageProject) return true
+    const myId = currentUser?.id || ''
+    const myRole = currentUser?.role || ''
+    // Detect subfolders (parentFolderId or folderId pattern)
+    const isSub = folder.parentFolderId || 
+      (folder.folderId.includes('-') && ['raw', 'revised', 'final', 'desain', 'lainnya'].some(b => folder.folderId.startsWith(b + '-')))
+    if (isSub) {
+      // Check assignedUsers first (most precise) — match by userId
+      if (folder.assignedUsers?.some((au: any) => au.userId === myId)) return true
+      // Then check assignedRoles
+      if (!folder.assignedRoles || folder.assignedRoles.length === 0) return true
+      return folder.assignedRoles.includes(myRole)
+    }
+    // For parent folders:
+    // 1. Check assignedUsers with download:true or upload:true (manager DL/UL checkboxes)
+    if (folder.assignedUsers?.some((au: any) => au.userId === myId && (au.download || au.upload))) return true
+    // 2. Check assignedRoles
+    if (folder.assignedRoles?.includes(myRole)) return true
+    // 3. No restrictions = visible to all
+    if (!folder.assignedRoles || folder.assignedRoles.length === 0) {
+      // Still respect assignedUsers — if there ARE assignedUsers but none match, hide
+      if (folder.assignedUsers && folder.assignedUsers.length > 0) {
+        return folder.assignedUsers.some((au: any) => au.userId === myId)
+      }
+      return true
+    }
+    return false
+  })
+
+  // Separate parent folders and subfolders
+  const parentFolders = visibleFolders.filter(f => !f.parentFolderId && !(['raw', 'revised', 'final', 'desain', 'lainnya'].some(b => f.folderId.startsWith(b + '-') && f.folderId.includes('-'))))
+  const subfolders = visibleFolders.filter(f => f.parentFolderId || (f.folderId.includes('-') && ['raw', 'revised', 'final', 'desain', 'lainnya'].some(b => f.folderId.startsWith(b + '-'))))
+  
+  // Get subfolders for a parent folder
+  const getSubfolders = (parentId: string) => {
+    // parentId is the logical type like "raw" — match by parentFolderId or folderId prefix
+    return subfolders.filter(s => {
+      if (s.parentFolderId === parentId) return true
+      if (s.folderId.startsWith(parentId + '-')) return true
+      return false
+    })
+  }
+
+  const visibleTasks = project.tasks.filter(t => 
+    isManagerOrAdmin ? true : t.assignedTo === currentUser?.id
+  )
+
+  // Add/Remove publish link handlers
+  const addPublishLink = (taskId: string) => {
+    const newLink: PublishLink = {
+      id: `link-${Date.now()}`,
+      platform: 'website',
+      url: ''
+    }
+    setTaskPublishLinks(prev => ({
+      ...prev,
+      [taskId]: [...(prev[taskId] || []), newLink]
+    }))
+  }
+
+  const removePublishLink = (taskId: string, linkId: string) => {
+    setTaskPublishLinks(prev => ({
+      ...prev,
+      [taskId]: (prev[taskId] || []).filter(l => l.id !== linkId)
+    }))
+  }
+
+  const updatePublishLink = (taskId: string, linkId: string, field: 'platform' | 'url', value: string) => {
+    setTaskPublishLinks(prev => ({
+      ...prev,
+      [taskId]: (prev[taskId] || []).map(l => 
+        l.id === linkId ? { ...l, [field]: value } : l
+      )
+    }))
+  }
+
+  return (
+    <div className="max-w-6xl mx-auto space-y-6">
+      {/* Header Actions */}
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+        <Button
+          variant="ghost"
+          onClick={() => setActiveView('dashboard')}
+          className="text-stone-500 hover:text-indigo-600 gap-1"
+        >
+          <ArrowLeft className="w-4 h-4 rotate-180" />
+          <span>Kembali ke Dashboard</span>
+        </Button>
+        
+        {canManageProject && (
+          <div className="flex gap-2 sm:gap-3">
+            <Button
+              variant="outline"
+              onClick={() => { setEditProjectData(project); setIsEditProjectModalOpen(true); }}
+              className="gap-2"
+            >
+              <Edit className="w-4 h-4" />
+              <span className="hidden sm:inline">Edit Proyek</span>
+            </Button>
+            <Button
+              variant="outline"
+              onClick={handleDeleteProject}
+              className="gap-2 text-red-600 hover:text-red-700 hover:bg-red-50 border-red-200"
+            >
+              <Trash2 className="w-4 h-4" />
+              <span className="hidden sm:inline">Hapus Proyek</span>
+            </Button>
+          </div>
+        )}
+      </div>
+
+      {/* Project Header */}
+      <Card>
+        <CardContent className="p-4 sm:p-6 lg:p-8">
+          <div className="flex flex-col md:flex-row md:justify-between md:items-start gap-4">
+            <div className="min-w-0">
+              <h2 className="text-2xl sm:text-3xl font-bold text-stone-900 mb-2 break-words">{project.title}</h2>
+              <div className="flex flex-wrap items-center gap-2 text-sm text-stone-500">
+                <Badge variant="outline" className="font-mono text-xs">{project.id}</Badge>
+                <span>•</span>
+                <span>Pemohon: <strong className="text-stone-700">{project.requesterUnit}</strong></span>
+              </div>
+            </div>
+            <div className="bg-white px-5 py-3 rounded-2xl border border-stone-200 shadow-sm text-center md:text-right shrink-0">
+              <span className="text-[10px] uppercase tracking-wider text-stone-400 font-bold block mb-1">
+                Status Saat Ini
+              </span>
+              <span className="font-bold text-lg text-indigo-700">
+                Tahap {project.currentStage}: {STAGES[project.currentStage]}
+              </span>
+              {project.isFastTrack && (
+                <Badge className="bg-amber-500 text-white text-[10px] px-2 py-0.5 ml-2 border-0">
+                  <Zap className="h-3 w-3 mr-1" />FAST TRACK
+                </Badge>
+              )}
+            </div>
+          </div>
+
+          {/* Timeline */}
+          <div className="mt-8">
+            <h3 className="text-xs font-bold text-stone-400 uppercase tracking-wider mb-4">
+              Alur Kerja (Timeline)
+            </h3>
+            <div className="hidden sm:flex items-center justify-between w-full relative">
+              <div className="absolute left-0 top-1/2 -translate-y-1/2 w-full h-1 bg-stone-100 rounded-full z-0" />
+              <div 
+                className="absolute left-0 top-1/2 -translate-y-1/2 h-1 bg-indigo-500 rounded-full z-0 transition-all duration-500" 
+                style={{ width: `${((project.currentStage - 1) / 4) * 100}%` }}
+              />
+              
+              {[1, 2, 3, 4, 5].map((stageNum) => {
+                const isCompleted = stageNum < project.currentStage
+                const isCurrent = stageNum === project.currentStage
+                const isFastTracked = project.isFastTrack && stageNum >= 1 && stageNum <= 3
+                return (
+                  <div key={stageNum} className="relative z-10 flex flex-col items-center">
+                    <div className={cn(
+                      "w-8 h-8 rounded-full flex items-center justify-center font-bold text-sm border-4 transition-all",
+                      isFastTracked && isCompleted
+                        ? "bg-purple-500 border-purple-500 text-white"
+                        : isCompleted 
+                          ? "bg-indigo-600 border-indigo-600 text-white" 
+                          : isCurrent 
+                            ? "bg-white border-indigo-500 text-indigo-600 shadow-md ring-4 ring-indigo-50" 
+                            : "bg-stone-50 border-stone-200 text-stone-400"
+                    )}>
+                      {isFastTracked && isCompleted ? <SkipForward className="w-4 h-4" /> : isCompleted ? <CheckCircle2 className="w-4 h-4" /> : stageNum}
+                    </div>
+                    <span className={cn(
+                      "absolute top-10 text-[10px] font-bold uppercase tracking-wider w-24 text-center",
+                      isFastTracked && isCompleted ? "text-purple-600" : isCurrent ? "text-indigo-700" : isCompleted ? "text-stone-700" : "text-stone-400"
+                    )}>
+                      {STAGES[stageNum]}
+                      {isFastTracked && isCompleted && <span className="block text-purple-400 text-[8px]">skipped</span>}
+                    </span>
+                  </div>
+                )
+              })}
+            </div>
+            <div className="h-6" />
+          </div>
+
+          {/* Team Progress */}
+          <div className="pt-6 border-t border-stone-100">
+            <h3 className="text-xs font-bold text-stone-400 uppercase tracking-wider mb-4 flex items-center gap-2">
+              <Users className="w-4 h-4" />
+              <span>Progres Tim</span>
+            </h3>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+              {project.tasks.map(task => {
+                const user = getUserDetails(task.assignedTo)
+                const isCompleted = task.status === 'completed'
+                const isCurrent = task.stage === project.currentStage
+                
+                return (
+                  <div
+                    key={task.id}
+                    className={cn(
+                      "flex items-center p-3 rounded-xl border transition-all",
+                      isCompleted 
+                        ? "bg-green-50/50 border-green-100" 
+                        : isCurrent 
+                          ? "bg-white border-indigo-200 shadow-sm ring-1 ring-indigo-50" 
+                          : "bg-stone-50/50 border-stone-200 opacity-70"
+                    )}
+                  >
+                    <Avatar className="h-10 w-10 border-2 border-white shadow-sm">
+                      <AvatarImage src={user.avatar} />
+                      <AvatarFallback>{user.name?.charAt(0) || '?'}</AvatarFallback>
+                    </Avatar>
+                    <div className="ml-3 flex-1 overflow-hidden">
+                      <p className="text-xs font-bold text-stone-800 truncate" title={user.name}>
+                        {user.name || 'Menunggu Assign'}
+                      </p>
+                      <p className="text-[10px] font-medium text-stone-500 truncate" title={getRoleDisplayName(task.role)}>
+                        {getRoleDisplayName(task.role)}
+                      </p>
+                    </div>
+                    <div className="ml-2">
+                      {isCompleted ? (
+                        <div className="bg-green-100 text-green-600 p-1.5 rounded-lg" title="Tugas Selesai">
+                          <CheckCircle2 className="w-4 h-4" />
+                        </div>
+                      ) : isCurrent ? (
+                        <div className="bg-orange-100 text-orange-600 p-1.5 rounded-lg" title="Sedang Dikerjakan">
+                          <Clock className="w-4 h-4 animate-pulse" />
+                        </div>
+                      ) : (
+                        <div className="bg-stone-200 text-stone-400 p-1.5 rounded-lg" title="Terkunci">
+                          <Lock className="w-4 h-4" />
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+
+          {/* Drive Folders */}
+          {visibleFolders.length > 0 && (
+            <div className="pt-6 border-t border-stone-100 mt-6">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between mb-4 gap-2">
+                <h3 className="text-xs font-bold text-stone-400 uppercase tracking-wider flex items-center gap-2">
+                  <Folder className="w-4 h-4" />
+                  <span>Workspace Drive Aktif</span>
+                </h3>
+                {!canManageProject && (
+                  <div className="text-[10px] text-amber-600 bg-amber-50 border border-amber-200 px-2.5 py-1 rounded-full flex items-center gap-1.5">
+                    <ArrowDownCircle className="w-3 h-3" />
+                    <span>Upload file melalui <strong>Tugas Anda</strong> di bawah</span>
+                  </div>
+                )}
+                {canManageProject && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={handleOpenEditDrive}
+                    className="gap-2 text-amber-600 border-amber-200 hover:bg-amber-50"
+                  >
+                    <Edit className="w-3 h-3" />
+                    <span>Koreksi Folder</span>
+                  </Button>
+                )}
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {parentFolders.map((folder) => {
+                  const folderSubfolders = getSubfolders(folder.folderId)
+                  return (
+                    <div
+                      key={folder.id}
+                      className="flex flex-col bg-white p-3.5 rounded-2xl border border-stone-100"
+                    >
+                      <div className="flex items-center gap-3 mb-2">
+                        <div className={cn("p-2.5 rounded-xl", folder.bg || 'bg-stone-100', folder.color || 'text-stone-600')}>
+                          <Folder className="w-5 h-5" />
+                        </div>
+                        <div className="flex-1 overflow-hidden">
+                          <div className="font-bold text-stone-800 text-xs truncate">
+                            {folder.name ? folder.name.split(' (')[0] : 'Folder'}
+                          </div>
+                          <p className="text-[9px] text-stone-400 mt-0.5 truncate">{folder.desc}</p>
+                        </div>
+                      </div>
+                      
+                      {/* Show subfolders if any */}
+                      {folderSubfolders.length > 0 && (
+                        <div className="mt-2 pt-2 border-t border-stone-50">
+                          <div className="text-[9px] font-bold text-stone-500 uppercase tracking-wider mb-2">
+                            Subfolder ({folderSubfolders.length})
+                          </div>
+                          <div className="space-y-1.5 max-h-32 overflow-y-auto">
+                            {folderSubfolders.map(sub => (
+                              <div key={sub.id} className="flex items-center gap-2 p-2 bg-stone-50 rounded-lg border border-stone-100">
+                                <div className="p-1.5 rounded-md bg-white border border-stone-200">
+                                  <Folder className="w-3 h-3 text-stone-500" />
+                                </div>
+                                <div className="flex-1 overflow-hidden">
+                                  <div className="text-[10px] font-medium text-stone-700 truncate" title={sub.name}>
+                                    {sub.name}
+                                  </div>
+                                  {sub.assignedRoles && sub.assignedRoles.length > 0 && (
+                                    <div className="text-[8px] text-stone-400 truncate">
+                                      {sub.assignedRoles.join(', ')}
+                                    </div>
+                                  )}
+                                </div>
+                                <div className="p-1 text-stone-300" title="Upload melalui Tugas Anda di bawah">
+                                  <Lock className="w-3 h-3" />
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                      
+                      {/* Show assigned roles if no subfolders */}
+                      {folderSubfolders.length === 0 && (
+                        <div className="mt-auto pt-2 border-t border-stone-50">
+                          {folder.assignedRoles && folder.assignedRoles.length > 0 ? (
+                            <div className="flex flex-wrap gap-1">
+                              {folder.assignedRoles.map(r => (
+                                <span key={r} className="text-[8px] bg-stone-50 text-stone-600 px-1.5 py-0.5 rounded border border-stone-100 font-medium">
+                                  {r}
+                                </span>
+                              ))}
+                            </div>
+                          ) : (
+                            <span className="text-[9px] text-stone-400 italic">Akses Global (Semua Tim)</span>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Project Details */}
+      <Card>
+        <CardContent className="p-6">
+          <h3 className="text-sm font-bold text-stone-800 mb-4 flex items-center gap-2">
+            <Folder className="w-4 h-4 text-stone-500" />
+            <span>Detail Informasi Proyek</span>
+          </h3>
+          <div className="flex flex-wrap gap-4 text-sm bg-white p-4 rounded-xl border border-stone-100 mb-6">
+            <div className="flex flex-col min-w-[120px] max-w-[200px]">
+              <span className="text-stone-400 text-[10px] uppercase tracking-wider font-bold mb-1">
+                Tempat/Lokasi
+              </span>
+              <span className="font-medium text-stone-800 truncate" title={project.location || '-'}>
+                {project.location || '-'}
+              </span>
+            </div>
+            <div className="w-px h-8 bg-stone-100 hidden md:block" />
+            <div className="flex flex-col min-w-[120px]">
+              <span className="text-stone-400 text-[10px] uppercase tracking-wider font-bold mb-1">
+                Pelaksanaan
+              </span>
+              <span className="font-medium text-stone-800">{formatDateTime(project.executionTime)}</span>
+            </div>
+            <div className="w-px h-8 bg-stone-100 hidden md:block" />
+            <div className="flex flex-col min-w-[120px]">
+              <span className="text-stone-400 text-[10px] uppercase tracking-wider font-bold mb-1">
+                Nama PIC
+              </span>
+              <span className="font-medium text-stone-800 truncate">{project.picName || '-'}</span>
+            </div>
+            <div className="w-px h-8 bg-stone-100 hidden md:block" />
+            <div className="flex flex-col min-w-[120px]">
+              <span className="text-stone-400 text-[10px] uppercase tracking-wider font-bold mb-1">
+                WhatsApp PIC
+              </span>
+              <span className="font-bold text-indigo-600">{project.picWhatsApp || '-'}</span>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <div className="md:col-span-1 space-y-4">
+              {project.activityTypes && project.activityTypes.length > 0 && (
+                <div>
+                  <span className="text-stone-400 text-[10px] uppercase tracking-wider font-bold block mb-2">
+                    Jenis Kegiatan
+                  </span>
+                  <div className="flex flex-wrap gap-1.5">
+                    {project.activityTypes.map(k => (
+                      <Badge key={k} variant="outline" className="text-[10px] font-bold">
+                        {k === 'Lainnya' && project.customActivity ? `Lainnya (${project.customActivity})` : k}
+                      </Badge>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {project.outputNeeds && project.outputNeeds.length > 0 && (
+                <div>
+                  <span className="text-stone-400 text-[10px] uppercase tracking-wider font-bold block mb-2">
+                    Kebutuhan Output
+                  </span>
+                  <div className="flex flex-wrap gap-1.5">
+                    {project.outputNeeds.map(o => (
+                      <Badge key={o} variant="outline" className="text-[10px] font-bold">
+                        {o === 'Lainnya' && project.customOutput ? `Lainnya (${project.customOutput})` : o}
+                      </Badge>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+            <div className="md:col-span-2">
+              <span className="text-stone-400 text-[10px] uppercase tracking-wider font-bold block mb-2">
+                Detail & Instruksi Permohonan
+              </span>
+              <p className="text-stone-700 bg-white p-4 rounded-xl border border-stone-100 whitespace-pre-line leading-relaxed text-sm">
+                {project.description}
+              </p>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Dokumen Pendukung Manager — hanya Admin & Manager */}
+      {isManagerOrAdmin && (
+        <Card className="overflow-hidden border-stone-200">
+          {/* Header — visible to all */}
+          {project.documents && project.documents.length > 0 && (
+            <div className="px-6 py-4 bg-emerald-50/50 border-b border-emerald-100">
+              <div className="flex items-center justify-between gap-3">
+                <div className="flex items-center gap-3">
+                  <Paperclip className="w-5 h-5 text-emerald-600" />
+                  <h3 className="text-sm font-bold text-emerald-900">Laporan Kegiatan Manager</h3>
+                  <Badge className="bg-emerald-100 text-emerald-700 text-xs border-emerald-200">
+                    {project.documents.length} Dokumen
+                  </Badge>
+                </div>
+                {/* Manager identity — visible to all */}
+                <div className="flex items-center gap-2">
+                  <Avatar className="h-6 w-6 border border-emerald-200">
+                    <AvatarImage src={getUserDetails(project.managerId).avatar} />
+                    <AvatarFallback className="text-[10px] bg-emerald-100 text-emerald-700">
+                      {getUserDetails(project.managerId).name?.charAt(0) || 'M'}
+                    </AvatarFallback>
+                  </Avatar>
+                  <span className="text-xs text-emerald-700 font-medium">
+                    {getUserDetails(project.managerId).name || 'Manager'}
+                  </span>
+                </div>
+              </div>
+              <p className="text-[11px] text-emerald-600/70 mt-1.5 ml-8">
+                Dokumen pendukung dari pemohon (surat permohonan, berkas pelengkap) — diunggah oleh Manager sebagai arsip dan bukti kinerja.
+              </p>
+            </div>
+          )}
+
+          <CardContent className="p-4">
+            {/* Upload area — Manager only */}
+            {isManagerOrAdmin && (
+              <div className="mb-4">
+                <label className="flex flex-col items-center justify-center w-full h-24 border-2 border-dashed border-emerald-200 rounded-xl cursor-pointer hover:bg-emerald-50/50 hover:border-emerald-400 transition-all group">
+                  <input
+                    type="file"
+                    className="hidden"
+                    accept=".pdf,.doc,.docx,.jpg,.jpeg,.png,.gif,.bmp,.tiff,.webp"
+                    multiple
+                    onChange={handleDocUploadFromDetail}
+                  />
+                  <UploadCloud className="w-6 h-6 text-emerald-400 group-hover:text-emerald-600 transition-colors mb-1" />
+                  <div className="text-xs font-medium text-emerald-600 group-hover:text-emerald-700">
+                    {project.documents?.length > 0 ? 'Tambah Dokumen Lagi' : 'Unggah Dokumen Pendukung'}
+                  </div>
+                  <div className="text-[10px] text-emerald-400 mt-0.5">PDF, Word, Gambar</div>
+                </label>
+              </div>
+            )}
+
+            {/* Document list */}
+            {project.documents && project.documents.length > 0 ? (
+              <div className="space-y-2">
+                {project.documents.map((doc) => (
+                  <div key={doc.id} className="flex items-center gap-3 p-3 rounded-xl border border-stone-100 bg-white hover:bg-stone-50/50 transition-colors">
+                    <div className="w-10 h-10 rounded-lg bg-emerald-50 flex items-center justify-center shrink-0">
+                      <File className="w-5 h-5 text-emerald-500" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium text-stone-800 truncate">{doc.name}</p>
+                      <div className="flex items-center gap-2 text-[10px] text-stone-400 mt-0.5">
+                        <span>{doc.size ? (doc.size < 1024 * 1024 ? (doc.size / 1024).toFixed(1) + ' KB' : (doc.size / (1024 * 1024)).toFixed(1) + ' MB') : ''}</span>
+                        {doc.uploadedAt && (
+                          <>
+                            <span>•</span>
+                            <span>{new Date(doc.uploadedAt).toLocaleString('id-ID')}</span>
+                          </>
+                        )}
+                      </div>
+                    </div>
+                    {doc.webViewLink && (
+                      <a
+                        href={doc.downloadUrl || doc.webViewLink}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-emerald-700 bg-emerald-50 hover:bg-emerald-100 rounded-lg transition-colors shrink-0"
+                      >
+                        <ExternalLink className="w-3.5 h-3.5" />
+                        Lihat
+                      </a>
+                    )}
+                    {/* Delete button — Manager only */}
+                    {isManagerOrAdmin && (
+                      <button
+                        type="button"
+                        onClick={() => handleDeleteDocument(doc.id)}
+                        className="p-1.5 text-stone-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors shrink-0"
+                        title="Hapus dokumen"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    )}
+                  </div>
+                ))}
+              </div>
+            ) : isManagerOrAdmin ? null : (
+              <p className="text-sm text-stone-400 italic text-center py-4">Belum ada dokumen pendukung dari Manager.</p>
+            )}
+
+            {/* Upload progress indicator */}
+            {isUploadingDetailDoc && (
+              <div className="mt-3 flex items-center gap-2 text-xs text-emerald-600 bg-emerald-50 p-2.5 rounded-lg">
+                <Loader2 className="w-4 h-4 animate-spin" />
+                <span>Mengunggah dokumen...</span>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Tasks */}
+      <div className="space-y-4">
+        <h3 className="text-lg font-semibold text-stone-800 px-2">
+          {isManagerOrAdmin ? 'Semua Tugas Proyek' : 'Tugas Anda'}
+        </h3>
+        {visibleTasks.map(task => {
+          const isCurrentStage = task.stage === project.currentStage
+          const config = ROLE_CONFIG[task.role]
+          const Icon = config ? ICON_MAP[config.icon] : AlertCircle
+          
+          const isAssignedToMe = task.assignedTo === currentUser?.id
+          const canActOnTask = isCurrentStage && (isAssignedToMe || canManageProject)
+          const isMyActiveTask = isCurrentStage && isAssignedToMe && task.status === 'pending'
+
+          return (
+            <TaskCard
+              key={task.id}
+              task={task}
+              project={project}
+              config={config}
+              Icon={Icon}
+              isCurrentStage={isCurrentStage}
+              isAssignedToMe={isAssignedToMe}
+              canActOnTask={canActOnTask}
+              isMyActiveTask={isMyActiveTask}
+              canManageProject={canManageProject}
+              currentUser={currentUser}
+              inputValue={currentTaskInputs[task.id] || ''}
+              setInputValue={(v) => setTaskInputs(prev => ({ ...prev, [task.id]: v }))}
+              isVerified={currentTaskVerified[task.id] || false}
+              setIsVerified={(v) => setTaskVerified(prev => ({ ...prev, [task.id]: v }))}
+              onComplete={handleTaskComplete}
+              onReject={handleReviewReject}
+              visibleFolders={visibleFolders}
+              publishLinks={currentTaskPublishLinks[task.id] || []}
+              onAddPublishLink={() => addPublishLink(task.id)}
+              onRemovePublishLink={(linkId) => removePublishLink(task.id, linkId)}
+              onUpdatePublishLink={(linkId, field, value) => updatePublishLink(task.id, linkId, field, value)}
+              onFileUploaded={(file) => {
+                // Auto-fill link field with uploaded file link
+                if (file.webViewLink) {
+                  // For tasks needing single link
+                  setTaskInputs(prev => ({ ...prev, [task.id]: file.webViewLink }))
+                  // For publisher tasks, also add to publishLinks
+                  if (config?.type === 'download_link') {
+                    const newLink: PublishLink = {
+                      id: `link-${Date.now()}`,
+                      platform: 'other',
+                      url: file.webViewLink
+                    }
+                    setTaskPublishLinks(prev => ({
+                      ...prev,
+                      [task.id]: [...(prev[task.id] || []), newLink]
+                    }))
+                  }
+                }
+              }}
+            />
+          )
+        })}
+      </div>
+
+      {/* Edit Project Modal */}
+      <Dialog open={isEditProjectModalOpen} onOpenChange={setIsEditProjectModalOpen}>
+        <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto mx-4 sm:mx-0 sm:max-w-3xl">
+          <DialogHeader>
+            <DialogTitle>Edit Proyek ({getRoleDisplayName(currentUser?.role || '')} Control)</DialogTitle>
+          </DialogHeader>
+          {editProjectData && (
+            <form onSubmit={handleSaveEditedProject} className="space-y-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="md:col-span-2">
+                  <Label>Judul Proyek / Liputan</Label>
+                  <Input
+                    required
+                    value={editProjectData.title}
+                    onChange={e => setEditProjectData({...editProjectData, title: e.target.value})}
+                    className="mt-1"
+                  />
+                </div>
+                <div className="md:col-span-2">
+                  <Label>Unit Pemohon</Label>
+                  <Input
+                    required
+                    value={editProjectData.requesterUnit}
+                    onChange={e => setEditProjectData({...editProjectData, requesterUnit: e.target.value})}
+                    className="mt-1"
+                  />
+                </div>
+                <div>
+                  <Label>Tempat / Lokasi</Label>
+                  <Input
+                    required
+                    value={editProjectData.location || ''}
+                    onChange={e => setEditProjectData({...editProjectData, location: e.target.value})}
+                    className="mt-1"
+                  />
+                </div>
+                <div>
+                  <Label>Waktu Pelaksanaan</Label>
+                  <Input
+                    required
+                    type="datetime-local"
+                    value={editProjectData.executionTime || ''}
+                    onChange={e => setEditProjectData({...editProjectData, executionTime: e.target.value})}
+                    className="mt-1"
+                  />
+                </div>
+                <div>
+                  <Label>Nama PIC</Label>
+                  <Input
+                    required
+                    value={editProjectData.picName || ''}
+                    onChange={e => setEditProjectData({...editProjectData, picName: e.target.value})}
+                    className="mt-1"
+                  />
+                </div>
+                <div>
+                  <Label>No. WhatsApp PIC</Label>
+                  <Input
+                    required
+                    value={editProjectData.picWhatsApp || ''}
+                    onChange={e => setEditProjectData({...editProjectData, picWhatsApp: e.target.value})}
+                    className="mt-1"
+                  />
+                </div>
+              </div>
+              <DialogFooter>
+                <Button type="button" variant="ghost" onClick={() => setIsEditProjectModalOpen(false)}>
+                  Batal
+                </Button>
+                <Button type="submit">Simpan Perubahan</Button>
+              </DialogFooter>
+            </form>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Reject Review Dialog — input alasan penolakan */}
+      <Dialog open={isRejectDialogOpen} onOpenChange={setIsRejectDialogOpen}>
+        <DialogContent className="max-w-lg mx-4 sm:mx-0">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-red-600">
+              <AlertCircle className="w-5 h-5" />
+              Tolak (Kembalikan ke Editor)
+            </DialogTitle>
+            <DialogDescription>
+              Tugas akan dikembalikan ke tahap Pasca Produksi. Tuliskan alasan penolakan agar tim editor memahami apa yang perlu diperbaiki.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div>
+              <Label className="text-sm font-bold text-stone-700 mb-2 block">
+                Alasan Penolakan <span className="text-red-500">*</span>
+              </Label>
+              <textarea
+                value={rejectReason}
+                onChange={(e) => setRejectReason(e.target.value)}
+                placeholder="Contoh: Durasi video terlalu pendek, transisi kurang halus, mohon sesuaikan dengan brief..."
+                className="w-full min-h-[120px] rounded-xl border border-stone-200 bg-white px-4 py-3 text-sm text-stone-800 placeholder:text-stone-400 focus:outline-none focus:ring-2 focus:ring-red-300 focus:border-red-300 resize-y"
+                autoFocus
+              />
+              <p className="text-[10px] text-stone-400 mt-1">
+                Alasan ini akan dikirim ke tim editor melalui notifikasi.
+              </p>
+            </div>
+          </div>
+          <DialogFooter className="gap-2">
+            <Button type="button" variant="ghost" onClick={() => setIsRejectDialogOpen(false)}>
+              Batal
+            </Button>
+            <Button
+              type="button"
+              onClick={handleConfirmReject}
+              disabled={!rejectReason.trim()}
+              className="bg-red-600 hover:bg-red-700 text-white disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              <X className="w-4 h-4 mr-1" />
+              Tolak & Kembalikan
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Edit Drive Modal */}
+      <Dialog open={isEditDriveOpen} onOpenChange={setIsEditDriveOpen}>
+        <DialogContent className="max-w-xl mx-4 sm:mx-0">
+          <DialogHeader>
+            <DialogTitle>Manajemen Workspace Drive</DialogTitle>
+            <DialogDescription>
+              Tempelkan (Paste) link tautan folder Google Drive yang telah Anda siapkan untuk proyek ini.
+            </DialogDescription>
+          </DialogHeader>
+          <form onSubmit={handleSaveDriveLinks} className="space-y-5">
+            <ScrollArea className="max-h-[60vh]">
+              {project.driveFolders.map((folder) => (
+                <div key={folder.id} className="mb-4">
+                  <Label className="flex items-center gap-2 text-sm font-bold text-stone-700 mb-2">
+                    <Folder className={cn("w-4 h-4", folder.color)} />
+                    <span>Link {folder.name}</span>
+                  </Label>
+                  <Input
+                    required
+                    type="url"
+                    value={driveForm[folder.id] || ''}
+                    onChange={e => setDriveForm({...driveForm, [folder.id]: e.target.value})}
+                    className={cn("mt-1", folder.bg?.replace('50', '50/30'))}
+                    placeholder="https://drive.google.com/drive/folders/..."
+                  />
+                </div>
+              ))}
+            </ScrollArea>
+            <DialogFooter>
+              <Button type="button" variant="ghost" onClick={() => setIsEditDriveOpen(false)}>
+                Batal
+              </Button>
+              <Button type="submit" className="gap-2">
+                <Save className="w-4 h-4" />
+                <span>Simpan Tautan Drive</span>
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+    </div>
+  )
+}
+
+// Task Card Component
+interface TaskCardProps {
+  task: Task
+  project: { id: string; title: string; currentStage: number; driveFolders: DriveFolder[] }
+  config: { stage: number; type: string; icon: string } | undefined
+  Icon: React.ElementType
+  isCurrentStage: boolean
+  isAssignedToMe: boolean
+  canActOnTask: boolean
+  isMyActiveTask: boolean
+  canManageProject: boolean
+  currentUser: { id: string; name: string; role: string } | null
+  inputValue: string
+  setInputValue: (v: string) => void
+  isVerified: boolean
+  setIsVerified: (v: boolean) => void
+  onComplete: (taskId: string, taskData: { link?: string; notes?: string; publishLinks?: PublishLink[] }) => void
+  onReject: () => void
+  visibleFolders: DriveFolder[]
+  publishLinks: PublishLink[]
+  onAddPublishLink: () => void
+  onRemovePublishLink: (linkId: string) => void
+  onUpdatePublishLink: (linkId: string, field: 'platform' | 'url', value: string) => void
+  onFileUploaded: (file: { name: string; webViewLink: string }) => void
+}
+
+function TaskCard({
+  task, project, config, Icon, isCurrentStage, isAssignedToMe, canActOnTask,
+  isMyActiveTask, canManageProject, currentUser, inputValue, setInputValue,
+  isVerified, setIsVerified, onComplete, onReject, visibleFolders,
+  publishLinks, onAddPublishLink, onRemovePublishLink, onUpdatePublishLink, onFileUploaded
+}: TaskCardProps) {
+  if (!config) return null
+
+  const needsLink = ['paste_streaming', 'paste_youtube', 'download_link'].includes(config.type)
+  const isReview = config.type === 'review'
+  const isPublisherTask = config.type === 'download_link'
+  const showDownloadSection = ['download_upload', 'download_link', 'review', 'paste_streaming', 'paste_youtube'].includes(config.type)
+  const showUploadSection = ['upload', 'download_upload', 'review'].includes(config.type)
+  
+  // Akses folder sepenuhnya dikontrol oleh centang DL/UL dari Manager
+  // Manager centang DL → user bisa download (buka) folder tersebut
+  // Manager centang UL → user bisa upload ke folder tersebut
+  // Tidak ada hardcode tahap — semua bergantung pada checkbox manager
+
+  // Download: HANYA tampilkan PARENT FOLDER yang manager centang DL untuk user ini
+  // Tidak ada fallback — checkbox DL adalah satu-satunya penentu akses
+  const getDownloadFolders = () => {
+    const myId = currentUser?.id || ''
+
+    const isSub = (f: DriveFolder) => {
+      if (f.parentFolderId) return true
+      if (['raw', 'revised', 'final', 'desain', 'lainnya'].includes(f.folderId)) return false
+      if (f.folderId.includes('-') && ['raw', 'revised', 'final', 'desain', 'lainnya'].some(b => f.folderId.startsWith(b + '-'))) return true
+      return false
+    }
+
+    return visibleFolders.filter(f => {
+      if (isSub(f)) return false // Download = parent folder saja
+      // Hanya centang DL dari manager yang menentukan
+      return f.assignedUsers?.some((au: any) => au.userId === myId && au.download) || false
+    })
+  }
+
+  // Upload: tampilkan SUBFOLDER user sendiri (jika ada), atau PARENT FOLDER yang manager centang UL
+  const getUploadFolders = () => {
+    const myUserId = currentUser?.id || ''
+    const myRole = currentUser?.role || ''
+
+    const isSub = (f: DriveFolder) => {
+      if (f.parentFolderId) return true
+      if (['raw', 'revised', 'final', 'desain', 'lainnya'].includes(f.folderId)) return false
+      if (f.folderId.includes('-') && ['raw', 'revised', 'final', 'desain', 'lainnya'].some(b => f.folderId.startsWith(b + '-'))) return true
+      if (/^[A-Z]{2}_/.test(f.name)) return true
+      return false
+    }
+
+    const getParentType = (f: DriveFolder) => {
+      if (f.parentFolderId) return f.parentFolderId
+      return ['raw', 'revised', 'final', 'desain', 'lainnya'].find(b => f.folderId.startsWith(b + '-')) || ''
+    }
+
+    // 1. Cari subfolder milik user sendiri (berdasarkan task assignment)
+    const mySubfolders = visibleFolders.filter(f => {
+      if (!isSub(f)) return false
+      // Match by assignedUsers userId
+      if (f.assignedUsers?.some((au: any) => au.userId === myUserId && au.upload)) return true
+      // Match by task.assignedTo embedded in folderId
+      if (task.assignedTo && f.folderId.endsWith('-' + task.assignedTo)) return true
+      return false
+    })
+
+    if (mySubfolders.length > 0) return mySubfolders
+
+    // 2. Fallback: HANYA parent folder yang manager centang UL untuk user ini
+    return visibleFolders.filter(f => {
+      if (isSub(f)) return false
+      // Hanya centang UL dari manager yang menentukan
+      return f.assignedUsers?.some((au: any) => au.userId === myUserId && au.upload) || false
+    })
+  }
+
+  const handleComplete = () => {
+    if (isPublisherTask) {
+      // For publisher tasks, send publishLinks array
+      onComplete(task.id, { publishLinks })
+    } else {
+      // For other tasks, send single link
+      onComplete(task.id, { link: inputValue })
+    }
+  }
+
+  const isValid = () => {
+    if (isPublisherTask) {
+      return publishLinks.length > 0 && publishLinks.every(l => l.url.trim() !== '')
+    }
+    if (needsLink) {
+      return inputValue.trim() !== ''
+    }
+    return true
+  }
+
+  return (
+    <Card className={cn(
+      "transition-all relative overflow-hidden",
+      isMyActiveTask 
+        ? "border-2 border-indigo-500 shadow-xl ring-4 ring-indigo-50/50" 
+        : canActOnTask && task.status === 'pending' 
+          ? "border-indigo-300 shadow-md ring-1 ring-indigo-50" 
+          : "border-stone-200 opacity-80"
+    )}>
+      {isMyActiveTask && (
+        <div className="absolute top-0 right-0 bg-indigo-600 text-white text-[10px] font-bold px-4 py-1.5 rounded-bl-xl uppercase tracking-wider shadow-sm">
+          Tugas Anda Saat Ini
+        </div>
+      )}
+
+      <CardContent className="p-6">
+        <div className="flex items-start justify-between mb-4">
+          <div className="flex items-center gap-3">
+            <div className={cn(
+              "p-3 rounded-2xl",
+              isCurrentStage ? "bg-indigo-100 text-indigo-600" : "bg-stone-100 text-stone-500"
+            )}>
+              <Icon className="w-6 h-6" />
+            </div>
+            <div>
+              <h4 className="font-bold text-stone-800 text-lg flex items-center gap-2">
+                {task.role}
+                {task.data?.fastTracked && (
+                  <Badge className="bg-purple-100 text-purple-600 border-purple-200 text-[9px] px-1.5 py-0">
+                    <SkipForward className="h-2.5 w-2.5 mr-0.5" />FAST TRACK
+                  </Badge>
+                )}
+              </h4>
+              <div className="text-xs font-medium text-stone-500 mt-0.5">
+                Tahap {task.stage}: {STAGES[task.stage]}
+              </div>
+              {task.data?.fastTracked && (
+                <div className="flex items-center gap-1 text-[10px] text-purple-500 mt-1">
+                  <Zap className="h-3 w-3" />
+                  <span>Dilewati (Fast Track) — tugas otomatis selesai</span>
+                </div>
+              )}
+              {canManageProject && !isAssignedToMe && isCurrentStage && task.status === 'pending' && (
+                <div className="flex items-center gap-1 text-[10px] text-red-500 mt-1.5 font-bold uppercase tracking-wider bg-red-50 px-2 py-0.5 rounded-md">
+                  <ShieldAlert className="w-3 h-3" />
+                  <span>Mode Override {getRoleDisplayName(currentUser?.role || '')}</span>
+                </div>
+              )}
+            </div>
+          </div>
+          <Badge
+            variant={task.status === 'completed' ? 'default' : 'outline'}
+            className={cn(
+              "text-xs font-bold uppercase tracking-wider",
+              task.status === 'completed' 
+                ? "bg-green-100 text-green-700 border-green-200" 
+                : isCurrentStage 
+                  ? "bg-orange-100 text-orange-700 border-orange-200" 
+                  : "bg-stone-100 text-stone-500 border-stone-200"
+            )}
+          >
+            {task.status === 'completed' ? (
+              <span className="flex items-center gap-1"><CheckCircle2 className="w-4 h-4" /> Selesai</span>
+            ) : (
+              isCurrentStage ? 'Menunggu Aksi' : 'Terkunci'
+            )}
+          </Badge>
+        </div>
+
+        {(canActOnTask || task.status === 'completed') && (
+          <div className="mt-6 pt-6 border-t border-stone-100">
+            {task.status === 'completed' ? (
+              <div className="bg-stone-50 p-4 rounded-xl text-sm text-stone-700 border border-stone-200">
+                <strong className="block mb-1.5 text-stone-900 text-xs uppercase tracking-wider">
+                  Bukti / Link Hasil Kerja:
+                </strong>
+                
+                {/* Show publish links if available */}
+                {task.data?.publishLinks && task.data.publishLinks.length > 0 ? (
+                  <div className="space-y-2">
+                    {task.data.publishLinks.map((pl, idx) => (
+                      <div key={pl.id || idx} className="flex items-center gap-2 bg-white p-2 rounded-lg border border-stone-100">
+                        <span className="text-lg" title={PUBLISH_PLATFORMS.find(p => p.id === pl.platform)?.label}>
+                          {PUBLISH_PLATFORMS.find(p => p.id === pl.platform)?.icon || '🔗'}
+                        </span>
+                        <div className="flex-1 min-w-0">
+                          <span className="text-[10px] font-bold text-stone-500 uppercase">
+                            {PUBLISH_PLATFORMS.find(p => p.id === pl.platform)?.label || pl.platform}
+                          </span>
+                          <a
+                            href={pl.url}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="block text-indigo-600 hover:text-indigo-800 hover:underline break-all text-sm"
+                          >
+                            {pl.url}
+                          </a>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : task.data?.link ? (
+                  <a
+                    href={task.data.link}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="text-indigo-600 hover:text-indigo-800 hover:underline break-all font-medium flex items-center gap-2"
+                  >
+                    <LinkIcon className="w-4 h-4" />
+                    <span>{task.data.link}</span>
+                  </a>
+                ) : (
+                  <span className="text-stone-500 italic">
+                    Diselesaikan tanpa tautan spesifik (Telah diunggah ke Drive / Diteruskan).
+                  </span>
+                )}
+                {task.data?.notes && (
+                  <p className="mt-2 text-stone-600 text-xs bg-white p-2 rounded-md border border-stone-100">
+                    Catatan: {task.data.notes}
+                  </p>
+                )}
+              </div>
+            ) : (
+              <>
+                {/* Download Section */}
+                {showDownloadSection && (
+                  <div className="mb-4 bg-indigo-50/50 p-5 rounded-2xl border border-indigo-100">
+                    <div className="flex items-center gap-2 mb-3">
+                      <Download className="w-5 h-5 text-indigo-600" />
+                      <h5 className="text-sm font-bold text-stone-800">Unduh Berkas (Download)</h5>
+                    </div>
+                    <p className="text-xs text-stone-600 mb-4 leading-relaxed">
+                      Akses folder di bawah ini untuk mengambil/mengunduh berkas yang tersedia untuk Anda sesuai izin dari Manager.
+                    </p>
+                    <div className="flex flex-wrap gap-3">
+                      {getDownloadFolders().length === 0 ? (
+                        <span className="text-xs text-red-500 font-medium italic">
+                          Anda tidak memiliki akses ke folder yang sesuai untuk tahapan ini.
+                        </span>
+                      ) : (
+                        getDownloadFolders().map(folder => (
+                          <Button
+                            key={`dl-${folder.id}`}
+                            variant="outline"
+                            asChild
+                            className="gap-2"
+                          >
+                            <a href={folder.link} target="_blank" rel="noreferrer">
+                              <Folder className="w-4 h-4" />
+                              <span>Buka {folder.name.split(' (')[0]}</span>
+                            </a>
+                          </Button>
+                        ))
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {/* Upload Section */}
+                {showUploadSection && (
+                  <div className="mb-4 bg-stone-50 p-5 rounded-2xl border border-stone-200">
+                    <div className="flex items-center gap-2 mb-3">
+                      <UploadCloud className="w-5 h-5 text-indigo-600" />
+                      <h5 className="text-sm font-bold text-stone-800">Unggah Hasil Kerja</h5>
+                    </div>
+                    <p className="text-xs text-stone-600 mb-4 leading-relaxed">
+                      {isReview
+                        ? "Jika ada revisi yang Anda lakukan sendiri, silakan unggah file langsung dari komputer Anda."
+                        : "Unggah hasil pekerjaan Anda langsung dari komputer. File akan otomatis tersimpan di Google Drive."}
+                    </p>
+                    
+                    {getUploadFolders().length === 0 ? (
+                      <span className="text-xs text-red-500 font-medium italic">
+                        Anda tidak memiliki akses ke folder yang sesuai untuk tahapan ini.
+                      </span>
+                    ) : (
+                      <div className="space-y-4">
+                        {/* Direct File Upload */}
+                        {getUploadFolders().map(folder => (
+                          <div key={`upload-${folder.id}`} className="bg-white p-4 rounded-xl border border-stone-200">
+                            <div className="flex items-center justify-between mb-3">
+                              <span className="text-sm font-semibold text-stone-700">
+                                📁 {folder.name.split(' (')[0]}
+                              </span>
+                              <a
+                                href={folder.link}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="text-xs text-indigo-600 hover:text-indigo-800 hover:underline flex items-center gap-1"
+                              >
+                                <Folder className="w-3 h-3" />
+                                Buka di Drive
+                              </a>
+                            </div>
+                            <FileUpload
+                              folderLink={folder.link || ''}
+                              projectId={project.id}
+                              projectTitle={project.title}
+                              executionTime={project.executionTime}
+                              uploaderName={currentUser?.name}
+                              onUploadComplete={(file) => {
+                                console.log('[UPLOAD] File uploaded:', file.name)
+                                // Auto-fill link field with uploaded file link
+                                if (file.webViewLink) {
+                                  onFileUploaded(file)
+                                }
+                              }}
+                            />
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Publisher Multiple Links Section */}
+                {isPublisherTask && (
+                  <div className="mb-4 bg-gradient-to-br from-green-50 to-emerald-50 p-5 rounded-2xl border border-green-200">
+                    <div className="flex items-center justify-between mb-3">
+                      <div className="flex items-center gap-2">
+                        <Globe className="w-5 h-5 text-green-600" />
+                        <h5 className="text-sm font-bold text-stone-800">Pelaporan Tautan Hasil Publish</h5>
+                      </div>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={onAddPublishLink}
+                        className="gap-1 text-green-700 border-green-300 hover:bg-green-100"
+                      >
+                        <Plus className="w-4 h-4" />
+                        <span>Tambah Link</span>
+                      </Button>
+                    </div>
+                    <p className="text-xs text-stone-600 mb-4 leading-relaxed">
+                      Tambahkan semua tautan hasil publikasi. Pilih platform dan tempelkan URL untuk setiap tautan.
+                    </p>
+
+                    <div className="space-y-3">
+                      {publishLinks.length === 0 ? (
+                        <div className="text-center py-6 text-stone-500 bg-white/50 rounded-xl border border-dashed border-green-300">
+                          <Globe className="w-8 h-8 mx-auto mb-2 opacity-50" />
+                          <p className="text-sm">Belum ada tautan ditambahkan</p>
+                          <p className="text-xs">Klik tombol "Tambah Link" di atas untuk menambahkan tautan hasil publish</p>
+                        </div>
+                      ) : (
+                        publishLinks.map((link, index) => (
+                          <div key={link.id} className="bg-white p-4 rounded-xl border border-stone-200 shadow-sm">
+                            <div className="flex items-center justify-between mb-3">
+                              <span className="text-xs font-bold text-stone-500 uppercase tracking-wider">
+                                Tautan #{index + 1}
+                              </span>
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => onRemovePublishLink(link.id)}
+                                className="h-7 w-7 p-0 text-red-500 hover:text-red-700 hover:bg-red-50"
+                              >
+                                <X className="w-4 h-4" />
+                              </Button>
+                            </div>
+                            
+                            <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+                              <div className="md:col-span-1">
+                                <Label className="text-[10px] font-bold text-stone-500 uppercase tracking-wider mb-1 block">
+                                  Platform
+                                </Label>
+                                <Select
+                                  value={link.platform}
+                                  onValueChange={(v) => onUpdatePublishLink(link.id, 'platform', v)}
+                                >
+                                  <SelectTrigger className="bg-stone-50">
+                                    <SelectValue placeholder="Pilih Platform" />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    {PUBLISH_PLATFORMS.map(platform => (
+                                      <SelectItem key={platform.id} value={platform.id}>
+                                        <span className="flex items-center gap-2">
+                                          <span>{platform.icon}</span>
+                                          <span>{platform.label}</span>
+                                        </span>
+                                      </SelectItem>
+                                    ))}
+                                  </SelectContent>
+                                </Select>
+                              </div>
+                              <div className="md:col-span-3">
+                                <Label className="text-[10px] font-bold text-stone-500 uppercase tracking-wider mb-1 block">
+                                  URL Tautan
+                                </Label>
+                                <Input
+                                  type="url"
+                                  value={link.url}
+                                  onChange={(e) => onUpdatePublishLink(link.id, 'url', e.target.value)}
+                                  placeholder="https://..."
+                                  className="bg-stone-50"
+                                />
+                              </div>
+                            </div>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {/* Single Link Input Section (non-publisher) */}
+                {needsLink && !isPublisherTask && (
+                  <div className="mb-4 bg-stone-50 p-5 rounded-2xl border border-stone-200">
+                    <div className="flex items-center gap-2 mb-3">
+                      <LinkIcon className="w-5 h-5 text-indigo-600" />
+                      <h5 className="text-sm font-bold text-stone-800">
+                        {config.type === 'paste_streaming' 
+                          ? 'Pelaporan Tautan Live Streaming' 
+                          : config.type === 'paste_youtube' 
+                            ? 'Pelaporan Tautan YouTube/Podcast' 
+                            : 'Pelaporan Tautan Hasil Publish'}
+                      </h5>
+                    </div>
+                    <p className="text-xs text-stone-600 mb-4 leading-relaxed">
+                      Tempelkan tautan (URL) hasil akhir di bawah ini. Tautan wajib diisi sebagai bukti penyelesaian tugas.
+                    </p>
+                    <Label className="text-xs font-bold text-stone-500 uppercase tracking-wider mb-2">
+                      Tautan URL (Wajib)
+                    </Label>
+                    <Input
+                      type="url"
+                      value={inputValue}
+                      onChange={e => setInputValue(e.target.value)}
+                      placeholder="https://..."
+                      className="mt-1"
+                    />
+                  </div>
+                )}
+
+                {/* Review Section */}
+                {isReview && (
+                  <div className="p-5 bg-orange-50 border border-orange-200 rounded-2xl text-sm text-orange-800 mb-4">
+                    <h5 className="font-bold mb-2 flex items-center gap-2">
+                      <AlertCircle className="w-4 h-4" />
+                      <span>Tindakan Quality Control (QC)</span>
+                    </h5>
+                    Periksa hasil kerja tim editor di folder Drive yang telah disediakan. Jika sudah sesuai, klik tombol 
+                    <strong> "Teruskan File (Approve)"</strong> di bawah agar file langsung lolos ke tahap Publikasi tanpa tumpang tindih. 
+                    Jika belum, Anda dapat mengklik <strong>"Tolak (Revisi)"</strong>.
+                  </div>
+                )}
+              </>
+            )}
+
+            {/* Action Buttons */}
+            {task.status === 'pending' && (
+              <div className={cn(
+                "flex flex-col sm:flex-row items-start sm:items-center justify-between p-5 rounded-2xl border",
+                !isAssignedToMe ? "bg-red-50/50 border-red-200" : "bg-indigo-50/50 border-indigo-200"
+              )}>
+                {!isReview ? (
+                  <>
+                    <label className="flex items-center gap-3 cursor-pointer mb-4 sm:mb-0 group">
+                      <Checkbox
+                        checked={isVerified}
+                        onCheckedChange={(checked) => setIsVerified(!!checked)}
+                      />
+                      <div className="flex flex-col">
+                        <span className={cn(
+                          "text-sm font-bold transition-colors",
+                          isVerified ? "text-indigo-800" : "text-stone-700 group-hover:text-indigo-600"
+                        )}>
+                          {canManageProject && !isAssignedToMe 
+                            ? 'Peringatan: Paksa Selesaikan (Override)' 
+                            : "Verifikasi Serah Terima"}
+                        </span>
+                        <span className="text-[10px] text-stone-500 font-medium">
+                          Saya menyatakan tugas ini telah selesai.
+                        </span>
+                      </div>
+                    </label>
+                    <Button
+                      disabled={!isVerified || !isValid()}
+                      onClick={handleComplete}
+                      className={cn(
+                        "gap-2",
+                        isVerified && isValid()
+                          ? canManageProject && !isAssignedToMe
+                            ? "bg-red-600 hover:bg-red-700 ring-2 ring-red-200 ring-offset-2"
+                            : "bg-indigo-600 hover:bg-indigo-700 ring-2 ring-indigo-200 ring-offset-2"
+                          : "bg-stone-200 text-stone-400 cursor-not-allowed shadow-none"
+                      )}
+                    >
+                      <span>{canManageProject && !isAssignedToMe ? 'Force Complete' : 'Selesaikan & Serahkan'}</span>
+                      <ChevronRight className="w-4 h-4" />
+                    </Button>
+                  </>
+                ) : (
+                  <div className="flex w-full justify-end gap-4">
+                    <Button
+                      variant="outline"
+                      onClick={onReject}
+                      className="border-red-200 text-red-600 hover:bg-red-50 hover:border-red-300"
+                    >
+                      Tolak (Revisi)
+                    </Button>
+                    <Button
+                      onClick={() => onComplete(task.id, { notes: 'File diteruskan tanpa perubahan (Approved)' })}
+                      className="bg-green-600 hover:bg-green-700 ring-2 ring-green-200 ring-offset-2"
+                    >
+                      Teruskan File (Approve)
+                    </Button>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  )
+}

@@ -1,141 +1,247 @@
-import { NextResponse } from 'next/server'
-import { db } from '@/lib/db'
+import { db, ensureDbConnection } from '@/lib/db'
+import { NextRequest, NextResponse } from 'next/server'
+import { checkMaintenanceMode } from '@/lib/maintenance-check'
 
-export async function GET(request: Request) {
+// GET all permohonan
+export async function GET(request: NextRequest) {
   try {
-    const { searchParams } = new URL(request.url)
-    const status = searchParams.get('status')
-    const fastTrack = searchParams.get('fastTrack')
-
-    const where: Record<string, unknown> = {}
-    if (status) where.status = status
-    if (fastTrack !== null && fastTrack !== undefined) {
-      where.fastTrack = fastTrack === 'true'
+    const isConnected = await ensureDbConnection()
+    if (!isConnected) {
+      return NextResponse.json({ error: 'Database connection failed', permohonan: [] }, { status: 500 })
     }
 
-    const permohonanList = await db.permohonan.findMany({
-      where,
-      include: {
-        manager: { select: { id: true, name: true, email: true, role: true } },
-        reporter: { select: { id: true, name: true, email: true, role: true } },
-        fotografer: { select: { id: true, name: true, email: true, role: true } },
-        editor: { select: { id: true, name: true, email: true, role: true } },
-        publisherWeb: { select: { id: true, name: true, email: true, role: true } },
-        publisherSocial: { select: { id: true, name: true, email: true, role: true } },
-      },
-      orderBy: { createdAt: 'desc' },
-    })
+    const { searchParams } = new URL(request.url)
+    const userId = searchParams.get('userId')
+    const userRole = searchParams.get('userRole')
 
-    return NextResponse.json(permohonanList)
+    let permohonan
+    if (userRole === 'Admin') {
+      // Super Admin sees all
+      permohonan = await db.permohonan.findMany({ orderBy: { createdAt: 'desc' } })
+    } else if (userRole === 'Administrator') {
+      // Administrator sees all
+      permohonan = await db.permohonan.findMany({ orderBy: { createdAt: 'desc' } })
+    } else if (userRole === 'Manager' && userId) {
+      // Manager sees only permohonan forwarded to them
+      permohonan = await db.permohonan.findMany({
+        where: { managerId: userId },
+        orderBy: { createdAt: 'desc' }
+      })
+    } else {
+      permohonan = []
+    }
+
+    // Parse JSON fields
+    const transformed = permohonan.map((p: any) => ({
+      ...p,
+      activityTypes: JSON.parse(p.activityTypes || '[]'),
+      outputNeeds: JSON.parse(p.outputNeeds || '[]'),
+      documents: JSON.parse(p.documents || '[]'),
+    }))
+
+    return NextResponse.json(transformed)
   } catch (error) {
-    console.error('Failed to fetch permohonan:', error)
-    return NextResponse.json(
-      { error: 'Gagal memuat data permohonan' },
-      { status: 500 }
-    )
+    console.error('Get permohonan error:', error)
+    return NextResponse.json({ error: 'Failed to fetch permohonan', permohonan: [] }, { status: 500 })
   }
 }
 
-export async function POST(request: Request) {
+// POST create permohonan
+export async function POST(request: NextRequest) {
+  const maintenanceBlock = await checkMaintenanceMode(request)
+  if (maintenanceBlock) return maintenanceBlock
   try {
+    const isConnected = await ensureDbConnection()
+    if (!isConnected) {
+      return NextResponse.json({ error: 'Database connection failed' }, { status: 500 })
+    }
+
     const body = await request.json()
-    const {
-      judul,
-      deskripsi,
-      fastTrack,
-      managerId,
-      reporterId,
-      fotograferId,
-      editorId,
-      publisherWebId,
-      publisherSocialId,
-    } = body
+    const { title, description, requesterUnit, location, executionTime, picName, picWhatsApp, activityTypes, customActivity, outputNeeds, customOutput, adminNote, documents, administratorId } = body
 
-    // ── Validation ──
-    if (!judul || !judul.trim()) {
-      return NextResponse.json(
-        { error: 'Judul permohonan wajib diisi' },
-        { status: 400 }
-      )
-    }
+    const permohonan = await db.permohonan.create({
+      data: {
+        title,
+        description,
+        requesterUnit,
+        location: location || null,
+        executionTime: executionTime || null,
+        picName: picName || null,
+        picWhatsApp: picWhatsApp || null,
+        activityTypes: JSON.stringify(activityTypes || []),
+        customActivity: customActivity || null,
+        outputNeeds: JSON.stringify(outputNeeds || []),
+        customOutput: customOutput || null,
+        status: 'pending',
+        adminNote: adminNote || null,
+        documents: JSON.stringify(documents || []),
+        administratorId: administratorId || null,
+      }
+    })
 
-    if (!managerId) {
-      return NextResponse.json(
-        { error: 'Manager wajib dipilih' },
-        { status: 400 }
-      )
-    }
-
-    // Fast track: at least one publisher must be selected
-    if (fastTrack && !publisherWebId && !publisherSocialId) {
-      return NextResponse.json(
-        { error: 'Fast Track: Pilih minimal satu Publisher (Web atau Social Media)' },
-        { status: 400 }
-      )
-    }
-
-    // ── Build data based on fast track ──
-    const isFastTrack = Boolean(fastTrack)
-
-    const data: Record<string, unknown> = {
-      judul: judul.trim(),
-      deskripsi: deskripsi?.trim() || null,
-      fastTrack: isFastTrack,
-      status: 'IN_PROGRESS',
-      managerId,
-    }
-
-    if (isFastTrack) {
-      // ── Fast Track: skip reporter, fotografer, editor ──
-      data.reporterId = null
-      data.reporterStatus = 'SKIPPED'
-      data.fotograferId = null
-      data.fotograferStatus = 'SKIPPED'
-      data.editorId = null
-      data.editorStatus = 'SKIPPED'
-
-      // Publishers
-      data.publisherWebId = publisherWebId || null
-      data.publisherWebStatus = publisherWebId ? 'IN_PROGRESS' : 'SKIPPED'
-      data.publisherSocialId = publisherSocialId || null
-      data.publisherSocialStatus = publisherSocialId ? 'IN_PROGRESS' : 'SKIPPED'
-    } else {
-      // ── Normal flow ──
-      data.reporterId = reporterId || null
-      data.reporterStatus = reporterId ? 'IN_PROGRESS' : 'PENDING'
-      data.fotograferId = fotograferId || null
-      data.fotograferStatus = 'PENDING'
-      data.editorId = editorId || null
-      data.editorStatus = 'PENDING'
-      data.publisherWebId = publisherWebId || null
-      data.publisherWebStatus = 'PENDING'
-      data.publisherSocialId = publisherSocialId || null
-      data.publisherSocialStatus = 'PENDING'
-
-      // If no reporter assigned, set draft
-      if (!reporterId) {
-        data.status = 'DRAFT'
+    // Notify all Manager users
+    if (administratorId) {
+      const managers = await db.user.findMany({ where: { role: 'Manager' } })
+      for (const manager of managers) {
+        await db.notification.create({
+          data: {
+            message: `Permohonan baru dari Administrator: ${title}`,
+            userId: manager.id,
+            projectId: null,
+            targetView: 'dashboard',
+          }
+        })
       }
     }
 
-    const permohonan = await db.permohonan.create({
-      data,
-      include: {
-        manager: { select: { id: true, name: true, email: true, role: true } },
-        reporter: { select: { id: true, name: true, email: true, role: true } },
-        fotografer: { select: { id: true, name: true, email: true, role: true } },
-        editor: { select: { id: true, name: true, email: true, role: true } },
-        publisherWeb: { select: { id: true, name: true, email: true, role: true } },
-        publisherSocial: { select: { id: true, name: true, email: true, role: true } },
-      },
+    const result = {
+      ...permohonan,
+      activityTypes: JSON.parse(permohonan.activityTypes),
+      outputNeeds: JSON.parse(permohonan.outputNeeds),
+      documents: JSON.parse(permohonan.documents),
+    }
+
+    return NextResponse.json(result)
+  } catch (error) {
+    console.error('Create permohonan error:', error)
+    return NextResponse.json({ error: 'Failed to create permohonan' }, { status: 500 })
+  }
+}
+
+// PUT update permohonan
+export async function PUT(request: NextRequest) {
+  const maintenanceBlock = await checkMaintenanceMode(request)
+  if (maintenanceBlock) return maintenanceBlock
+  try {
+    const isConnected = await ensureDbConnection()
+    if (!isConnected) {
+      return NextResponse.json({ error: 'Database connection failed' }, { status: 500 })
+    }
+
+    const body = await request.json()
+    const { id, ...updateData } = body
+
+    if (!id) {
+      return NextResponse.json({ error: 'Permohonan ID required' }, { status: 400 })
+    }
+
+    // Prepare update payload - serialize arrays
+    const payload: any = {}
+    for (const [key, value] of Object.entries(updateData)) {
+      if (key === 'activityTypes' || key === 'outputNeeds' || key === 'documents') {
+        payload[key] = JSON.stringify(value)
+      } else {
+        payload[key] = value
+      }
+    }
+
+    const updated = await db.permohonan.update({
+      where: { id },
+      data: payload
     })
 
-    return NextResponse.json(permohonan, { status: 201 })
+    // Create notifications for specific actions
+    if (updateData.status === 'forwarded' && updateData.managerId) {
+      // Notify the selected manager
+      const permohonan = await db.permohonan.findUnique({ where: { id } })
+      if (permohonan) {
+        await db.notification.create({
+          data: {
+            message: `Permohonan '${permohonan.title}' telah diteruskan kepada Anda`,
+            userId: updateData.managerId as string,
+            projectId: null,
+            targetView: 'dashboard',
+          }
+        })
+
+        // Notify administrator that it was forwarded
+        if (permohonan.administratorId) {
+          const manager = await db.user.findUnique({ where: { id: updateData.managerId as string } })
+          await db.notification.create({
+            data: {
+              message: `Permohonan '${permohonan.title}' telah diteruskan kepada ${manager?.name || 'Manager'}`,
+              userId: permohonan.administratorId,
+              projectId: null,
+              targetView: 'permohonan',
+            }
+          })
+        }
+      }
+    }
+
+    if (updateData.status === 'rejected') {
+      const permohonan = await db.permohonan.findUnique({ where: { id } })
+      if (permohonan && permohonan.administratorId) {
+        const manager = await db.user.findUnique({ where: { id: updateData.managerId as string } })
+        await db.notification.create({
+          data: {
+            message: `Permohonan '${permohonan.title}' telah ditolak oleh ${manager?.name || 'Manager'}${updateData.adminNote ? `. Alasan: ${updateData.adminNote}` : ''}`,
+            userId: permohonan.administratorId,
+            projectId: null,
+            targetView: 'permohonan',
+          }
+        })
+      }
+    }
+
+    if (updateData.status === 'completed' && updateData.projectId && updateData.managerId) {
+      const permohonan = await db.permohonan.findUnique({ where: { id } })
+      if (permohonan && permohonan.administratorId) {
+        await db.notification.create({
+          data: {
+            message: `Permohonan '${permohonan.title}' telah diterima. Proyek telah dibuat.`,
+            userId: permohonan.administratorId,
+            projectId: updateData.projectId as string,
+            targetView: 'project_detail',
+          }
+        })
+      }
+    }
+
+    const result = {
+      ...updated,
+      activityTypes: JSON.parse(updated.activityTypes),
+      outputNeeds: JSON.parse(updated.outputNeeds),
+      documents: JSON.parse(updated.documents),
+    }
+
+    return NextResponse.json(result)
   } catch (error) {
-    console.error('Failed to create permohonan:', error)
-    return NextResponse.json(
-      { error: 'Gagal membuat permohonan' },
-      { status: 500 }
-    )
+    console.error('Update permohonan error:', error)
+    return NextResponse.json({ error: 'Failed to update permohonan' }, { status: 500 })
+  }
+}
+
+// DELETE permohonan
+export async function DELETE(request: NextRequest) {
+  const maintenanceBlock = await checkMaintenanceMode(request)
+  if (maintenanceBlock) return maintenanceBlock
+  try {
+    const isConnected = await ensureDbConnection()
+    if (!isConnected) {
+      return NextResponse.json({ error: 'Database connection failed' }, { status: 500 })
+    }
+
+    const { searchParams } = new URL(request.url)
+    const id = searchParams.get('id')
+
+    if (!id) {
+      return NextResponse.json({ error: 'Permohonan ID required' }, { status: 400 })
+    }
+
+    // Only allow deleting pending permohonan
+    const permohonan = await db.permohonan.findUnique({ where: { id } })
+    if (!permohonan) {
+      return NextResponse.json({ error: 'Permohonan not found' }, { status: 404 })
+    }
+    if (permohonan.status !== 'pending') {
+      return NextResponse.json({ error: 'Hanya permohonan dengan status pending yang dapat dihapus' }, { status: 400 })
+    }
+
+    await db.permohonan.delete({ where: { id } })
+    return NextResponse.json({ success: true })
+  } catch (error) {
+    console.error('Delete permohonan error:', error)
+    return NextResponse.json({ error: 'Failed to delete permohonan' }, { status: 500 })
   }
 }

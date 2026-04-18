@@ -1,7 +1,530 @@
 'use client'
 
+import { Suspense, useEffect, useState } from 'react'
+import { useSearchParams } from 'next/navigation'
+import { useAppStore, type User } from '@/lib/store'
+import { LoginView } from '@/components/pushakin/login-view'
+import { Sidebar } from '@/components/pushakin/sidebar'
+import { Topbar } from '@/components/pushakin/topbar'
+import { DashboardView } from '@/components/pushakin/dashboard-view'
+import { CreateProjectView } from '@/components/pushakin/create-project-view'
+import { ProjectDetailView } from '@/components/pushakin/project-detail-view'
+import { OverviewView } from '@/components/pushakin/overview-view'
+import { ReportsView } from '@/components/pushakin/reports-view'
+import { UserManagementView } from '@/components/pushakin/user-management-view'
+import { ProfileView } from '@/components/pushakin/profile-view'
+import { SettingsView } from '@/components/pushakin/settings-view'
+import { InboxView } from '@/components/pushakin/inbox-view'
+import { AnnouncementView } from '@/components/pushakin/announcement-view'
 import { PermohonanView } from '@/components/pushakin/permohonan-view'
+import { SuratManagementView } from '@/components/pushakin/surat-management-view'
+import { ProgramKegiatanView } from '@/components/pushakin/program-kegiatan-view'
+import { DialogModal } from '@/components/pushakin/dialog-modal'
+import { PublicTrackerView } from '@/components/pushakin/public-tracker-view'
+import { Settings, Wrench, Clock, AlertTriangle, Shield } from 'lucide-react'
+
+function LoadingSpinner() {
+  return (
+    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-100 via-blue-50 to-violet-100">
+      <div className="text-center">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-violet-600 mx-auto mb-4" />
+        <p className="text-slate-600">Memuat Pushakin Flows...</p>
+      </div>
+    </div>
+  )
+}
+
+interface MaintenanceData {
+  maintenance: boolean
+  message: string | null
+}
+
+function MaintenanceView({ message, onAdminLogin }: { message: string | null; onAdminLogin: (user: any) => void }) {
+  const [showAdmin, setShowAdmin] = useState(false)
+  const [adminEmail, setAdminEmail] = useState('')
+  const [adminPassword, setAdminPassword] = useState('')
+  const [error, setError] = useState('')
+  const [isLoading, setIsLoading] = useState(false)
+
+  const handleAdminLogin = async () => {
+    setError('')
+    setIsLoading(true)
+
+    try {
+      const response = await fetch('/api/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: adminEmail, password: adminPassword })
+      })
+
+      const data = await response.json()
+
+      if (!response.ok) {
+        setError(data.error || 'Login gagal')
+        setIsLoading(false)
+        return
+      }
+
+      // Check if user is admin
+      if (data.user?.role !== 'Admin') {
+        setError('Hanya Super Admin yang dapat mengakses saat maintenance')
+        setIsLoading(false)
+        return
+      }
+
+      // Pass user data to parent — no page reload, Zustand handles state
+      onAdminLogin(data.user)
+    } catch (err) {
+      console.error('Admin login error:', err)
+      setError('Terjadi kesalahan saat login')
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  return (
+    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 p-4">
+      <div className="max-w-md w-full">
+        <div className="bg-white/10 backdrop-blur-xl rounded-3xl p-8 text-center border border-white/20 shadow-2xl">
+          {/* Icon */}
+          <div className="w-20 h-20 bg-amber-500/20 rounded-2xl flex items-center justify-center mx-auto mb-6">
+            <Wrench className="w-10 h-10 text-amber-400 animate-pulse" />
+          </div>
+
+          {/* Title */}
+          <h1 className="text-2xl font-bold text-white mb-2">
+            Sedang Dalam Maintenance
+          </h1>
+          <p className="text-white/60 mb-4">
+            {message || 'Pushakin Flows sedang diperbarui untuk meningkatkan layanan.'}
+          </p>
+
+          {/* Info */}
+          <div className="bg-white/5 rounded-xl p-4 mb-6 text-left space-y-3">
+            <div className="flex items-center gap-3 text-white/80">
+              <Clock className="w-5 h-5 text-amber-400" />
+              <span className="text-sm">Estimasi: Beberapa menit</span>
+            </div>
+            <div className="flex items-center gap-3 text-white/80">
+              <AlertTriangle className="w-5 h-5 text-amber-400" />
+              <span className="text-sm">Silakan coba beberapa saat lagi</span>
+            </div>
+          </div>
+
+          {/* Admin Access Toggle */}
+          <button
+            onClick={() => setShowAdmin(!showAdmin)}
+            className="text-white/40 hover:text-white/60 text-xs flex items-center gap-1 mx-auto mb-4"
+          >
+            <Settings className="w-3 h-3" />
+            <span>Akses Admin</span>
+          </button>
+
+          {/* Admin Login Form */}
+          {showAdmin && (
+            <div className="bg-white/5 rounded-xl p-4 space-y-3">
+              <div className="flex items-center justify-center gap-2 text-violet-300 text-sm mb-2">
+                <Shield className="w-4 h-4" />
+                <span>Login Admin untuk Mengakses</span>
+              </div>
+              <input
+                type="email"
+                value={adminEmail}
+                onChange={(e) => { setAdminEmail(e.target.value); setError('') }}
+                placeholder="Email Admin"
+                className="w-full px-4 py-2 rounded-lg bg-white/10 border border-white/20 text-white placeholder-white/40 text-sm"
+              />
+              <input
+                type="password"
+                value={adminPassword}
+                onChange={(e) => { setAdminPassword(e.target.value); setError('') }}
+                placeholder="Password"
+                className="w-full px-4 py-2 rounded-lg bg-white/10 border border-white/20 text-white placeholder-white/40 text-sm"
+              />
+              {error && <p className="text-red-400 text-xs">{error}</p>}
+              <button
+                onClick={handleAdminLogin}
+                disabled={isLoading || !adminEmail || !adminPassword}
+                className="w-full py-2 bg-violet-600 hover:bg-violet-700 disabled:bg-violet-600/50 text-white rounded-lg text-sm font-medium transition-colors"
+              >
+                {isLoading ? 'Memproses...' : 'Login Admin'}
+              </button>
+            </div>
+          )}
+        </div>
+
+        {/* Footer */}
+        <p className="text-center text-white/30 text-xs mt-6">
+          Tim Pusat Hubungan Masyarakat dan Keterbukaan Informasi
+        </p>
+      </div>
+    </div>
+  )
+}
+
+function AppContent() {
+  const {
+    currentUser, activeView, isImpersonating,
+    setUsers, setProjects, setNotifications, setSuratTugas,
+    setPermohonanList, setCurrentUser, setSuratList, setKegiatanList, setActiveView
+  } = useAppStore()
+
+  const searchParams = useSearchParams()
+  const isPublicView = searchParams.get('public') === 'tracker'
+
+  const [isLoading, setIsLoading] = useState(true)
+  const [isSeeding, setIsSeeding] = useState(false)
+  const [seedError, setSeedError] = useState<string | undefined>()
+  const [users, setUsersState] = useState<User[]>([])
+  const [maintenanceData, setMaintenanceData] = useState<MaintenanceData | null>(null)
+  const [adminMaintenanceAccess, setAdminMaintenanceAccess] = useState(false)
+  const [sidebarOpen, setSidebarOpen] = useState(false)
+
+  // Global fetch interceptor — adds X-User-Id header to all API requests
+  // so the server can identify Admin users and bypass maintenance mode
+  useEffect(() => {
+    const originalFetch = window.fetch
+    window.fetch = async function(input, init) {
+      const user = useAppStore.getState().currentUser
+      if (user) {
+        const headers = new Headers(init?.headers)
+        if (!headers.has('X-User-Id')) {
+          headers.set('X-User-Id', user.id)
+        }
+        if (!headers.has('X-User-Role')) {
+          headers.set('X-User-Role', user.role)
+        }
+        return originalFetch.call(this, input, { ...init, headers })
+      }
+      return originalFetch.call(this, input, init)
+    }
+    return () => {
+      window.fetch = originalFetch
+    }
+  }, [])
+
+  // Always clear stale adminMaintenanceAccess on app load (security)
+  useEffect(() => {
+    localStorage.removeItem('adminMaintenanceAccess')
+    setAdminMaintenanceAccess(false)
+  }, [])
+
+  // Fetch maintenance status (separate from initial load for polling)
+  const fetchMaintenanceStatus = async () => {
+    try {
+      const res = await fetch('/api/maintenance')
+      if (res.ok) {
+        const data = await res.json()
+        setMaintenanceData(data)
+
+        // When maintenance is OFF, clear stale adminMaintenanceAccess
+        if (!data.maintenance && localStorage.getItem('adminMaintenanceAccess') === 'true') {
+          localStorage.removeItem('adminMaintenanceAccess')
+          setAdminMaintenanceAccess(false)
+        }
+      }
+    } catch (error) {
+      console.error('Failed to fetch maintenance status:', error)
+    }
+  }
+
+  // Fetch initial data
+  useEffect(() => {
+    const fetchData = async () => {
+      try {
+        // Fetch users, projects, and maintenance status in parallel
+        const [usersRes, projectsRes, maintenanceRes] = await Promise.all([
+          fetch('/api/users'),
+          fetch('/api/projects'),
+          fetch('/api/maintenance')
+        ])
+
+        if (usersRes.ok) {
+          const usersData = await usersRes.json()
+          setUsersState(usersData)
+          setUsers(usersData)
+        }
+
+        if (projectsRes.ok) {
+          const projectsData = await projectsRes.json()
+          setProjects(projectsData)
+        }
+
+        if (maintenanceRes.ok) {
+          const data = await maintenanceRes.json()
+          setMaintenanceData(data)
+        } else {
+          setMaintenanceData({ maintenance: false, message: null })
+        }
+
+        setIsLoading(false)
+      } catch (error) {
+        console.error('Failed to fetch data:', error)
+        setMaintenanceData({ maintenance: false, message: null })
+        setIsLoading(false)
+      }
+    }
+
+    fetchData()
+  }, [setUsers, setProjects])
+
+  // Poll maintenance status every 5 seconds — immediately blocks non-admin users
+  useEffect(() => {
+    const pollInterval = setInterval(fetchMaintenanceStatus, 5000)
+    return () => clearInterval(pollInterval)
+  }, [])
+
+  // Fetch notifications when user logs in or impersonation changes
+  useEffect(() => {
+    const fetchNotifications = async () => {
+      if (currentUser) {
+        try {
+          const res = await fetch(`/api/notifications?userId=${currentUser.id}`)
+          if (res.ok) {
+            const data = await res.json()
+            setNotifications(data)
+          }
+        } catch (error) {
+          console.error('Failed to fetch notifications:', error)
+        }
+      }
+    }
+
+    fetchNotifications()
+    // Poll for notifications every 30 seconds
+    const interval = setInterval(fetchNotifications, 30000)
+    return () => clearInterval(interval)
+  }, [currentUser, isImpersonating, setNotifications])
+
+  // Fetch surat tugas when user logs in or impersonation changes
+  useEffect(() => {
+    const fetchSuratTugas = async () => {
+      if (currentUser) {
+        try {
+          const res = await fetch(`/api/surat-tugas?userId=${currentUser.id}`)
+          if (res.ok) {
+            const data = await res.json()
+            setSuratTugas(data)
+          }
+        } catch (error) {
+          console.error('Failed to fetch surat tugas:', error)
+        }
+      }
+    }
+
+    fetchSuratTugas()
+    // Poll for surat tugas every 30 seconds
+    const interval = setInterval(fetchSuratTugas, 30000)
+    return () => clearInterval(interval)
+  }, [currentUser, isImpersonating, setSuratTugas])
+
+  // Handle database seeding
+  const handleSeed = async () => {
+    setIsSeeding(true)
+    setSeedError(undefined)
+    try {
+      const res = await fetch('/api/seed')
+      const data = await res.json()
+
+      if (!res.ok || !data.success) {
+        setSeedError(data.details || data.error || 'Terjadi kesalahan')
+        return
+      }
+
+      // Refetch users
+      const usersRes = await fetch('/api/users')
+      if (usersRes.ok) {
+        const usersData = await usersRes.json()
+        setUsersState(usersData)
+        setUsers(usersData)
+      }
+    } catch (error) {
+      console.error('Seed failed:', error)
+      setSeedError('Tidak dapat terhubung ke server. Pastikan DATABASE_URL sudah dikonfigurasi.')
+    } finally {
+      setIsSeeding(false)
+    }
+  }
+
+  // Clear params and go to app
+  const handleBackFromPublic = () => {
+    window.location.href = window.location.pathname
+  }
+
+  // Fetch permohonan when user is Administrator or Manager or Super Admin
+  useEffect(() => {
+    const fetchPermohonan = async () => {
+      if (currentUser && ['Administrator', 'Manager', 'Admin'].includes(currentUser.role)) {
+        try {
+          const role = currentUser.role
+          const params = new URLSearchParams({ userId: currentUser.id, userRole: role })
+          const res = await fetch(`/api/permohonan?${params}`)
+          if (res.ok) {
+            const data = await res.json()
+            setPermohonanList(data)
+          }
+        } catch (error) {
+          console.error('Failed to fetch permohonan:', error)
+        }
+      }
+    }
+
+    fetchPermohonan()
+    const interval = setInterval(fetchPermohonan, 30000)
+    return () => clearInterval(interval)
+  }, [currentUser, isImpersonating, setPermohonanList])
+
+  // Fetch surat when user is Administrator or Manager or Super Admin
+  useEffect(() => {
+    const fetchSurat = async () => {
+      if (currentUser && ['Administrator', 'Manager', 'Admin'].includes(currentUser.role)) {
+        try {
+          const role = currentUser.role
+          const params = new URLSearchParams({ userId: currentUser.id, userRole: role })
+          const res = await fetch(`/api/surat?${params}`)
+          if (res.ok) {
+            const data = await res.json()
+            setSuratList(data)
+          }
+        } catch (error) {
+          console.error('Failed to fetch surat:', error)
+        }
+      }
+    }
+
+    fetchSurat()
+    const interval = setInterval(fetchSurat, 30000)
+    return () => clearInterval(interval)
+  }, [currentUser, isImpersonating, setSuratList])
+
+  // Fetch program kegiatan when user is Manager or Super Admin
+  useEffect(() => {
+    const fetchKegiatan = async () => {
+      if (currentUser && ['Manager', 'Admin'].includes(currentUser.role)) {
+        try {
+          const role = currentUser.role
+          const params = new URLSearchParams({ userId: currentUser.id, userRole: role })
+          const res = await fetch(`/api/program-kegiatan?${params}`)
+          if (res.ok) {
+            const data = await res.json()
+            setKegiatanList(data)
+          }
+        } catch (error) {
+          console.error('Failed to fetch program kegiatan:', error)
+        }
+      }
+    }
+
+    fetchKegiatan()
+    const interval = setInterval(fetchKegiatan, 30000)
+    return () => clearInterval(interval)
+  }, [currentUser, isImpersonating, setKegiatanList])
+
+  // Handle admin login from maintenance view — set user in Zustand, no reload
+  const handleAdminLogin = (user: any) => {
+    setCurrentUser(user)
+    setAdminMaintenanceAccess(true)
+  }
+
+  // Public share view - No authentication required
+  if (isPublicView) {
+    return <PublicTrackerView onBack={handleBackFromPublic} />
+  }
+
+  // Still loading
+  if (isLoading || maintenanceData === null) {
+    return <LoadingSpinner />
+  }
+
+  // Maintenance mode - only allow Admin
+  if (maintenanceData.maintenance) {
+    // Only allow actual Admin users — adminMaintenanceAccess from localStorage is NOT trusted
+    // (prevents non-admin from bypassing after Admin logged out on same computer)
+    if (currentUser?.role === 'Admin') {
+      // Admin can access, show main app with maintenance banner
+      // Continue to main app below
+    } else {
+      // Non-admin: show maintenance view
+      return (
+        <MaintenanceView
+          message={maintenanceData.message}
+          onAdminLogin={handleAdminLogin}
+        />
+      )
+    }
+  }
+
+  // Login view
+  if (activeView === 'login' || !currentUser) {
+    return (
+      <>
+        <LoginView onSeed={handleSeed} isSeeding={isSeeding} seedError={seedError} />
+        <DialogModal />
+      </>
+    )
+  }
+
+  // Close sidebar when navigating on mobile
+  const handleNavClick = (view: string) => {
+    setActiveView(view as 'dashboard')
+    setSidebarOpen(false)
+  }
+
+  // Main application
+  return (
+    <div className="flex h-screen bg-gradient-to-br from-slate-100 via-blue-50 to-violet-50 font-sans selection:bg-violet-200 overflow-hidden">
+      {/* Maintenance Banner for Admin */}
+      {maintenanceData.maintenance && currentUser?.role === 'Admin' && (
+        <div className="fixed top-0 left-0 right-0 bg-amber-500 text-amber-900 text-center py-2 text-sm font-medium z-50 flex items-center justify-center gap-2">
+          <Wrench className="w-4 h-4" />
+          <span>Mode Maintenance Aktif - Hanya Super Admin yang dapat mengakses</span>
+        </div>
+      )}
+
+      {/* Mobile sidebar backdrop */}
+      {sidebarOpen && (
+        <div
+          className="fixed inset-0 bg-black/50 z-30 md:hidden"
+          onClick={() => setSidebarOpen(false)}
+          aria-hidden="true"
+        />
+      )}
+
+      {/* Sidebar */}
+      <Sidebar isOpen={sidebarOpen} onNavigate={handleNavClick} onClose={() => setSidebarOpen(false)} />
+
+      {/* Main Content */}
+      <div className="flex-1 flex flex-col overflow-hidden min-w-0">
+        {/* Topbar */}
+        <Topbar onToggleSidebar={() => setSidebarOpen(true)} />
+
+        {/* Main Content Area - Scrollable */}
+        <main className={`flex-1 overflow-y-auto p-4 sm:p-6 lg:p-8 ${maintenanceData.maintenance ? 'mt-10' : ''}`}>
+          {activeView === 'dashboard' && <DashboardView />}
+          {activeView === 'overview' && <OverviewView />}
+          {activeView === 'inbox' && <InboxView />}
+          {activeView === 'create' && <CreateProjectView />}
+          {activeView === 'project_detail' && <ProjectDetailView />}
+          {activeView === 'users' && <UserManagementView />}
+          {activeView === 'reports' && <ReportsView />}
+          {activeView === 'profile' && <ProfileView />}
+          {activeView === 'settings' && <SettingsView />}
+          {activeView === 'announcements' && <AnnouncementView />}
+          {activeView === 'permohonan' && <SuratManagementView />}
+          {activeView === 'kegiatan' && <ProgramKegiatanView />}
+        </main>
+      </div>
+
+      {/* Global Dialog */}
+      <DialogModal />
+    </div>
+  )
+}
 
 export default function Home() {
-  return <PermohonanView />
+  return (
+    <Suspense fallback={<LoadingSpinner />}>
+      <AppContent />
+    </Suspense>
+  )
 }

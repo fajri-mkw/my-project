@@ -1,0 +1,293 @@
+import { db } from '@/lib/db'
+import { NextRequest, NextResponse } from 'next/server'
+import { checkMaintenanceMode } from '@/lib/maintenance-check'
+import { sendTaskAssignmentNotification } from '@/lib/notification-service'
+import { getRoleDisplayName } from '@/lib/store'
+
+// GET all projects with relations
+export async function GET(request: NextRequest) {
+  const maintenanceBlock = await checkMaintenanceMode(request)
+  if (maintenanceBlock) return maintenanceBlock
+  try {
+    const { searchParams } = new URL(request.url)
+    const userId = searchParams.get('userId')
+    const role = searchParams.get('role')
+    
+    const projects = await db.project.findMany({
+      include: {
+        tasks: {
+          include: {
+            assignee: true
+          }
+        },
+        driveFolders: true,
+        manager: true
+      },
+      orderBy: { createdAt: 'desc' }
+    })
+    
+    // Filter projects based on user role
+    let filteredProjects = projects
+    if (userId && role && !['Admin', 'Manager'].includes(role)) {
+      filteredProjects = projects.filter(p => 
+        p.tasks.some(t => t.assignedTo === userId)
+      )
+    }
+    
+    // Transform to match frontend format
+    const transformedProjects = filteredProjects.map(p => ({
+      id: p.id,
+      title: p.title,
+      description: p.description,
+      requesterUnit: p.requesterUnit,
+      documents: JSON.parse(p.documents || '[]'),
+      location: p.location || '',
+      executionTime: p.executionTime || '',
+      picName: p.picName || '',
+      picWhatsApp: p.picWhatsApp || '',
+      activityTypes: JSON.parse(p.activityTypes || '[]'),
+      customActivity: p.customActivity || '',
+      outputNeeds: JSON.parse(p.outputNeeds || '[]'),
+      customOutput: p.customOutput || '',
+      currentStage: p.currentStage,
+      isFastTrack: p.isFastTrack,
+      managerId: p.managerId,
+      createdAt: p.createdAt.toISOString(),
+      tasks: p.tasks.map(t => ({
+        id: t.id,
+        role: t.role,
+        stage: t.stage,
+        status: t.status,
+        assignedTo: t.assignedTo,
+        data: t.data ? JSON.parse(t.data) : {}
+      })),
+      driveFolders: p.driveFolders.map(f => ({
+        id: f.id,
+        folderId: f.folderId,
+        name: f.name,
+        desc: f.description || '',
+        color: f.color || '',
+        bg: f.bgColor || '',
+        border: f.borderColor || '',
+        link: f.link || '',
+        assignedRoles: JSON.parse(f.assignedRoles || '[]'),
+        assignedUsers: JSON.parse((f as any).assignedUsers || '[]'),
+        parentFolderId: f.parentFolderId || null
+      }))
+    }))
+    
+    return NextResponse.json(transformedProjects)
+  } catch (error) {
+    console.error('Get projects error:', error)
+    return NextResponse.json({ error: 'Failed to fetch projects' }, { status: 500 })
+  }
+}
+
+// POST create project
+export async function POST(request: NextRequest) {
+  const maintenanceBlock = await checkMaintenanceMode(request)
+  if (maintenanceBlock) return maintenanceBlock
+  try {
+    const body = await request.json()
+    const {
+      title, description, requesterUnit, location, executionTime,
+      picName, picWhatsApp, activityTypes, customActivity,
+      outputNeeds, customOutput, managerId, tasks, driveFolders,
+      isFastTrack
+    } = body
+    
+    const projectId = `PRJ-${Date.now().toString().slice(-6)}`
+    
+    const project = await db.project.create({
+      data: {
+        id: projectId,
+        title,
+        description,
+        requesterUnit,
+        location: location || null,
+        executionTime: executionTime || null,
+        picName: picName || null,
+        picWhatsApp: picWhatsApp || null,
+        activityTypes: JSON.stringify(activityTypes),
+        customActivity: customActivity || null,
+        outputNeeds: JSON.stringify(outputNeeds),
+        customOutput: customOutput || null,
+        currentStage: isFastTrack ? 4 : 1, // Fast Track: langsung ke tahap Publikasi (4)
+        isFastTrack: isFastTrack || false,
+        managerId,
+        tasks: {
+          create: tasks.map((t: { role: string; stage: number; assignedTo: string }) => ({
+            role: t.role,
+            stage: t.stage,
+            status: isFastTrack && t.stage < 4 ? 'completed' : 'pending', // Fast Track: auto-complete stages 1-3
+            assignedTo: t.assignedTo,
+            data: isFastTrack && t.stage < 4 ? JSON.stringify({ fastTracked: true }) : '{}'
+          }))
+        },
+        driveFolders: {
+          create: driveFolders.map((f: { folderId: string; name: string; desc: string; color: string; bg: string; border: string; link: string; assignedRoles: string[]; assignedUsers?: any[]; parentFolderId?: string }) => ({
+            folderId: f.folderId,
+            name: f.name,
+            description: f.desc,
+            color: f.color,
+            bgColor: f.bg,
+            borderColor: f.border,
+            link: f.link,
+            assignedRoles: JSON.stringify(f.assignedRoles),
+            assignedUsers: f.assignedUsers ? JSON.stringify(f.assignedUsers) : null,
+            parentFolderId: f.parentFolderId || null
+          }))
+        }
+      },
+      include: {
+        tasks: true,
+        driveFolders: true
+      }
+    })
+    
+    // Create notifications for tasks in the current active stage
+    const activeStage = isFastTrack ? 4 : 1
+    const activeStageTasks = project.tasks.filter(t => t.stage === activeStage && t.status === 'pending')
+    for (const task of activeStageTasks) {
+      await db.notification.create({
+        data: {
+          userId: task.assignedTo,
+          message: `Tugas baru dialokasikan untuk proyek ${title}`,
+          projectId: project.id,
+          targetView: 'project_detail',
+          read: false
+        }
+      })
+    }
+
+    // Send WhatsApp/Email notifications only for active stage users (not fast-tracked/skipped)
+    try {
+      const settings = await db.settings.findFirst({ where: { id: 'main' } })
+      const notifEnabled = settings?.notifWaEnabled || settings?.notifEmailEnabled
+      if (notifEnabled) {
+        const activeTaskUserIds = [...new Set(project.tasks.filter(t => t.status === 'pending').map(t => t.assignedTo))]
+        const users = await db.user.findMany({ where: { id: { in: activeTaskUserIds } } })
+        const manager = await db.user.findUnique({ where: { id: managerId } })
+
+        for (const user of users) {
+          const userTasks = project.tasks.filter(t => t.assignedTo === user.id)
+          const userRole = userTasks.length > 0 ? userTasks[0].role : ''
+          await sendTaskAssignmentNotification(user, {
+            notifWaEnabled: settings.notifWaEnabled || false,
+            notifWaToken: settings.notifWaToken,
+            notifWaDeviceId: settings.notifWaDeviceId,
+            notifWaSenderNumber: settings.notifWaSenderNumber,
+            notifEmailEnabled: settings.notifEmailEnabled || false,
+            notifEmailHost: settings.notifEmailHost,
+            notifEmailPort: settings.notifEmailPort,
+            notifEmailUser: settings.notifEmailUser,
+            notifEmailPass: settings.notifEmailPass,
+            notifEmailFromName: settings.notifEmailFromName
+          }, {
+            projectTitle: title,
+            managerName: manager?.name || 'Manager',
+            requesterUnit,
+            role: getRoleDisplayName(userRole)
+          })
+        }
+      }
+    } catch (err) {
+      console.error('Failed to send external notifications:', err)
+    }
+
+    return NextResponse.json({
+      id: project.id,
+      title: project.title,
+      description: project.description,
+      requesterUnit: project.requesterUnit,
+      documents: JSON.parse(project.documents || '[]'),
+      location: project.location || '',
+      executionTime: project.executionTime || '',
+      picName: project.picName || '',
+      picWhatsApp: project.picWhatsApp || '',
+      activityTypes: JSON.parse(project.activityTypes || '[]'),
+      customActivity: project.customActivity || '',
+      outputNeeds: JSON.parse(project.outputNeeds || '[]'),
+      customOutput: project.customOutput || '',
+      currentStage: project.currentStage,
+      isFastTrack: project.isFastTrack,
+      managerId: project.managerId,
+      createdAt: project.createdAt.toISOString(),
+      tasks: project.tasks.map(t => ({
+        id: t.id,
+        role: t.role,
+        stage: t.stage,
+        status: t.status,
+        assignedTo: t.assignedTo,
+        data: t.status === 'completed' && isFastTrack && t.stage < 4 ? { fastTracked: true } : (t.data ? JSON.parse(t.data) : {})
+      })),
+      driveFolders: project.driveFolders.map(f => ({
+        id: f.id,
+        folderId: f.folderId,
+        name: f.name,
+        desc: f.description || '',
+        color: f.color || '',
+        bg: f.bgColor || '',
+        border: f.borderColor || '',
+        link: f.link || '',
+        assignedRoles: JSON.parse(f.assignedRoles || '[]'),
+        assignedUsers: JSON.parse((f as any).assignedUsers || '[]'),
+        parentFolderId: f.parentFolderId || null
+      }))
+    })
+  } catch (error) {
+    console.error('Create project error:', error)
+    return NextResponse.json({ error: 'Failed to create project' }, { status: 500 })
+  }
+}
+
+// PUT update project
+export async function PUT(request: NextRequest) {
+  const maintenanceBlock = await checkMaintenanceMode(request)
+  if (maintenanceBlock) return maintenanceBlock
+  try {
+    const body = await request.json()
+    const { id, ...data } = body
+    
+    const project = await db.project.update({
+      where: { id },
+      data: {
+        title: data.title,
+        description: data.description,
+        requesterUnit: data.requesterUnit,
+        location: data.location,
+        executionTime: data.executionTime,
+        picName: data.picName,
+        picWhatsApp: data.picWhatsApp
+      }
+    })
+    
+    return NextResponse.json(project)
+  } catch (error) {
+    console.error('Update project error:', error)
+    return NextResponse.json({ error: 'Failed to update project' }, { status: 500 })
+  }
+}
+
+// DELETE project
+export async function DELETE(request: NextRequest) {
+  const maintenanceBlock = await checkMaintenanceMode(request)
+  if (maintenanceBlock) return maintenanceBlock
+  try {
+    const { searchParams } = new URL(request.url)
+    const id = searchParams.get('id')
+    
+    if (!id) {
+      return NextResponse.json({ error: 'Project ID required' }, { status: 400 })
+    }
+    
+    await db.project.delete({
+      where: { id }
+    })
+    
+    return NextResponse.json({ success: true })
+  } catch (error) {
+    console.error('Delete project error:', error)
+    return NextResponse.json({ error: 'Failed to delete project' }, { status: 500 })
+  }
+}

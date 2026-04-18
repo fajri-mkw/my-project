@@ -1,98 +1,254 @@
+// Prisma Schema - PostgreSQL (Neon)
+// Pushakin Flows - Media Workflow Management System
+
 generator client {
   provider = "prisma-client-js"
 }
 
 datasource db {
-  provider = "sqlite"
-  url      = env("DATABASE_URL")
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_DATABASE_URL")
 }
 
-// ============================================================
-// Pushakin Flows — Permohonan Pemberitaan with Fast Track
-// ============================================================
-
 model User {
-  id        String   @id @default(cuid())
-  email     String   @unique
-  name      String
-  role      String   // MANAGER | REPORTER | FOTOGRAFER | EDITOR | PUBLISHER_WEB | PUBLISHER_SOCIAL_MEDIA
-  avatarUrl String?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id                String   @id @default(cuid())
+  name              String
+  email             String   @unique
+  password          String   @default("$2a$10$placeholder")
+  whatsapp          String?
+  avatar            String?
+  role              String   @default("Reporter")
+  notifWaEnabled    Boolean  @default(true)
+  notifEmailEnabled Boolean  @default(true)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
 
-  // Relations
-  managedPermohonan    Permohonan[] @relation("ManagerPermohonan")
-  reporterAssignments  Permohonan[] @relation("ReporterAssignment")
-  fotograferAssignments Permohonan[] @relation("FotograferAssignment")
-  editorAssignments    Permohonan[] @relation("EditorAssignment")
-  publisherWebAssignments  Permohonan[] @relation("PublisherWebAssignment")
-  publisherSocialAssignments Permohonan[] @relation("PublisherSocialAssignment")
+  tasksAsAssignee   Task[]
+  notifications     Notification[]
+  projectsAsManager Project[]
+  suratTugas        SuratTugas[]
+  sops              SOP[]
+
+  @@map("users")
+}
+
+model Project {
+  id              String   @id @default(cuid())
+  title           String
+  description     String
+  requesterUnit   String
+  location        String?
+  executionTime   String?
+  picName         String?
+  picWhatsApp     String?
+  activityTypes   String
+  customActivity  String?
+  outputNeeds     String
+  customOutput    String?
+  currentStage    Int      @default(1)
+  isFastTrack     Boolean  @default(false)
+  managerId       String
+  publicToken     String?  @unique
+  documents       String?  @default("[]")
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  manager      User           @relation(fields: [managerId], references: [id], onDelete: Cascade)
+  tasks        Task[]
+  driveFolders DriveFolder[]
+  notifications Notification[]
+  suratTugas   SuratTugas[]
+
+  @@map("projects")
+}
+
+model Task {
+  id          String   @id @default(cuid())
+  role        String
+  stage       Int
+  status      String   @default("pending")
+  data        String?
+  assignedTo  String
+  projectId   String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  project  Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  assignee User    @relation(fields: [assignedTo], references: [id], onDelete: Cascade)
+
+  @@map("tasks")
+}
+
+model DriveFolder {
+  id             String  @id @default(cuid())
+  folderId       String
+  name           String
+  description    String?
+  link           String?
+  assignedRoles  String?
+  assignedUsers  String?
+  color          String?
+  bgColor        String?
+  borderColor    String?
+  projectId      String
+  parentFolderId String?
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@map("drive_folders")
+}
+
+model Notification {
+  id         String   @id @default(cuid())
+  message    String
+  projectId  String?
+  targetView String   @default("project_detail")
+  read       Boolean  @default(false)
+  userId     String
+  createdAt  DateTime @default(now())
+
+  user    User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  project Project? @relation(fields: [projectId], references: [id], onDelete: SetNull)
+
+  @@map("notifications")
+}
+
+model SuratTugas {
+  id         String   @id @default(cuid())
+  nomorSurat String   @unique
+  projectId  String
+  userId     String
+  role       String
+  stage      Int
+  status     String   @default("active")
+  read       Boolean  @default(false)
+  createdAt  DateTime @default(now())
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("surat_tugas")
+}
+
+model Settings {
+  id                    String   @id @default("main")
+  driveAutoCreate       Boolean  @default(false)
+  driveParentFolderId   String?
+  driveSharedDriveId    String?
+  driveServiceAccountKey String?
+  driveApiKey           String?
+  maintenanceMode       Boolean  @default(false)
+  maintenanceMessage    String?
+  notifWaEnabled        Boolean  @default(false)
+  notifWaToken          String?
+  notifWaDeviceId       String?
+  notifWaSenderNumber   String?
+  notifEmailEnabled     Boolean  @default(false)
+  notifEmailHost        String?
+  notifEmailPort        Int?
+  notifEmailUser        String?
+  notifEmailPass        String?
+  notifEmailFromName    String?
+  updatedAt             DateTime @updatedAt
+
+  @@map("settings")
+}
+
+model SOP {
+  id             String   @id @default(cuid())
+  title          String
+  content        String
+  type           String   @default("SOP")
+  displayMode    String   @default("text")
+  files          String?
+  slideshowSpeed Int      @default(5000)
+  published      Boolean  @default(false)
+  order          Int      @default(0)
+  authorId       String
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  author User @relation(fields: [authorId], references: [id], onDelete: Cascade)
+
+  @@map("sops")
 }
 
 model Permohonan {
-  id        String   @id @default(cuid())
-  judul     String   // Judul berita / permohonan
-  deskripsi String?  // Deskripsi detail
-  fastTrack Boolean  @default(false)
-  status    String   @default("DRAFT") // DRAFT | IN_PROGRESS | PUBLISHING | COMPLETED | REJECTED
+  id              String   @id @default(cuid())
+  title           String
+  description     String
+  requesterUnit   String
+  location        String?
+  executionTime   String?
+  picName         String?
+  picWhatsApp     String?
+  activityTypes   String   @default("[]")
+  customActivity  String?
+  outputNeeds     String   @default("[]")
+  customOutput    String?
+  status          String   @default("pending")
+  adminNote       String?
+  documents       String?  @default("[]")
+  administratorId String?
+  managerId       String?
+  projectId       String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
 
-  // Creator (Manager)
-  managerId String
-  manager   User  @relation("ManagerPermohonan", fields: [managerId], references: [id])
-
-  // ── Normal-flow assignments (SKIPPED when fastTrack = true) ──
-  reporterId   String?
-  reporter     User?  @relation("ReporterAssignment", fields: [reporterId], references: [id])
-  fotograferId String?
-  fotografer   User?  @relation("FotograferAssignment", fields: [fotograferId], references: [id])
-  editorId     String?
-  editor       User?  @relation("EditorAssignment", fields: [editorId], references: [id])
-
-  // ── Publisher assignments (used in BOTH flows) ──
-  publisherWebId    String?
-  publisherWeb      User?  @relation("PublisherWebAssignment", fields: [publisherWebId], references: [id])
-  publisherSocialId String?
-  publisherSocial   User?  @relation("PublisherSocialAssignment", fields: [publisherSocialId], references: [id])
-
-  // ── Per-step status tracking ──
-  reporterStatus        String @default("PENDING") // PENDING | SKIPPED | IN_PROGRESS | COMPLETED
-  fotograferStatus      String @default("PENDING")
-  editorStatus          String @default("PENDING")
-  publisherWebStatus    String @default("PENDING")
-  publisherSocialStatus String @default("PENDING")
-
-  // ── Content fields (filled during workflow) ──
-  kontenBerita        String? // Berita text (from reporter)
-  fotoUrls            String? // JSON array of photo URLs (from fotografer)
-  editedContent       String? // Final edited content (from editor)
-  linkPublikasiWeb    String? // URL of published web article
-  linkPublikasiSocial String? // URL of social media post
-
-  // ── Completion timestamps per step ──
-  reporterCompletedAt       DateTime?
-  fotograferCompletedAt     DateTime?
-  editorCompletedAt         DateTime?
-  publisherWebCompletedAt   DateTime?
-  publisherSocialCompletedAt DateTime?
-
-  // ── Rekapitulasi ──
-  rekapitulasi Rekapitulasi?
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  @@map("permohonan")
 }
 
-model Rekapitulasi {
-  id               String    @id @default(cuid())
-  permohonanId     String    @unique
-  permohonan       Permohonan @relation(fields: [permohonanId], references: [id], onDelete: Cascade)
-  judul            String
-  isFastTrack      Boolean
-  tanggalSelesai   DateTime?
-  linkWeb          String?
-  linkSocial       String?
-  namaPublisherWeb String?
-  namaPublisherSocial String?
-  createdAt        DateTime  @default(now())
-  updatedAt        DateTime  @updatedAt
+model Surat {
+  id              String    @id @default(cuid())
+  nomorSurat      String
+  jenisSurat      String
+  kategori        String
+  tanggalSurat    DateTime?
+  pengirim        String?
+  penerima        String?
+  perihal         String
+  deskripsi       String?
+  status          String    @default("diterima")
+  catatan         String?
+  documents       String?   @default("[]")
+  driveFolderId   String?
+  driveFolderLink String?
+  location        String?
+  executionTime   String?
+  picName         String?
+  picWhatsApp     String?
+  administratorId String?
+  managerId       String?
+  projectId       String?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@map("surat")
+}
+
+model ProgramKegiatan {
+  id              String    @id @default(cuid())
+  nomorKegiatan   String
+  jenisKegiatan   String    @default("Kegiatan")
+  kategori        String    @default("Umum")
+  tanggalKegiatan DateTime?
+  penyelenggara   String?
+  perihal         String    @map("namaKegiatan")
+  deskripsi       String?
+  status          String    @default("direncanakan")
+  catatan         String?
+  documents       String?   @default("[]")
+  driveFolderId   String?
+  driveFolderLink String?
+  location        String?
+  executionTime   String?
+  picName         String?
+  picWhatsApp     String?
+  managerId       String?
+  projectId       String?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@map("program_kegiatan")
 }
