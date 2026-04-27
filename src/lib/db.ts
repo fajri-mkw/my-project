@@ -14,9 +14,22 @@ if (process.env.NODE_ENV !== 'production') {
   globalForPrisma.prisma = db
 }
 
-// Helper to ensure database connection + schema is up to date
+// Store last connection error for debugging
+let lastConnectionError: string | null = null
+
+export function getLastDbError(): string | null {
+  return lastConnectionError
+}
+
+/**
+ * Ensure database connection + schema is up to date.
+ * Returns true if connected, false if failed.
+ * Check getLastDbError() for details on failure.
+ */
 export async function ensureDbConnection(): Promise<boolean> {
   try {
+    lastConnectionError = null
+
     // Try to connect with a timeout
     const connectPromise = db.$connect()
     const timeoutPromise = new Promise<never>((_, reject) => 
@@ -30,7 +43,10 @@ export async function ensureDbConnection(): Promise<boolean> {
 
     return true
   } catch (error) {
-    console.error('Database connection failed:', error)
+    const errorMsg = error instanceof Error ? error.message : String(error)
+    console.error('Database connection failed:', errorMsg)
+    lastConnectionError = errorMsg
+
     // Try to reset the Prisma client connection for next attempt
     try {
       await db.$disconnect()
