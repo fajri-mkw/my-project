@@ -16,19 +16,43 @@ export async function GET() {
     }
 
     const users = await db.user.findMany({
-      orderBy: { createdAt: 'desc' }
+      orderBy: { createdAt: 'desc' },
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        whatsapp: true,
+        role: true,
+        notifWaEnabled: true,
+        notifEmailEnabled: true,
+        password: true,
+        avatar: true,
+      }
     })
     
     // Return users with original DB role values
     // Display names are handled client-side via ROLE_DISPLAY_NAMES in store.ts
-    const transformedUsers = users.map(u => ({
-      id: u.id,
-      name: u.name,
-      email: u.email,
-      whatsapp: u.whatsapp || '',
-      avatar: u.avatar || '',
-      role: u.role
-    }))
+    // IMPORTANT: Replace large base64 avatars with lightweight URLs to prevent
+    // API response bloat (some avatars are 700KB+ causing browser fetch timeouts)
+    const transformedUsers = users.map(u => {
+      let avatar = u.avatar || ''
+      // Replace massive base64 avatars with a lightweight URL placeholder
+      // This reduces response from ~1.7MB to ~15KB, preventing timeout errors
+      if (avatar.startsWith('data:image') && avatar.length > 50000) {
+        avatar = `https://ui-avatars.com/api/?name=${encodeURIComponent(u.name)}&background=7c3aed&color=fff&size=150`
+      }
+      return {
+        id: u.id,
+        name: u.name,
+        email: u.email,
+        whatsapp: u.whatsapp || '',
+        avatar,
+        role: u.role,
+        notifWaEnabled: u.notifWaEnabled,
+        notifEmailEnabled: u.notifEmailEnabled,
+        hasPassword: !!(u.password && u.password !== '$2a$10$placeholder'),
+      }
+    })
     
     return NextResponse.json(transformedUsers)
   } catch (error) {

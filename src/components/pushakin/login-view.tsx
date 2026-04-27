@@ -74,41 +74,55 @@ export function LoginView({ onSeed, isSeeding, seedError }: LoginViewProps) {
 
         setServerStatus('ok')
 
-        // Then check users
-        const usersRes = await fetch('/api/users')
+        // Then check users — with timeout for slow connections
+        const controller = new AbortController()
+        const timeoutId = setTimeout(() => controller.abort(), 30000) // 30s timeout
         
-        if (!usersRes.ok) {
-          const text = await usersRes.text()
-          try {
-            const errorData = JSON.parse(text)
-            setDbError(errorData.error || 'Gagal mengambil data user')
-          } catch {
-            setDbError(`Server error: ${usersRes.status}`)
-          }
-          setHasUsers(false)
-          return
-        }
-
-        const text = await usersRes.text()
-        if (!text) {
-          setDbError(null)
-          setHasUsers(false)
-          return
-        }
-
         try {
-          const users = JSON.parse(text)
-          if (Array.isArray(users)) {
-            setHasUsers(users.length > 0)
-            setDbError(null)
-          } else if (users.error) {
-            setDbError(users.error)
+          const usersRes = await fetch('/api/users', { signal: controller.signal })
+          clearTimeout(timeoutId)
+          
+          if (!usersRes.ok) {
+            const text = await usersRes.text()
+            try {
+              const errorData = JSON.parse(text)
+              setDbError(errorData.error || 'Gagal mengambil data user')
+            } catch {
+              setDbError(`Server error: ${usersRes.status}`)
+            }
             setHasUsers(false)
-          } else {
+            return
+          }
+
+          const text = await usersRes.text()
+          if (!text) {
+            setDbError(null)
+            setHasUsers(false)
+            return
+          }
+
+          try {
+            const users = JSON.parse(text)
+            if (Array.isArray(users)) {
+              setHasUsers(users.length > 0)
+              setDbError(null)
+            } else if (users.error) {
+              setDbError(users.error)
+              setHasUsers(false)
+            } else {
+              setHasUsers(false)
+            }
+          } catch {
+            setDbError('Format data tidak valid')
             setHasUsers(false)
           }
-        } catch {
-          setDbError('Format data tidak valid')
+        } catch (fetchErr: any) {
+          clearTimeout(timeoutId)
+          if (fetchErr?.name === 'AbortError') {
+            setDbError('Server terlalu lama merespons. Coba refresh halaman.')
+          } else {
+            setDbError('Gagal mengambil data user')
+          }
           setHasUsers(false)
         }
       } catch (err) {

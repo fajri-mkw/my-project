@@ -17,7 +17,12 @@ if (process.env.NODE_ENV !== 'production') {
 // Helper to ensure database connection + schema is up to date
 export async function ensureDbConnection(): Promise<boolean> {
   try {
-    await db.$connect()
+    // Try to connect with a timeout
+    const connectPromise = db.$connect()
+    const timeoutPromise = new Promise<never>((_, reject) => 
+      setTimeout(() => reject(new Error('Database connection timeout after 10s')), 10000)
+    )
+    await Promise.race([connectPromise, timeoutPromise])
 
     // Auto-sync schema for new columns (handles Vercel migrations)
     const { ensureSchemaSync } = await import('./db-sync')
@@ -26,6 +31,12 @@ export async function ensureDbConnection(): Promise<boolean> {
     return true
   } catch (error) {
     console.error('Database connection failed:', error)
+    // Try to reset the Prisma client connection for next attempt
+    try {
+      await db.$disconnect()
+    } catch {
+      // Ignore disconnect errors
+    }
     return false
   }
 }
