@@ -51,6 +51,7 @@ export async function GET(request: NextRequest) {
       customOutput: p.customOutput || '',
       currentStage: p.currentStage,
       isFastTrack: p.isFastTrack,
+      isFastProduction: p.isFastProduction,
       managerId: p.managerId,
       createdAt: p.createdAt.toISOString(),
       tasks: p.tasks.map(t => ({
@@ -59,7 +60,8 @@ export async function GET(request: NextRequest) {
         stage: t.stage,
         status: t.status,
         assignedTo: t.assignedTo,
-        data: t.data ? JSON.parse(t.data) : {}
+        data: t.data ? JSON.parse(t.data) : {},
+        revisionCount: t.revisionCount || 0
       })),
       driveFolders: p.driveFolders.map(f => ({
         id: f.id,
@@ -93,7 +95,7 @@ export async function POST(request: NextRequest) {
       title, description, requesterUnit, location, executionTime,
       picName, picWhatsApp, activityTypes, customActivity,
       outputNeeds, customOutput, managerId, tasks, driveFolders,
-      isFastTrack
+      isFastTrack, isFastProduction
     } = body
     
     const projectId = `PRJ-${Date.now().toString().slice(-6)}`
@@ -114,6 +116,7 @@ export async function POST(request: NextRequest) {
         customOutput: customOutput || null,
         currentStage: isFastTrack ? 4 : 1, // Fast Track: langsung ke tahap Publikasi (4)
         isFastTrack: isFastTrack || false,
+        isFastProduction: isFastProduction || false,
         managerId,
         tasks: {
           create: tasks.map((t: { role: string; stage: number; assignedTo: string }) => ({
@@ -121,7 +124,8 @@ export async function POST(request: NextRequest) {
             stage: t.stage,
             status: isFastTrack && t.stage < 4 ? 'completed' : 'pending', // Fast Track: auto-complete stages 1-3
             assignedTo: t.assignedTo,
-            data: isFastTrack && t.stage < 4 ? JSON.stringify({ fastTracked: true }) : '{}'
+            data: isFastTrack && t.stage < 4 ? JSON.stringify({ fastTracked: true }) : '{}',
+            revisionCount: 0
           }))
         },
         driveFolders: {
@@ -211,6 +215,7 @@ export async function POST(request: NextRequest) {
       customOutput: project.customOutput || '',
       currentStage: project.currentStage,
       isFastTrack: project.isFastTrack,
+      isFastProduction: project.isFastProduction,
       managerId: project.managerId,
       createdAt: project.createdAt.toISOString(),
       tasks: project.tasks.map(t => ({
@@ -219,7 +224,8 @@ export async function POST(request: NextRequest) {
         stage: t.stage,
         status: t.status,
         assignedTo: t.assignedTo,
-        data: t.status === 'completed' && isFastTrack && t.stage < 4 ? { fastTracked: true } : (t.data ? JSON.parse(t.data) : {})
+        data: t.status === 'completed' && isFastTrack && t.stage < 4 ? { fastTracked: true } : (t.data ? JSON.parse(t.data) : {}),
+        revisionCount: t.revisionCount || 0
       })),
       driveFolders: project.driveFolders.map(f => ({
         id: f.id,

@@ -27,6 +27,7 @@ import {
   Mail,
   AlertTriangle,
   Zap,
+  Rocket,
   ArrowRight
 } from 'lucide-react'
 import { useState } from 'react'
@@ -474,6 +475,11 @@ export function DashboardView() {
                         {project.isFastTrack && (
                           <Badge className="bg-amber-500 text-white text-[10px] px-1.5 py-0 border-0">
                             <Zap className="h-2.5 w-2.5 mr-0.5" />FT
+                          </Badge>
+                        )}
+                        {project.isFastProduction && (
+                          <Badge className="bg-teal-500 text-white text-[10px] px-1.5 py-0 border-0">
+                            <Rocket className="h-2.5 w-2.5 mr-0.5" />FP
                           </Badge>
                         )}
                         <Badge className={cn("text-xs", currentGradient.bg, "text-white border-0")}>

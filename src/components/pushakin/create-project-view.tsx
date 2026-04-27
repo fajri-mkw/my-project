@@ -50,6 +50,13 @@ export function CreateProjectView() {
   const [driveAutoCreate, setDriveAutoCreate] = useState(false)
   const [driveCreatingStatus, setDriveCreatingStatus] = useState<string | null>(null)
   const [isFastTrack, setIsFastTrack] = useState(false)
+  const [isFastProduction, setIsFastProduction] = useState(false)
+
+  // Custom folder state
+  const [customFolders, setCustomFolders] = useState<Array<{id: string; name: string; desc: string}>>([])
+  const [showNewFolderForm, setShowNewFolderForm] = useState(false)
+  const [newFolderName, setNewFolderName] = useState('')
+  const [newFolderDesc, setNewFolderDesc] = useState('')
 
   // Track source for post-creation linking
   const [preFillSource, setPreFillSource] = useState<{ type: 'surat' | 'permohonan'; id: string } | null>(null)
@@ -196,6 +203,35 @@ export function CreateProjectView() {
     }
   }
 
+  const addCustomFolder = () => {
+    if (!newFolderName.trim()) {
+      showAlert('Nama folder tidak boleh kosong.')
+      return
+    }
+    const id = `custom-${Date.now()}`
+    const newFolder = { id, name: newFolderName.trim(), desc: newFolderDesc.trim() }
+    setCustomFolders(prev => [...prev, newFolder])
+    setSelectedFolders(prev => [...prev, id])
+    setNewFolderName('')
+    setNewFolderDesc('')
+    setShowNewFolderForm(false)
+  }
+
+  const removeCustomFolder = (folderId: string) => {
+    setCustomFolders(prev => prev.filter(f => f.id !== folderId))
+    setSelectedFolders(prev => prev.filter(id => id !== folderId))
+    setFolderRoles(prev => {
+      const updated = { ...prev }
+      delete updated[folderId]
+      return updated
+    })
+    setFolderUserAccess(prev => {
+      const updated = { ...prev }
+      delete updated[folderId]
+      return updated
+    })
+  }
+
   const toggleRoleForFolder = (folderId: string, role: string) => {
     setFolderRoles(prev => {
       const currentRoles = prev[folderId] || []
@@ -231,6 +267,12 @@ export function CreateProjectView() {
       const hasPublisher = rolesToAssign.some(r => r === 'PublisherWeb' || r === 'PublisherSocialMedia')
       if (!hasPublisher) {
         showAlert('Fast Track: Pilih minimal satu Publisher (Web atau Social Media).')
+        return
+      }
+    } else if (isFastProduction) {
+      // Fast Production: at least 1 role required (same as normal mode)
+      if (rolesToAssign.length === 0) {
+        showAlert('Fast Production: Pilih minimal satu peran/petugas untuk proyek ini.')
         return
       }
     } else if (rolesToAssign.length === 0) {
@@ -402,6 +444,7 @@ export function CreateProjectView() {
           tasks,
           driveFolders: generatedFolders,
           isFastTrack,
+          isFastProduction,
           ...(preFillFromSurat ? { suratId: preFillFromSurat.id } : {})
         })
       })
@@ -599,18 +642,20 @@ export function CreateProjectView() {
     }
 
     folderIds.forEach(folderId => {
-      const optionInfo = FOLDER_OPTIONS.find(opt => opt.id === folderId)
+      const isCustom = folderId.startsWith('custom-')
+      const optionInfo = isCustom ? null : FOLDER_OPTIONS.find(opt => opt.id === folderId)
+      const customInfo = isCustom ? customFolders.find(f => f.id === folderId) : null
       const assignedToFolder = (folderRoles[folderId] || []).filter(r => rolesToAssign.includes(r))
       const nowTs = Date.now()
       
       // Create parent folder
       folders.push({
         folderId,
-        name: optionInfo?.name || `Folder ${folderId}`,
-        desc: optionInfo?.desc || '',
-        color: optionInfo?.color || 'text-stone-600',
-        bg: optionInfo?.bg || 'bg-stone-100',
-        border: optionInfo?.border || 'border-stone-200',
+        name: isCustom ? (customInfo?.name || `Folder ${folderId}`) : (optionInfo?.name || `Folder ${folderId}`),
+        desc: isCustom ? (customInfo?.desc || '') : (optionInfo?.desc || ''),
+        color: isCustom ? 'text-teal-600' : (optionInfo?.color || 'text-stone-600'),
+        bg: isCustom ? 'bg-teal-50' : (optionInfo?.bg || 'bg-stone-100'),
+        border: isCustom ? 'border-teal-200' : (optionInfo?.border || 'border-stone-200'),
         link: `https://drive.google.com/drive/folders/mock-${folderId}-${nowTs}`,
         assignedRoles: assignedToFolder,
         assignedUsers: buildAssignedUsers(folderId)
@@ -772,7 +817,10 @@ export function CreateProjectView() {
               </div>
               <Switch
                 checked={isFastTrack}
-                onCheckedChange={setIsFastTrack}
+                onCheckedChange={(checked) => {
+                  setIsFastTrack(checked)
+                  if (checked) setIsFastProduction(false)
+                }}
                 aria-label="Toggle Fast Track"
               />
             </div>
@@ -792,6 +840,62 @@ export function CreateProjectView() {
                   <Badge variant="outline" className="bg-emerald-50 text-emerald-600 border-emerald-200 text-[10px]">
                     → {STAGES[4]}
                   </Badge>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* 🚀 Fast Production Toggle — All roles work simultaneously */}
+          <div className={`rounded-xl border-2 p-4 transition-all duration-300 ${
+            isFastProduction
+              ? 'border-teal-400 bg-teal-50/70 shadow-inner'
+              : 'border-dashed border-stone-200 bg-stone-50/50'
+          }`}>
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className={`rounded-lg p-2 transition-colors ${
+                  isFastProduction ? 'bg-teal-500 text-white' : 'bg-stone-200 text-stone-500'
+                }`}>
+                  <Rocket className="h-5 w-5" />
+                </div>
+                <div>
+                  <div className="font-semibold text-sm flex items-center gap-2">
+                    Fast Production
+                    {isFastProduction && (
+                      <Badge className="bg-teal-600 text-white text-[10px] px-1.5 py-0">
+                        AKTIF
+                      </Badge>
+                    )}
+                  </div>
+                  <p className="text-xs text-stone-500 mt-0.5">
+                    {isFastProduction
+                      ? 'Semua petugas bekerja bersamaan tanpa menunggu tahap sebelumnya'
+                      : 'Aktifkan agar semua petugas bekerja secara paralel (non-sequensial)'
+                    }
+                  </p>
+                </div>
+              </div>
+              <Switch
+                checked={isFastProduction}
+                onCheckedChange={(checked) => {
+                  setIsFastProduction(checked)
+                  if (checked) setIsFastTrack(false)
+                }}
+                aria-label="Toggle Fast Production"
+              />
+            </div>
+            {isFastProduction && (
+              <div className="mt-3 space-y-2">
+                <div className="flex items-center gap-2 text-xs text-teal-700">
+                  <Rocket className="h-3.5 w-3.5 shrink-0" />
+                  <span>Produksi tidak berurutan — semua petugas bisa bekerja dan mengunggah laporan secara fleksibel tanpa menunggu tahap sebelumnya. Petugas dapat melakukan revisi.</span>
+                </div>
+                <div className="flex flex-wrap gap-1.5 mt-1">
+                  {[1, 2, 3, 4].map(stage => (
+                    <Badge key={stage} variant="outline" className="bg-teal-50 text-teal-600 border-teal-200 text-[10px]">
+                      {STAGES[stage]}
+                    </Badge>
+                  ))}
                 </div>
               </div>
             )}
@@ -1126,11 +1230,16 @@ export function CreateProjectView() {
             <div className="flex items-center gap-2 mb-4 border-b border-stone-200 pb-2">
               <Users className="w-5 h-5 text-indigo-600" />
               <h3 className="text-sm font-semibold text-stone-800">
-                {isFastTrack ? 'Penugasan Publisher (Fast Track)' : 'Pembagian Tim & Penugasan'}
+                {isFastTrack ? 'Penugasan Publisher (Fast Track)' : isFastProduction ? 'Penugasan Paralel (Fast Production)' : 'Pembagian Tim & Penugasan'}
               </h3>
               {isFastTrack && (
                 <Badge className="bg-amber-500 text-white text-[10px] px-1.5 py-0 ml-1">
                   <Zap className="h-2.5 w-2.5 mr-0.5" />FAST TRACK
+                </Badge>
+              )}
+              {isFastProduction && (
+                <Badge className="bg-teal-600 text-white text-[10px] px-1.5 py-0 ml-1">
+                  <Rocket className="h-2.5 w-2.5 mr-0.5" />FAST PRODUCTION
                 </Badge>
               )}
             </div>
@@ -1138,6 +1247,12 @@ export function CreateProjectView() {
               <div className="mb-4 p-3 rounded-lg bg-amber-50 border border-amber-200 text-xs text-amber-700 flex items-center gap-2">
                 <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
                 <span>Pilih Publisher yang akan langsung mengerjakan tugas. Tahap lain akan otomatis dilewati.</span>
+              </div>
+            )}
+            {isFastProduction && (
+              <div className="mb-4 p-3 rounded-lg bg-teal-50 border border-teal-200 text-xs text-teal-700 flex items-center gap-2">
+                <Rocket className="h-3.5 w-3.5 shrink-0" />
+                <span>Semua petugas bisa bekerja bersamaan. Tidak ada tahap yang dilewati — semua peran tersedia untuk dipilih.</span>
               </div>
             )}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -1165,12 +1280,15 @@ export function CreateProjectView() {
                   <div key={stage} className={`p-5 rounded-2xl border ${
                     isFastTrack && stage === 4 
                       ? 'bg-amber-50/60 border-amber-300' 
-                      : 'bg-stone-50/60 border-stone-200/60'
+                      : isFastProduction
+                        ? 'bg-teal-50/40 border-teal-300'
+                        : 'bg-stone-50/60 border-stone-200/60'
                   }`}>
                     <h4 className={`text-xs font-bold uppercase tracking-wider mb-4 border-b pb-2 ${
-                      isFastTrack && stage === 4 ? 'text-amber-700 border-amber-200' : 'text-stone-600 border-stone-200'
+                      isFastTrack && stage === 4 ? 'text-amber-700 border-amber-200' : isFastProduction ? 'text-teal-700 border-teal-200' : 'text-stone-600 border-stone-200'
                     }`}>
                       {isFastTrack && stage === 4 && <Zap className="h-3 w-3 inline mr-1" />}
+                      {isFastProduction && <Rocket className="h-3 w-3 inline mr-1" />}
                       Tahap {stage}: {STAGES[stage]}
                     </h4>
                     <div className="space-y-3">
@@ -1310,6 +1428,163 @@ export function CreateProjectView() {
                   </div>
                 )
               })}
+            </div>
+
+            {/* Custom Folders */}
+            {customFolders.length > 0 && (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 ml-8 mt-4">
+                {customFolders.map(folder => {
+                  const isSelected = selectedFolders.includes(folder.id)
+                  return (
+                    <div
+                      key={folder.id}
+                      className={cn(
+                        "flex flex-col p-4 rounded-xl border-2 transition-all",
+                        isSelected 
+                          ? "bg-white border-teal-500 shadow-sm" 
+                          : "bg-stone-50/50 border-transparent hover:border-teal-200"
+                      )}
+                    >
+                      <div className="flex items-start gap-3 w-full">
+                        <Checkbox
+                          checked={isSelected}
+                          onCheckedChange={() => toggleFolder(folder.id)}
+                        />
+                        <div className="flex-1">
+                          <div className="text-[10px] font-bold text-teal-500 uppercase tracking-wider">
+                            FOLDER KUSTOM
+                          </div>
+                          <div className="text-sm font-bold text-stone-800">{folder.name}</div>
+                          {folder.desc && <div className="text-xs text-stone-500 mt-1">{folder.desc}</div>}
+                        </div>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          className="h-6 w-6 p-0 text-stone-400 hover:text-red-500 shrink-0"
+                          onClick={() => removeCustomFolder(folder.id)}
+                        >
+                          <X className="h-3.5 w-3.5" />
+                        </Button>
+                      </div>
+
+                      {isSelected && activeRolesForAssignment.length > 0 && (
+                        <div className="mt-3 pt-3 border-t border-teal-100 w-full ml-7 pl-0.5">
+                          <p className="text-[10px] font-bold text-teal-600/70 mb-2 uppercase tracking-wider">
+                            Akses Untuk:
+                          </p>
+                          <div className="space-y-2">
+                            {activeRolesForAssignment.map(role => {
+                              const isRoleAssigned = (folderRoles[folder.id] || []).includes(role)
+                              const assignedUser = users.find(u => u.role === role)
+                              if (!assignedUser) return null
+                              const access = folderUserAccess[folder.id]?.[assignedUser.id] || { download: true, upload: true }
+                              return (
+                                <div key={role} className="flex items-center justify-between gap-2 p-2 bg-stone-50 rounded-lg">
+                                  <div className="flex items-center gap-2 flex-1 min-w-0">
+                                    <Button
+                                      type="button"
+                                      variant="ghost"
+                                      size="sm"
+                                      className={cn(
+                                        "h-auto px-2 py-1 text-[10px] shrink-0",
+                                        isRoleAssigned
+                                          ? "bg-teal-600 text-white shadow-sm"
+                                          : "bg-stone-100 text-stone-500 border border-stone-200"
+                                      )}
+                                      onClick={(e) => { e.preventDefault(); toggleRoleForFolder(folder.id, role); }}
+                                    >
+                                      {role}
+                                    </Button>
+                                    <span className="text-[10px] text-stone-400 truncate">{assignedUser.name}</span>
+                                  </div>
+                                  {isRoleAssigned && (
+                                    <div className="flex items-center gap-3 shrink-0">
+                                      <label className="flex items-center gap-1 cursor-pointer select-none">
+                                        <Checkbox
+                                          checked={access.download}
+                                          onCheckedChange={() => toggleFolderUserAccess(folder.id, assignedUser.id, 'download')}
+                                          className="h-3.5 w-3.5"
+                                        />
+                                        <span className="text-[10px] font-semibold text-stone-500">DL</span>
+                                      </label>
+                                      <label className="flex items-center gap-1 cursor-pointer select-none">
+                                        <Checkbox
+                                          checked={access.upload}
+                                          onCheckedChange={() => toggleFolderUserAccess(folder.id, assignedUser.id, 'upload')}
+                                          className="h-3.5 w-3.5"
+                                        />
+                                        <span className="text-[10px] font-semibold text-stone-500">UL</span>
+                                      </label>
+                                    </div>
+                                  )}
+                                </div>
+                              )
+                            })}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+
+            {/* Create New Folder Button & Form */}
+            <div className="ml-8 mt-4">
+              {showNewFolderForm ? (
+                <div className="p-4 rounded-xl border-2 border-dashed border-teal-300 bg-teal-50/30 space-y-3">
+                  <div className="flex items-center gap-2 mb-1">
+                    <Folder className="w-4 h-4 text-teal-600" />
+                    <span className="text-xs font-bold text-teal-700 uppercase tracking-wider">Folder Baru</span>
+                  </div>
+                  <Input
+                    value={newFolderName}
+                    onChange={e => setNewFolderName(e.target.value)}
+                    placeholder="Nama folder kustom..."
+                    className="text-sm"
+                  />
+                  <Input
+                    value={newFolderDesc}
+                    onChange={e => setNewFolderDesc(e.target.value)}
+                    placeholder="Deskripsi folder..."
+                    className="text-sm"
+                  />
+                  <div className="flex gap-2">
+                    <Button
+                      type="button"
+                      size="sm"
+                      className="bg-teal-600 hover:bg-teal-700 text-white text-xs"
+                      onClick={addCustomFolder}
+                    >
+                      Tambah
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="text-xs text-stone-500"
+                      onClick={() => {
+                        setShowNewFolderForm(false)
+                        setNewFolderName('')
+                        setNewFolderDesc('')
+                      }}
+                    >
+                      Batal
+                    </Button>
+                  </div>
+                </div>
+              ) : (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="border-dashed border-teal-300 text-teal-600 hover:bg-teal-50 hover:text-teal-700 gap-1"
+                  onClick={() => setShowNewFolderForm(true)}
+                >
+                  <span>+</span> Buat Folder Baru
+                </Button>
+              )}
             </div>
           </div>
 

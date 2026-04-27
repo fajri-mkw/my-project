@@ -59,6 +59,7 @@ export interface TaskData {
   link?: string
   notes?: string
   publishLinks?: PublishLink[]
+  fastTracked?: boolean
 }
 
 export interface Task {
@@ -68,6 +69,7 @@ export interface Task {
   status: 'pending' | 'completed'
   assignedTo: string | null
   data: TaskData
+  revisionCount?: number
 }
 
 export interface DriveFolder {
@@ -99,6 +101,7 @@ export interface Project {
   customOutput: string
   currentStage: number
   isFastTrack: boolean
+  isFastProduction: boolean
   managerId: string
   createdAt: string
   documents?: Array<{
@@ -399,6 +402,7 @@ interface AppState {
   
   // Actions - Tasks
   completeTask: (projectId: string, taskId: string, taskData: TaskData) => void
+  reviseTask: (projectId: string, taskId: string, taskData: TaskData) => void
   rejectReview: (projectId: string) => void
   
   // Actions - Notifications
@@ -525,9 +529,21 @@ export const useAppStore = create<AppState>((set, get) => ({
     const updatedProjects = state.projects.map(p => {
       if (p.id !== projectId) return p
       
-      const updatedTasks = p.tasks.map(t => 
+      let updatedTasks = p.tasks.map(t => 
         t.id === taskId ? { ...t, status: 'completed' as const, data: taskData } : t
       )
+      
+      // For Fast Production: no stage gating, all tasks can be done in parallel
+      if (p.isFastProduction) {
+        const allDone = updatedTasks.every(t => t.status === 'completed')
+        if (allDone) {
+          return { ...p, tasks: updatedTasks, currentStage: 5 }
+        }
+        // Keep currentStage at the lowest stage that still has pending tasks
+        const pendingStages = updatedTasks.filter(t => t.status === 'pending').map(t => t.stage)
+        const minPending = pendingStages.length > 0 ? Math.min(...pendingStages) : p.currentStage
+        return { ...p, tasks: updatedTasks, currentStage: minPending }
+      }
       
       const currentStageTasks = updatedTasks.filter(t => t.stage === p.currentStage)
       const allCurrentDone = currentStageTasks.length > 0 && currentStageTasks.every(t => t.status === 'completed')
@@ -551,6 +567,19 @@ export const useAppStore = create<AppState>((set, get) => ({
       return { ...p, tasks: updatedTasks, currentStage: nextStage }
     })
     
+    return { projects: updatedProjects }
+  }),
+  
+  reviseTask: (projectId, taskId, taskData) => set((state) => {
+    const updatedProjects = state.projects.map(p => {
+      if (p.id !== projectId) return p
+      const updatedTasks = p.tasks.map(t =>
+        t.id === taskId
+          ? { ...t, status: 'completed' as const, data: taskData, revisionCount: (t.revisionCount || 0) + 1 }
+          : t
+      )
+      return { ...p, tasks: updatedTasks }
+    })
     return { projects: updatedProjects }
   }),
   

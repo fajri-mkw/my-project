@@ -55,7 +55,9 @@ import {
   File,
   Loader2,
   Zap,
-  SkipForward
+  SkipForward,
+  Rocket,
+  RotateCcw
 } from 'lucide-react'
 import { useState, useMemo } from 'react'
 import { cn } from '@/lib/utils'
@@ -95,7 +97,7 @@ export function ProjectDetailView() {
   const {
     currentUser, projects, selectedProjectId, users,
     setActiveView, setSelectedProjectId, deleteProject,
-    completeTask, rejectReview, showAlert, showConfirm,
+    completeTask, reviseTask, rejectReview, showAlert, showConfirm,
     updateProject, isEditProjectModalOpen, setIsEditProjectModalOpen,
     editProjectData, setEditProjectData
   } = useAppStore()
@@ -109,6 +111,7 @@ export function ProjectDetailView() {
   const [taskInputs, setTaskInputs] = useState<Record<string, string>>({})
   const [taskVerified, setTaskVerified] = useState<Record<string, boolean>>({})
   const [isUploadingDetailDoc, setIsUploadingDetailDoc] = useState(false)
+  const [revisionTaskId, setRevisionTaskId] = useState<string | null>(null)
   
   // State for multiple publish links per task
   const [taskPublishLinks, setTaskPublishLinks] = useState<Record<string, PublishLink[]>>({})
@@ -211,12 +214,18 @@ export function ProjectDetailView() {
         body: JSON.stringify({
           projectId: project.id,
           taskId,
-          taskData
+          taskData,
+          isRevision: revisionTaskId === taskId
         })
       })
       
       if (response.ok) {
-        completeTask(project.id, taskId, taskData)
+        if (revisionTaskId === taskId) {
+          reviseTask(project.id, taskId, taskData)
+          setRevisionTaskId(null)
+        } else {
+          completeTask(project.id, taskId, taskData)
+        }
       } else {
         showAlert('Gagal menyelesaikan tugas')
       }
@@ -467,44 +476,81 @@ export function ProjectDetailView() {
                   <Zap className="h-3 w-3 mr-1" />FAST TRACK
                 </Badge>
               )}
+              {project.isFastProduction && (
+                <Badge className="bg-teal-500 text-white text-[10px] px-2 py-0.5 ml-2 border-0">
+                  <Rocket className="h-3 w-3 mr-1" />FAST PRODUCTION
+                </Badge>
+              )}
             </div>
           </div>
 
           {/* Timeline */}
           <div className="mt-8">
-            <h3 className="text-xs font-bold text-stone-400 uppercase tracking-wider mb-4">
+            <h3 className="text-xs font-bold text-stone-400 uppercase tracking-wider mb-4 flex items-center gap-2">
               Alur Kerja (Timeline)
+              {project.isFastProduction && (
+                <Badge className="bg-teal-500 text-white text-[9px] px-1.5 py-0 border-0">
+                  <Rocket className="h-2.5 w-2.5 mr-0.5" />FAST PRODUCTION
+                </Badge>
+              )}
             </h3>
             <div className="hidden sm:flex items-center justify-between w-full relative">
               <div className="absolute left-0 top-1/2 -translate-y-1/2 w-full h-1 bg-stone-100 rounded-full z-0" />
-              <div 
-                className="absolute left-0 top-1/2 -translate-y-1/2 h-1 bg-indigo-500 rounded-full z-0 transition-all duration-500" 
-                style={{ width: `${((project.currentStage - 1) / 4) * 100}%` }}
-              />
+              {project.isFastProduction ? (
+                <div 
+                  className="absolute left-0 top-1/2 -translate-y-1/2 h-1 bg-teal-500 rounded-full z-0 transition-all duration-500" 
+                  style={{ width: '100%' }}
+                />
+              ) : (
+                <div 
+                  className="absolute left-0 top-1/2 -translate-y-1/2 h-1 bg-indigo-500 rounded-full z-0 transition-all duration-500" 
+                  style={{ width: `${((project.currentStage - 1) / 4) * 100}%` }}
+                />
+              )}
               
               {[1, 2, 3, 4, 5].map((stageNum) => {
                 const isCompleted = stageNum < project.currentStage
                 const isCurrent = stageNum === project.currentStage
                 const isFastTracked = project.isFastTrack && stageNum >= 1 && stageNum <= 3
+                const isFastProduction = project.isFastProduction && stageNum >= 1 && stageNum <= 4
+                
+                // Fast Production: stages 1-4 are all "active" (teal), stage 5 is pending until all done
+                const isFPActive = isFastProduction && !isCompleted
+                
                 return (
                   <div key={stageNum} className="relative z-10 flex flex-col items-center">
                     <div className={cn(
                       "w-8 h-8 rounded-full flex items-center justify-center font-bold text-sm border-4 transition-all",
-                      isFastTracked && isCompleted
-                        ? "bg-purple-500 border-purple-500 text-white"
-                        : isCompleted 
-                          ? "bg-indigo-600 border-indigo-600 text-white" 
-                          : isCurrent 
-                            ? "bg-white border-indigo-500 text-indigo-600 shadow-md ring-4 ring-indigo-50" 
-                            : "bg-stone-50 border-stone-200 text-stone-400"
+                      isFastProduction && isCompleted
+                        ? "bg-teal-600 border-teal-600 text-white"
+                        : isFPActive
+                          ? "bg-white border-teal-500 text-teal-600 shadow-md ring-4 ring-teal-50"
+                          : isFastTracked && isCompleted
+                            ? "bg-purple-500 border-purple-500 text-white"
+                            : isCompleted 
+                              ? "bg-indigo-600 border-indigo-600 text-white" 
+                              : isCurrent 
+                                ? "bg-white border-indigo-500 text-indigo-600 shadow-md ring-4 ring-indigo-50" 
+                                : "bg-stone-50 border-stone-200 text-stone-400"
                     )}>
-                      {isFastTracked && isCompleted ? <SkipForward className="w-4 h-4" /> : isCompleted ? <CheckCircle2 className="w-4 h-4" /> : stageNum}
+                      {isFastProduction && isCompleted ? <CheckCircle2 className="w-4 h-4" /> : isFastTracked && isCompleted ? <SkipForward className="w-4 h-4" /> : isCompleted ? <CheckCircle2 className="w-4 h-4" /> : stageNum}
                     </div>
                     <span className={cn(
                       "absolute top-10 text-[10px] font-bold uppercase tracking-wider w-24 text-center",
-                      isFastTracked && isCompleted ? "text-purple-600" : isCurrent ? "text-indigo-700" : isCompleted ? "text-stone-700" : "text-stone-400"
+                      isFastProduction && isCompleted 
+                        ? "text-teal-700" 
+                        : isFPActive 
+                          ? "text-teal-600" 
+                          : isFastTracked && isCompleted 
+                            ? "text-purple-600" 
+                            : isCurrent 
+                              ? "text-indigo-700" 
+                              : isCompleted 
+                                ? "text-stone-700" 
+                                : "text-stone-400"
                     )}>
                       {STAGES[stageNum]}
+                      {isFastProduction && isFPActive && <span className="block text-teal-400 text-[8px]">aktif</span>}
                       {isFastTracked && isCompleted && <span className="block text-purple-400 text-[8px]">skipped</span>}
                     </span>
                   </div>
@@ -519,12 +565,17 @@ export function ProjectDetailView() {
             <h3 className="text-xs font-bold text-stone-400 uppercase tracking-wider mb-4 flex items-center gap-2">
               <Users className="w-4 h-4" />
               <span>Progres Tim</span>
+              {project.isFastProduction && (
+                <Badge className="bg-teal-500 text-white text-[9px] px-1.5 py-0 border-0">
+                  <Rocket className="h-2.5 w-2.5 mr-0.5" />PARALEL
+                </Badge>
+              )}
             </h3>
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
               {project.tasks.map(task => {
                 const user = getUserDetails(task.assignedTo)
                 const isCompleted = task.status === 'completed'
-                const isCurrent = task.stage === project.currentStage
+                const isCurrent = project.isFastProduction ? true : task.stage === project.currentStage
                 
                 return (
                   <div
@@ -532,9 +583,13 @@ export function ProjectDetailView() {
                     className={cn(
                       "flex items-center p-3 rounded-xl border transition-all",
                       isCompleted 
-                        ? "bg-green-50/50 border-green-100" 
+                        ? project.isFastProduction 
+                          ? "bg-teal-50/50 border-teal-100" 
+                          : "bg-green-50/50 border-green-100"
                         : isCurrent 
-                          ? "bg-white border-indigo-200 shadow-sm ring-1 ring-indigo-50" 
+                          ? project.isFastProduction
+                            ? "bg-white border-teal-200 shadow-sm ring-1 ring-teal-50"
+                            : "bg-white border-indigo-200 shadow-sm ring-1 ring-indigo-50"
                           : "bg-stone-50/50 border-stone-200 opacity-70"
                     )}
                   >
@@ -550,14 +605,25 @@ export function ProjectDetailView() {
                         {getRoleDisplayName(task.role)}
                       </p>
                     </div>
-                    <div className="ml-2">
+                    <div className="ml-2 relative">
                       {isCompleted ? (
-                        <div className="bg-green-100 text-green-600 p-1.5 rounded-lg" title="Tugas Selesai">
+                        <div className={cn(
+                          "p-1.5 rounded-lg relative",
+                          project.isFastProduction ? "bg-teal-100 text-teal-600" : "bg-green-100 text-green-600"
+                        )} title={task.revisionCount && task.revisionCount > 0 ? `Tugas Selesai (Revisi ${task.revisionCount}x)` : "Tugas Selesai"}>
                           <CheckCircle2 className="w-4 h-4" />
+                          {task.revisionCount && task.revisionCount > 0 && (
+                            <span className="absolute -top-1 -right-1 bg-amber-400 text-white text-[8px] font-bold rounded-full w-3.5 h-3.5 flex items-center justify-center">
+                              {task.revisionCount}
+                            </span>
+                          )}
                         </div>
                       ) : isCurrent ? (
-                        <div className="bg-orange-100 text-orange-600 p-1.5 rounded-lg" title="Sedang Dikerjakan">
-                          <Clock className="w-4 h-4 animate-pulse" />
+                        <div className={cn(
+                          "p-1.5 rounded-lg",
+                          project.isFastProduction ? "bg-teal-100 text-teal-600" : "bg-orange-100 text-orange-600"
+                        )} title="Sedang Dikerjakan">
+                          <Clock className={cn("w-4 h-4", project.isFastProduction ? "" : "animate-pulse")} />
                         </div>
                       ) : (
                         <div className="bg-stone-200 text-stone-400 p-1.5 rounded-lg" title="Terkunci">
@@ -875,13 +941,17 @@ export function ProjectDetailView() {
           {isManagerOrAdmin ? 'Semua Tugas Proyek' : 'Tugas Anda'}
         </h3>
         {visibleTasks.map(task => {
-          const isCurrentStage = task.stage === project.currentStage
+          const isCurrentStage = project.isFastProduction ? true : task.stage === project.currentStage
           const config = ROLE_CONFIG[task.role]
           const Icon = config ? ICON_MAP[config.icon] : AlertCircle
           
           const isAssignedToMe = task.assignedTo === currentUser?.id
-          const canActOnTask = isCurrentStage && (isAssignedToMe || canManageProject)
-          const isMyActiveTask = isCurrentStage && isAssignedToMe && task.status === 'pending'
+          const canActOnTask = project.isFastProduction 
+            ? (isAssignedToMe || canManageProject) 
+            : isCurrentStage && (isAssignedToMe || canManageProject)
+          const isMyActiveTask = project.isFastProduction 
+            ? isAssignedToMe && task.status === 'pending'
+            : isCurrentStage && isAssignedToMe && task.status === 'pending'
 
           return (
             <TaskCard
@@ -902,6 +972,13 @@ export function ProjectDetailView() {
               setIsVerified={(v) => setTaskVerified(prev => ({ ...prev, [task.id]: v }))}
               onComplete={handleTaskComplete}
               onReject={handleReviewReject}
+              onRevision={(taskId) => {
+                setRevisionTaskId(taskId)
+                setTaskInputs(prev => ({ ...prev, [taskId]: '' }))
+                setTaskPublishLinks(prev => ({ ...prev, [taskId]: [] }))
+              }}
+              onCancelRevision={() => setRevisionTaskId(null)}
+              isRevising={revisionTaskId === task.id}
               visibleFolders={visibleFolders}
               publishLinks={currentTaskPublishLinks[task.id] || []}
               onAddPublishLink={() => addPublishLink(task.id)}
@@ -1100,7 +1177,7 @@ export function ProjectDetailView() {
 // Task Card Component
 interface TaskCardProps {
   task: Task
-  project: { id: string; title: string; currentStage: number; driveFolders: DriveFolder[] }
+  project: { id: string; title: string; currentStage: number; isFastProduction: boolean; executionTime?: string; driveFolders: DriveFolder[] }
   config: { stage: number; type: string; icon: string } | undefined
   Icon: React.ElementType
   isCurrentStage: boolean
@@ -1115,6 +1192,9 @@ interface TaskCardProps {
   setIsVerified: (v: boolean) => void
   onComplete: (taskId: string, taskData: { link?: string; notes?: string; publishLinks?: PublishLink[] }) => void
   onReject: () => void
+  onRevision: (taskId: string) => void
+  onCancelRevision: () => void
+  isRevising: boolean
   visibleFolders: DriveFolder[]
   publishLinks: PublishLink[]
   onAddPublishLink: () => void
@@ -1126,8 +1206,8 @@ interface TaskCardProps {
 function TaskCard({
   task, project, config, Icon, isCurrentStage, isAssignedToMe, canActOnTask,
   isMyActiveTask, canManageProject, currentUser, inputValue, setInputValue,
-  isVerified, setIsVerified, onComplete, onReject, visibleFolders,
-  publishLinks, onAddPublishLink, onRemovePublishLink, onUpdatePublishLink, onFileUploaded
+  isVerified, setIsVerified, onComplete, onReject, onRevision, onCancelRevision, isRevising,
+  visibleFolders, publishLinks, onAddPublishLink, onRemovePublishLink, onUpdatePublishLink, onFileUploaded
 }: TaskCardProps) {
   if (!config) return null
 
@@ -1288,9 +1368,9 @@ function TaskCard({
           </Badge>
         </div>
 
-        {(canActOnTask || task.status === 'completed') && (
+        {(canActOnTask || task.status === 'completed' || isRevising) && (
           <div className="mt-6 pt-6 border-t border-stone-100">
-            {task.status === 'completed' ? (
+            {task.status === 'completed' && !isRevising ? (
               <div className="bg-stone-50 p-4 rounded-xl text-sm text-stone-700 border border-stone-200">
                 <strong className="block mb-1.5 text-stone-900 text-xs uppercase tracking-wider">
                   Bukti / Link Hasil Kerja:
@@ -1339,6 +1419,26 @@ function TaskCard({
                   <p className="mt-2 text-stone-600 text-xs bg-white p-2 rounded-md border border-stone-100">
                     Catatan: {task.data.notes}
                   </p>
+                )}
+                {/* Revisi button for Fast Production projects */}
+                {project.isFastProduction && isAssignedToMe && !isRevising && (
+                  <div className="mt-3 flex items-center gap-2">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => onRevision(task.id)}
+                      className="gap-1.5 text-teal-700 border-teal-300 hover:bg-teal-50 hover:border-teal-400"
+                    >
+                      <RotateCcw className="w-3.5 h-3.5" />
+                      <span>Revisi</span>
+                    </Button>
+                    {task.revisionCount && task.revisionCount > 0 && (
+                      <Badge className="bg-amber-100 text-amber-700 text-[9px] border-amber-200 border">
+                        Revisi {task.revisionCount}x
+                      </Badge>
+                    )}
+                  </div>
                 )}
               </div>
             ) : (
@@ -1571,12 +1671,60 @@ function TaskCard({
             )}
 
             {/* Action Buttons */}
-            {task.status === 'pending' && (
+            {(task.status === 'pending' || isRevising) && (
               <div className={cn(
                 "flex flex-col sm:flex-row items-start sm:items-center justify-between p-5 rounded-2xl border",
-                !isAssignedToMe ? "bg-red-50/50 border-red-200" : "bg-indigo-50/50 border-indigo-200"
+                isRevising 
+                  ? "bg-teal-50/50 border-teal-200"
+                  : !isAssignedToMe ? "bg-red-50/50 border-red-200" : "bg-indigo-50/50 border-indigo-200"
               )}>
-                {!isReview ? (
+                {isRevising ? (
+                  <>
+                    <label className="flex items-center gap-3 cursor-pointer mb-4 sm:mb-0 group">
+                      <Checkbox
+                        checked={isVerified}
+                        onCheckedChange={(checked) => setIsVerified(!!checked)}
+                      />
+                      <div className="flex flex-col">
+                        <span className={cn(
+                          "text-sm font-bold transition-colors",
+                          isVerified ? "text-teal-800" : "text-stone-700 group-hover:text-teal-600"
+                        )}>
+                          Verifikasi Revisi
+                        </span>
+                        <span className="text-[10px] text-stone-500 font-medium">
+                          Saya menyatakan hasil revisi telah selesai.
+                        </span>
+                      </div>
+                    </label>
+                    <div className="flex gap-2">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        onClick={() => {
+                          setInputValue(task.data?.link || '')
+                          onCancelRevision()
+                        }}
+                        className="border-stone-300 text-stone-600 hover:bg-stone-50"
+                      >
+                        Batal
+                      </Button>
+                      <Button
+                        disabled={!isVerified || !isValid()}
+                        onClick={handleComplete}
+                        className={cn(
+                          "gap-2",
+                          isVerified && isValid()
+                            ? "bg-teal-600 hover:bg-teal-700 ring-2 ring-teal-200 ring-offset-2"
+                            : "bg-stone-200 text-stone-400 cursor-not-allowed shadow-none"
+                        )}
+                      >
+                        <RotateCcw className="w-4 h-4" />
+                        <span>Kirim Revisi</span>
+                      </Button>
+                    </div>
+                  </>
+                ) : !isReview ? (
                   <>
                     <label className="flex items-center gap-3 cursor-pointer mb-4 sm:mb-0 group">
                       <Checkbox

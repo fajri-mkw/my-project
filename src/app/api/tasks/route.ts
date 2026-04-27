@@ -86,11 +86,31 @@ export async function PUT(request: NextRequest) {
     }
     
     // Handle task completion
+    // Support for revision: if isRevision is true, allow re-completing a completed task
+    const { isRevision } = body
+    
+    // For Fast Production: allow completing tasks at any stage
+    const existingTask = await db.task.findUnique({ where: { id: taskId } })
+    if (!existingTask) {
+      return NextResponse.json({ error: 'Task not found' }, { status: 404 })
+    }
+    
+    const proj = await db.project.findUnique({ where: { id: projectId } })
+    
+    // For Fast Production projects: allow completing any task regardless of stage
+    // For normal/Fast Track: only allow completing tasks in current stage
+    if (!proj?.isFastProduction && existingTask.stage !== proj?.currentStage && !isRevision) {
+      return NextResponse.json({ error: 'Task not in current stage' }, { status: 400 })
+    }
+    
+    const revisionCount = (existingTask.revisionCount || 0) + (isRevision ? 1 : 0)
+    
     const task = await db.task.update({
       where: { id: taskId },
       data: {
         status: 'completed',
-        data: JSON.stringify(taskData)
+        data: JSON.stringify(taskData),
+        revisionCount: isRevision ? revisionCount : existingTask.revisionCount || 0
       },
       include: { project: true }
     })
@@ -100,8 +120,42 @@ export async function PUT(request: NextRequest) {
       where: { projectId }
     })
     
-    // Get project to check isFastTrack
+    // Get project to check isFastTrack/isFastProduction
     const project = await db.project.findUnique({ where: { id: projectId } })
+    
+    // For Fast Production: check if ALL tasks across ALL stages are done
+    if (project?.isFastProduction) {
+      const allDone = projectTasks.every(t => t.status === 'completed')
+      if (allDone) {
+        await db.project.update({
+          where: { id: projectId },
+          data: { currentStage: 5 }
+        })
+      } else {
+        // Update currentStage to the lowest stage with pending tasks
+        const pendingStages = projectTasks.filter(t => t.status === 'pending').map(t => t.stage)
+        if (pendingStages.length > 0) {
+          const minPending = Math.min(...pendingStages)
+          if (minPending !== project.currentStage) {
+            await db.project.update({
+              where: { id: projectId },
+              data: { currentStage: minPending }
+            })
+          }
+        }
+      }
+      
+      return NextResponse.json({
+        success: true,
+        task: {
+          id: task.id,
+          status: task.status,
+          data: JSON.parse(task.data || '{}'),
+          revisionCount: task.revisionCount || 0
+        },
+        newStage: project.currentStage
+      })
+    }
     
     const currentStageTasks = projectTasks.filter(t => t.stage === task.project.currentStage)
     const allCurrentDone = currentStageTasks.length > 0 && currentStageTasks.every(t => t.status === 'completed')
