@@ -112,6 +112,11 @@ export function SuratManagementView() {
   const canManageSurat = isAdministrator || isAdmin
   const managers = users.filter(u => u.role === 'Manager')
 
+  // Administrator sees "Nama Kegiatan" instead of "Perihal"
+  const perihalLabel = isAdministrator ? 'Nama Kegiatan' : 'Perihal'
+  const perihalPlaceholder = isAdministrator ? 'Nama kegiatan...' : 'Perihal surat...'
+  const perihalValidation = isAdministrator ? 'Nama kegiatan wajib diisi' : 'Perihal surat wajib diisi'
+
   // Fetch surat
   const fetchSurat = useCallback(async () => {
     if (!currentUser) return
@@ -192,7 +197,7 @@ export function SuratManagementView() {
     if (!files) return
     Array.from(files).forEach(file => {
       const fileId = `upload-${Date.now()}-${Math.random().toString(36).slice(2)}`
-      // Rename format: Surat_Pengirim_Perihal.ext
+      // Rename format: Surat_Pengirim_Perihal/NamaKegiatan.ext
       const pengirim = formData.pengirim?.trim().replace(/[/\\?%*:|"<>]/g, '-') || 'Pengirim'
       const perihal = formData.perihal?.trim().replace(/[/\\?%*:|"<>]/g, '-') || 'Perihal'
       const ext = file.name.split('.').pop() || ''
@@ -318,7 +323,7 @@ export function SuratManagementView() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!formData.perihal.trim()) {
-      showAlert('Perihal surat wajib diisi')
+      showAlert(perihalValidation)
       return
     }
 
@@ -644,7 +649,7 @@ export function SuratManagementView() {
                 <div className="relative flex-1">
                   <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-stone-400" />
                   <Input
-                    placeholder="Cari surat (nomor, perihal, pengirim/penerima)..."
+                    placeholder={`Cari surat (nomor, ${perihalLabel.toLowerCase()}, pengirim/penerima)...`}
                     value={searchTerm}
                     onChange={(e) => setSearchTerm(e.target.value)}
                     className="pl-10"
@@ -728,7 +733,7 @@ export function SuratManagementView() {
                     <TableRow className="bg-stone-50 hover:bg-stone-50">
                       <TableHead className="w-[60px] text-center text-xs font-semibold">No</TableHead>
                       <TableHead className="min-w-[100px] text-xs font-semibold">No. Surat</TableHead>
-                      <TableHead className="min-w-[200px] text-xs font-semibold">Perihal</TableHead>
+                      <TableHead className="min-w-[200px] text-xs font-semibold">{perihalLabel}</TableHead>
                       <TableHead className="min-w-[110px] text-xs font-semibold">Kategori</TableHead>
                       <TableHead className="min-w-[100px] text-xs font-semibold">Status</TableHead>
                       <TableHead className="min-w-[120px] text-xs font-semibold">{activeTab === 'keluar' ? 'Penerima' : 'Pengirim'}</TableHead>
@@ -1042,7 +1047,7 @@ export function SuratManagementView() {
               )}
             </div>
 
-            {/* No. Surat & Perihal */}
+            {/* No. Surat & Nama Kegiatan/Perihal */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label htmlFor="nomorSurat" className="font-semibold">No. Surat</Label>
@@ -1050,8 +1055,8 @@ export function SuratManagementView() {
                 <p className="text-xs text-stone-400">Kosongkan untuk nomor surat otomatis</p>
               </div>
               <div className="space-y-2">
-                <Label htmlFor="perihal" className="font-semibold">Perihal *</Label>
-                <Input id="perihal" required value={formData.perihal} onChange={e => setFormData(prev => ({ ...prev, perihal: e.target.value }))} placeholder="Perihal surat..." />
+                <Label htmlFor="perihal" className="font-semibold">{perihalLabel} *</Label>
+                <Input id="perihal" required value={formData.perihal} onChange={e => setFormData(prev => ({ ...prev, perihal: e.target.value }))} placeholder={perihalPlaceholder} />
               </div>
             </div>
 
@@ -1197,7 +1202,7 @@ export function SuratManagementView() {
                   <UploadCloud className="w-8 h-8 text-stone-400" />
                   <span className="text-sm text-stone-600">Klik untuk upload dokumen</span>
                   <span className="text-xs text-stone-400">PDF, Word, Gambar (maks. 10MB)</span>
-                  <span className="text-[10px] text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full">Format: Surat_Pengirim_Perihal</span>
+                  <span className="text-[10px] text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full">Format: Surat_Pengirim_{perihalLabel.replace(' ', '_')}</span>
                 </label>
               </div>
               {formData.documents.length > 0 && (
