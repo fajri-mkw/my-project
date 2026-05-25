@@ -1,6 +1,6 @@
 'use client'
 
-import { Suspense, useEffect, useState, useCallback, useMemo, useRef } from 'react'
+import { Suspense, useEffect, useState, useCallback, useRef } from 'react'
 import { useSearchParams } from 'next/navigation'
 import dynamic from 'next/dynamic'
 import { useAppStore, type User } from '@/lib/store'
@@ -448,8 +448,11 @@ function AppContent() {
     setSidebarOpen(false)
   }
 
-  // Memoize the active view component to avoid unnecessary re-renders
-  const ActiveViewComponent = useMemo(() => {
+  // Render active view — NOT wrapped in useMemo because:
+  // 1. Dynamic imports already handle lazy loading
+  // 2. useMemo wrapping JSX with component instances causes React error #310
+  //    ("Cannot update a component while rendering a different component")
+  const renderActiveView = () => {
     switch (activeView) {
       case 'dashboard': return <DashboardView />
       case 'overview': return <OverviewView />
@@ -465,7 +468,7 @@ function AppContent() {
       case 'kegiatan': return <ProgramKegiatanView />
       default: return <DashboardView />
     }
-  }, [activeView])
+  }
 
   // Main application
   return (
@@ -498,7 +501,7 @@ function AppContent() {
         {/* Main Content Area - Scrollable */}
         <main className={`flex-1 overflow-y-auto p-4 sm:p-6 lg:p-8 ${maintenanceData.maintenance ? 'mt-10' : ''}`}>
           <Suspense fallback={<ViewLoading />}>
-            {ActiveViewComponent}
+            {renderActiveView()}
           </Suspense>
         </main>
       </div>
