@@ -15,6 +15,7 @@ export async function GET() {
       }, { status: 500 })
     }
 
+    // Single query to fetch all user data (was 2 queries before)
     const users = await db.user.findMany({
       orderBy: { createdAt: 'desc' },
       select: {
@@ -25,28 +26,17 @@ export async function GET() {
         role: true,
         notifWaEnabled: true,
         notifEmailEnabled: true,
-        // Optimization: Don't fetch password hash — just check existence in DB
-        // This avoids sending ~60 byte bcrypt hash per user in the response
-        _count: {
-          select: { tasksAsAssignee: true }
-        }
+        password: true,
+        avatar: true,
       }
     })
-    
-    // Check which users have passwords set (single query instead of per-user)
-    const usersWithPasswords = await db.user.findMany({
-      select: { id: true, password: true, avatar: true }
-    })
-    const passwordMap = new Map(usersWithPasswords.map(u => [u.id, u.password]))
-    const avatarMap = new Map(usersWithPasswords.map(u => [u.id, u.avatar]))
     
     // Return users with original DB role values
     // Display names are handled client-side via ROLE_DISPLAY_NAMES in store.ts
     // IMPORTANT: Replace large base64 avatars with lightweight URLs to prevent
     // API response bloat (some avatars are 700KB+ causing browser fetch timeouts)
     const transformedUsers = users.map(u => {
-      const avatar = avatarMap.get(u.id) || ''
-      const password = passwordMap.get(u.id)
+      const avatar = u.avatar || ''
       // Replace massive base64 avatars with a lightweight URL placeholder
       // This reduces response from ~1.7MB to ~15KB, preventing timeout errors
       const finalAvatar = (avatar.startsWith('data:image') && avatar.length > 50000)
@@ -61,11 +51,13 @@ export async function GET() {
         role: u.role,
         notifWaEnabled: u.notifWaEnabled,
         notifEmailEnabled: u.notifEmailEnabled,
-        hasPassword: !!(password && password !== '$2a$10$placeholder'),
+        hasPassword: !!(u.password && u.password !== '$2a$10$placeholder'),
       }
     })
     
-    return NextResponse.json(transformedUsers)
+    return NextResponse.json(transformedUsers, {
+      headers: { 'Cache-Control': 'private, max-age=10, stale-while-revalidate=30' }
+    })
   } catch (error) {
     console.error('Get users error:', error)
     return NextResponse.json({ 

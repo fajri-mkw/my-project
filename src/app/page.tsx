@@ -295,7 +295,7 @@ function AppContent() {
   }, [fetchMaintenanceStatus])
 
   // Consolidated data fetch for role-specific data - runs once when user logs in
-  // instead of 5 separate polling intervals
+  // ALL fetches run in PARALLEL for maximum speed (was sequential before)
   useEffect(() => {
     if (!currentUser) return
     
@@ -305,27 +305,24 @@ function AppContent() {
     lastFetchedUserId.current = userId
 
     const fetchRoleData = async () => {
+      // Build all fetch promises in parallel — much faster than sequential await
+      const fetchPromises: Promise<void>[] = []
+
       // Fetch notifications for all logged-in users
-      try {
-        const notifRes = await fetch(`/api/notifications?userId=${currentUser.id}`)
-        if (notifRes.ok) {
-          const data = await notifRes.json()
-          setNotifications(data)
-        }
-      } catch (error) {
-        console.error('Failed to fetch notifications:', error)
-      }
+      fetchPromises.push(
+        fetch(`/api/notifications?userId=${currentUser.id}`)
+          .then(res => res.ok ? res.json() : null)
+          .then(data => { if (data) setNotifications(data) })
+          .catch(error => console.error('Failed to fetch notifications:', error))
+      )
 
       // Fetch surat tugas for all logged-in users
-      try {
-        const suratRes = await fetch(`/api/surat-tugas?userId=${currentUser.id}`)
-        if (suratRes.ok) {
-          const data = await suratRes.json()
-          setSuratTugas(data)
-        }
-      } catch (error) {
-        console.error('Failed to fetch surat tugas:', error)
-      }
+      fetchPromises.push(
+        fetch(`/api/surat-tugas?userId=${currentUser.id}`)
+          .then(res => res.ok ? res.json() : null)
+          .then(data => { if (data) setSuratTugas(data) })
+          .catch(error => console.error('Failed to fetch surat tugas:', error))
+      )
 
       // Role-specific fetches (Administrator, Manager, Admin)
       if (['Administrator', 'Manager', 'Admin'].includes(currentUser.role)) {
@@ -333,42 +330,36 @@ function AppContent() {
         const params = new URLSearchParams({ userId: currentUser.id, userRole: role })
 
         // Fetch permohonan
-        try {
-          const res = await fetch(`/api/permohonan?${params}`)
-          if (res.ok) {
-            const data = await res.json()
-            setPermohonanList(data)
-          }
-        } catch (error) {
-          console.error('Failed to fetch permohonan:', error)
-        }
+        fetchPromises.push(
+          fetch(`/api/permohonan?${params}`)
+            .then(res => res.ok ? res.json() : null)
+            .then(data => { if (data) setPermohonanList(data) })
+            .catch(error => console.error('Failed to fetch permohonan:', error))
+        )
 
         // Fetch surat
-        try {
-          const res = await fetch(`/api/surat?${params}`)
-          if (res.ok) {
-            const data = await res.json()
-            setSuratList(data)
-          }
-        } catch (error) {
-          console.error('Failed to fetch surat:', error)
-        }
+        fetchPromises.push(
+          fetch(`/api/surat?${params}`)
+            .then(res => res.ok ? res.json() : null)
+            .then(data => { if (data) setSuratList(data) })
+            .catch(error => console.error('Failed to fetch surat:', error))
+        )
       }
 
       // Fetch program kegiatan for Manager/Admin only
       if (['Manager', 'Admin'].includes(currentUser.role)) {
         const role = currentUser.role
         const params = new URLSearchParams({ userId: currentUser.id, userRole: role })
-        try {
-          const res = await fetch(`/api/program-kegiatan?${params}`)
-          if (res.ok) {
-            const data = await res.json()
-            setKegiatanList(data)
-          }
-        } catch (error) {
-          console.error('Failed to fetch program kegiatan:', error)
-        }
+        fetchPromises.push(
+          fetch(`/api/program-kegiatan?${params}`)
+            .then(res => res.ok ? res.json() : null)
+            .then(data => { if (data) setKegiatanList(data) })
+            .catch(error => console.error('Failed to fetch program kegiatan:', error))
+        )
       }
+
+      // Execute ALL fetches in parallel — reduces total wait time from sum to max
+      await Promise.all(fetchPromises)
     }
 
     fetchRoleData()

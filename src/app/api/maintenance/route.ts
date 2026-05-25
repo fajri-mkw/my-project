@@ -15,6 +15,8 @@ export async function GET() {
     return NextResponse.json({
       maintenance: settings?.maintenanceMode ?? false,
       message: settings?.maintenanceMessage ?? null
+    }, {
+      headers: { 'Cache-Control': 'private, max-age=5, stale-while-revalidate=15' }
     })
   } catch (error) {
     console.error('Error fetching maintenance status:', error)

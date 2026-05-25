@@ -1,16 +1,23 @@
 // Auto-migration utility for Pushakin Flows
 // Ensures database schema matches Prisma schema by adding missing columns
 // Supports both PostgreSQL (Vercel/Neon) and SQLite (local dev)
+//
+// PERFORMANCE: Uses a version-based check — after all migrations succeed,
+// a version number is stored in the settings table. On subsequent cold starts,
+// only 1 query is needed (version check) instead of 26+ migration queries.
 
 import { db } from './db'
+
+// Increment this when adding new migrations
+const SCHEMA_VERSION = 3
 
 let syncPerformed = false
 let syncPromise: Promise<boolean> | null = null
 
 /**
  * Ensures all columns added in recent schema changes exist in the database.
- * Safe to call multiple times — uses IF NOT EXISTS / PRAGMA checks.
- * Uses parallel execution for better cold-start performance.
+ * Uses version-based skip: if the stored version matches SCHEMA_VERSION,
+ * all migrations are skipped (1 query instead of 26+).
  */
 export async function ensureSchemaSync(): Promise<boolean> {
   if (syncPerformed) return true
@@ -22,6 +29,13 @@ export async function ensureSchemaSync(): Promise<boolean> {
 
 async function performSchemaSync(): Promise<boolean> {
   try {
+    // Version-based skip: check if we've already applied this version
+    if (await isSchemaVersionCurrent()) {
+      syncPerformed = true
+      console.log(`[DB Sync] Schema version ${SCHEMA_VERSION} already applied — skipping migrations`)
+      return true
+    }
+
     const isPostgres = !!process.env.DIRECT_DATABASE_URL || 
       (process.env.DATABASE_URL?.startsWith('postgresql') || 
        process.env.DATABASE_URL?.startsWith('postgres'))
@@ -32,13 +46,48 @@ async function performSchemaSync(): Promise<boolean> {
       await syncSqlite()
     }
 
+    // Mark schema version as current
+    await setSchemaVersion(SCHEMA_VERSION)
+
     syncPerformed = true
-    console.log('[DB Sync] Schema sync completed successfully')
+    console.log(`[DB Sync] Schema sync completed successfully (version ${SCHEMA_VERSION})`)
     return true
   } catch (error) {
     console.error('[DB Sync] Schema sync failed (non-fatal):', error)
     syncPerformed = true
     return false
+  }
+}
+
+/**
+ * Check if the stored schema version matches our expected version.
+ * This replaces 26+ individual migration checks with a single query.
+ */
+async function isSchemaVersionCurrent(): Promise<boolean> {
+  try {
+    const settings = await db.settings.findUnique({
+      where: { id: 'schema_version' },
+      select: { maintenanceMessage: true } // reuse existing column to store version
+    })
+    return settings?.maintenanceMessage === String(SCHEMA_VERSION)
+  } catch {
+    // If settings table doesn't exist yet, we need to run migrations
+    return false
+  }
+}
+
+/**
+ * Store the current schema version after successful migration.
+ */
+async function setSchemaVersion(version: number): Promise<void> {
+  try {
+    await db.settings.upsert({
+      where: { id: 'schema_version' },
+      update: { maintenanceMessage: String(version) },
+      create: { id: 'schema_version', maintenanceMessage: String(version) }
+    })
+  } catch (error) {
+    console.error('[DB Sync] Failed to store schema version:', error)
   }
 }
 

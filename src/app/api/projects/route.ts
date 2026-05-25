@@ -88,7 +88,9 @@ export async function GET(request: NextRequest) {
       }))
     }))
     
-    return NextResponse.json(transformedProjects)
+    return NextResponse.json(transformedProjects, {
+      headers: { 'Cache-Control': 'private, max-age=10, stale-while-revalidate=30' }
+    })
   } catch (error) {
     console.error('Get projects error:', error)
     return NextResponse.json({ error: 'Failed to fetch projects' }, { status: 500 })
