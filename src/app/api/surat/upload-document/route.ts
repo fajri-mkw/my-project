@@ -1,4 +1,4 @@
-import { db } from '@/lib/db'
+import { db, ensureDbConnection } from '@/lib/db'
 import { NextRequest, NextResponse } from 'next/server'
 import { checkMaintenanceMode } from '@/lib/maintenance-check'
 import { google } from 'googleapis'
@@ -164,6 +164,7 @@ export async function POST(request: NextRequest) {
   const maintenanceBlock = await checkMaintenanceMode(request)
   if (maintenanceBlock) return maintenanceBlock
   try {
+    await ensureDbConnection()
     const formData = await request.formData()
     const file = formData.get('file') as File | null
     const suratId = formData.get('suratId') as string | null
@@ -343,6 +344,7 @@ export async function DELETE(request: NextRequest) {
   const maintenanceBlock = await checkMaintenanceMode(request)
   if (maintenanceBlock) return maintenanceBlock
   try {
+    await ensureDbConnection()
     const { searchParams } = new URL(request.url)
     const suratId = searchParams.get('suratId')
     const documentId = searchParams.get('documentId')

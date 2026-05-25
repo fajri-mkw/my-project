@@ -1,10 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { db } from '@/lib/db'
+import { db, ensureDbConnection } from '@/lib/db'
 import bcrypt from 'bcryptjs'
 
 // POST - Change user password
 export async function POST(request: NextRequest) {
   try {
+    await ensureDbConnection()
     const body = await request.json()
     const { userId, currentPassword, newPassword } = body
 

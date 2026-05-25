@@ -1,4 +1,4 @@
-import { db } from '@/lib/db'
+import { db, ensureDbConnection } from '@/lib/db'
 import { NextRequest, NextResponse } from 'next/server'
 import { sendTestNotification } from '@/lib/notification-service'
 
@@ -12,6 +12,7 @@ function maskSecret(val: string | null): string {
 // GET notification settings (masked)
 export async function GET() {
   try {
+    await ensureDbConnection()
     let settings = await db.settings.findUnique({ where: { id: 'main' } })
     if (!settings) {
       settings = await db.settings.create({ data: { id: 'main' } })
@@ -40,6 +41,7 @@ export async function GET() {
 // PUT update notification settings
 export async function PUT(request: NextRequest) {
   try {
+    await ensureDbConnection()
     const body = await request.json()
 
     const updateData: Record<string, any> = {}
@@ -85,6 +87,7 @@ export async function PUT(request: NextRequest) {
 // POST test notification
 export async function POST(request: NextRequest) {
   try {
+    await ensureDbConnection()
     const body = await request.json()
     const { adminUserId } = body
 

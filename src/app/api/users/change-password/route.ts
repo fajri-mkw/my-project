@@ -1,9 +1,10 @@
-import { db } from '@/lib/db'
+import { db, ensureDbConnection } from '@/lib/db'
 import { NextRequest, NextResponse } from 'next/server'
 import bcrypt from 'bcryptjs'
 
 export async function POST(request: NextRequest) {
   try {
+    await ensureDbConnection()
     const body = await request.json()
     const { userId, currentPassword, newPassword } = body
 

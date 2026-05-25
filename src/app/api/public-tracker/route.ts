@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { db } from '@/lib/db'
+import { db, ensureDbConnection } from '@/lib/db'
 
 // GET - Get all projects for public tracker with time filter
 export async function GET(request: NextRequest) {
+  await ensureDbConnection()
   try {
     const { searchParams } = new URL(request.url)
     const timeFilter = searchParams.get('filter') || 'all'

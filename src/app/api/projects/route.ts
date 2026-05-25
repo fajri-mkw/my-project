@@ -1,4 +1,4 @@
-import { db } from '@/lib/db'
+import { db, ensureDbConnection } from '@/lib/db'
 import { NextRequest, NextResponse } from 'next/server'
 import { checkMaintenanceMode } from '@/lib/maintenance-check'
 import { sendTaskAssignmentNotification } from '@/lib/notification-service'
@@ -8,6 +8,7 @@ import { getRoleDisplayName } from '@/lib/store'
 export async function GET(request: NextRequest) {
   const maintenanceBlock = await checkMaintenanceMode(request)
   if (maintenanceBlock) return maintenanceBlock
+  await ensureDbConnection()
   try {
     const { searchParams } = new URL(request.url)
     const userId = searchParams.get('userId')
@@ -114,7 +115,7 @@ export async function POST(request: NextRequest) {
         customActivity: customActivity || null,
         outputNeeds: JSON.stringify(outputNeeds),
         customOutput: customOutput || null,
-        currentStage: isFastTrack ? 4 : 1, // Fast Track: langsung ke tahap Publikasi (4)
+        currentStage: isFastTrack ? 5 : 1, // Fast Track: langsung ke tahap Publikasi (5)
         isFastTrack: isFastTrack || false,
         isFastProduction: isFastProduction || false,
         managerId,
@@ -122,9 +123,9 @@ export async function POST(request: NextRequest) {
           create: tasks.map((t: { role: string; stage: number; assignedTo: string }) => ({
             role: t.role,
             stage: t.stage,
-            status: isFastTrack && t.stage < 4 ? 'completed' : 'pending', // Fast Track: auto-complete stages 1-3
+            status: isFastTrack && t.stage < 5 ? 'completed' : 'pending', // Fast Track: auto-complete stages 1-4
             assignedTo: t.assignedTo,
-            data: isFastTrack && t.stage < 4 ? JSON.stringify({ fastTracked: true }) : '{}',
+            data: isFastTrack && t.stage < 5 ? JSON.stringify({ fastTracked: true }) : '{}',
             revisionCount: 0
           }))
         },
@@ -150,7 +151,7 @@ export async function POST(request: NextRequest) {
     })
     
     // Create notifications for tasks in the current active stage
-    const activeStage = isFastTrack ? 4 : 1
+    const activeStage = isFastTrack ? 5 : 1
     const activeStageTasks = project.tasks.filter(t => t.stage === activeStage && t.status === 'pending')
     for (const task of activeStageTasks) {
       await db.notification.create({
@@ -224,7 +225,7 @@ export async function POST(request: NextRequest) {
         stage: t.stage,
         status: t.status,
         assignedTo: t.assignedTo,
-        data: t.status === 'completed' && isFastTrack && t.stage < 4 ? { fastTracked: true } : (t.data ? JSON.parse(t.data) : {}),
+        data: t.status === 'completed' && isFastTrack && t.stage < 5 ? { fastTracked: true } : (t.data ? JSON.parse(t.data) : {}),
         revisionCount: t.revisionCount || 0
       })),
       driveFolders: project.driveFolders.map(f => ({

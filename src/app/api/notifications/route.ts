@@ -1,4 +1,4 @@
-import { db } from '@/lib/db'
+import { db, ensureDbConnection } from '@/lib/db'
 import { NextRequest, NextResponse } from 'next/server'
 import { checkMaintenanceMode } from '@/lib/maintenance-check'
 
@@ -7,6 +7,7 @@ export async function GET(request: NextRequest) {
   const maintenanceBlock = await checkMaintenanceMode(request)
   if (maintenanceBlock) return maintenanceBlock
   try {
+    await ensureDbConnection()
     const { searchParams } = new URL(request.url)
     const userId = searchParams.get('userId')
     
@@ -40,6 +41,7 @@ export async function PUT(request: NextRequest) {
   const maintenanceBlock = await checkMaintenanceMode(request)
   if (maintenanceBlock) return maintenanceBlock
   try {
+    await ensureDbConnection()
     const body = await request.json()
     const { id } = body
     

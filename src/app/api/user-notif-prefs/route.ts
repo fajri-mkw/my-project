@@ -1,9 +1,10 @@
-import { db } from '@/lib/db'
+import { db, ensureDbConnection } from '@/lib/db'
 import { NextRequest, NextResponse } from 'next/server'
 
 // PUT update current user's notification preferences
 export async function PUT(request: NextRequest) {
   try {
+    await ensureDbConnection()
     const body = await request.json()
     const { userId, notifWaEnabled, notifEmailEnabled } = body
 

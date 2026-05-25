@@ -68,14 +68,17 @@ async function syncSqlite(): Promise<void> {
   await renameSqliteRole('surat_tugas', 'role', 'EditorWebSocialMedia', 'EditorWebArticle')
 
   // === Stage shift migration: Insert new stage 3 (Finalization), shift 3→4, 4→5, 5→6 ===
-  // Must run in reverse order (5→6 first) to avoid overwriting
+  // Uses role-based conditions for tasks to prevent double-migration
+  // Projects: shift currentStage (safe because project stages are sequential)
   await shiftSqliteStage('projects', 'currentStage', 5, 6)
   await shiftSqliteStage('projects', 'currentStage', 4, 5)
   await shiftSqliteStage('projects', 'currentStage', 3, 4)
-  // Also shift task stages
-  await shiftSqliteStage('tasks', 'stage', 4, 5)
-  await shiftSqliteStage('tasks', 'stage', 3, 4)
-  // Also shift surat_tugas stages
+  // Tasks: use role-based conditions to be idempotent
+  // Reviewer was at old stage 3, should be at new stage 4
+  await shiftSqliteStageWithCondition('tasks', 'stage', 3, 4, "role = 'Reviewer'")
+  // PublisherWeb/PublisherSocialMedia were at old stage 4, should be at new stage 5
+  await shiftSqliteStageWithCondition('tasks', 'stage', 4, 5, "role IN ('PublisherWeb', 'PublisherSocialMedia')")
+  // Surat tugas: shift (less critical, but keep consistent)
   await shiftSqliteStage('surat_tugas', 'stage', 4, 5)
   await shiftSqliteStage('surat_tugas', 'stage', 3, 4)
 }
@@ -150,14 +153,17 @@ async function syncPostgres(): Promise<void> {
   await renamePostgresRole('surat_tugas', 'role', 'EditorWebSocialMedia', 'EditorWebArticle')
 
   // === Stage shift migration: Insert new stage 3 (Finalization), shift 3→4, 4→5, 5→6 ===
-  // Must run in reverse order (5→6 first) to avoid overwriting
+  // Uses role-based conditions for tasks to prevent double-migration
+  // Projects: shift currentStage (safe because project stages are sequential)
   await shiftPostgresStage('projects', 'currentStage', 5, 6)
   await shiftPostgresStage('projects', 'currentStage', 4, 5)
   await shiftPostgresStage('projects', 'currentStage', 3, 4)
-  // Also shift task stages
-  await shiftPostgresStage('tasks', 'stage', 4, 5)
-  await shiftPostgresStage('tasks', 'stage', 3, 4)
-  // Also shift surat_tugas stages
+  // Tasks: use role-based conditions to be idempotent
+  // Reviewer was at old stage 3, should be at new stage 4
+  await shiftPostgresStageWithCondition('tasks', 'stage', 3, 4, "role = 'Reviewer'")
+  // PublisherWeb/PublisherSocialMedia were at old stage 4, should be at new stage 5
+  await shiftPostgresStageWithCondition('tasks', 'stage', 4, 5, "role IN ('PublisherWeb', 'PublisherSocialMedia')")
+  // Surat tugas: shift (less critical, but keep consistent)
   await shiftPostgresStage('surat_tugas', 'stage', 4, 5)
   await shiftPostgresStage('surat_tugas', 'stage', 3, 4)
 }
@@ -258,6 +264,29 @@ async function shiftSqliteStage(
 }
 
 /**
+ * Shifts a stage value with an additional WHERE condition.
+ * Used for idempotent task migrations where role determines the correct target stage.
+ */
+async function shiftSqliteStageWithCondition(
+  table: string,
+  column: string,
+  oldStage: number,
+  newStage: number,
+  condition: string
+): Promise<void> {
+  try {
+    const result = await db.$executeRawUnsafe(
+      `UPDATE "${table}" SET "${column}" = ${newStage} WHERE "${column}" = ${oldStage} AND ${condition}`
+    )
+    if (result > 0) {
+      console.log(`[DB Sync SQLite] Shifted stage ${oldStage} → ${newStage} in ${table}.${column} WHERE ${condition} (${result} rows)`)
+    }
+  } catch (error) {
+    console.error(`[DB Sync SQLite] Failed to shift stage ${oldStage} → ${newStage} in ${table}.${column} WHERE ${condition}:`, error)
+  }
+}
+
+/**
  * Shifts a stage value in a PostgreSQL table column from oldStage to newStage.
  * Used when inserting a new stage shifts existing stage numbers upward.
  * IMPORTANT: Must be called in reverse order (highest stage first) to avoid conflicts.
@@ -277,5 +306,28 @@ async function shiftPostgresStage(
     }
   } catch (error) {
     console.error(`[DB Sync Postgres] Failed to shift stage ${oldStage} → ${newStage} in ${table}.${column}:`, error)
+  }
+}
+
+/**
+ * Shifts a stage value in a PostgreSQL table column with an additional WHERE condition.
+ * Used for idempotent task migrations where role determines the correct target stage.
+ */
+async function shiftPostgresStageWithCondition(
+  table: string,
+  column: string,
+  oldStage: number,
+  newStage: number,
+  condition: string
+): Promise<void> {
+  try {
+    const result = await db.$executeRawUnsafe(
+      `UPDATE "${table}" SET "${column}" = ${newStage} WHERE "${column}" = ${oldStage} AND ${condition}`
+    )
+    if (result > 0) {
+      console.log(`[DB Sync Postgres] Shifted stage ${oldStage} → ${newStage} in ${table}.${column} WHERE ${condition} (${result} rows)`)
+    }
+  } catch (error) {
+    console.error(`[DB Sync Postgres] Failed to shift stage ${oldStage} → ${newStage} in ${table}.${column} WHERE ${condition}:`, error)
   }
 }

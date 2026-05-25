@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { db } from '@/lib/db'
+import { db, ensureDbConnection } from '@/lib/db'
 import { checkMaintenanceMode } from '@/lib/maintenance-check'
 
 // GET - Fetch all SOPs/Pengumuman
@@ -7,6 +7,7 @@ export async function GET(request: NextRequest) {
   const maintenanceBlock = await checkMaintenanceMode(request)
   if (maintenanceBlock) return maintenanceBlock
   try {
+    await ensureDbConnection()
     const { searchParams } = new URL(request.url)
     const type = searchParams.get('type') // SOP, Pengumuman, Panduan
     const published = searchParams.get('published')
@@ -52,6 +53,7 @@ export async function POST(request: NextRequest) {
   const maintenanceBlock = await checkMaintenanceMode(request)
   if (maintenanceBlock) return maintenanceBlock
   try {
+    await ensureDbConnection()
     const body = await request.json()
     const {
       title,
@@ -106,6 +108,7 @@ export async function PUT(request: NextRequest) {
   const maintenanceBlock = await checkMaintenanceMode(request)
   if (maintenanceBlock) return maintenanceBlock
   try {
+    await ensureDbConnection()
     const body = await request.json()
     const { id, ...data } = body
 
@@ -167,6 +170,7 @@ export async function DELETE(request: NextRequest) {
   const maintenanceBlock = await checkMaintenanceMode(request)
   if (maintenanceBlock) return maintenanceBlock
   try {
+    await ensureDbConnection()
     const { searchParams } = new URL(request.url)
     const id = searchParams.get('id')
 

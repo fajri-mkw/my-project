@@ -1,4 +1,4 @@
-import { db } from '@/lib/db'
+import { db, ensureDbConnection } from '@/lib/db'
 import { NextRequest, NextResponse } from 'next/server'
 import { checkMaintenanceMode } from '@/lib/maintenance-check'
 import { sendStageAdvanceNotification, sendReviewRejectionNotification } from '@/lib/notification-service'
@@ -7,6 +7,7 @@ import { sendStageAdvanceNotification, sendReviewRejectionNotification } from '@
 export async function PUT(request: NextRequest) {
   const maintenanceBlock = await checkMaintenanceMode(request)
   if (maintenanceBlock) return maintenanceBlock
+  await ensureDbConnection()
   try {
     const body = await request.json()
     const { projectId, taskId, taskData, isReviewReject, rejectReason } = body
@@ -129,7 +130,7 @@ export async function PUT(request: NextRequest) {
       if (allDone) {
         await db.project.update({
           where: { id: projectId },
-          data: { currentStage: 5 }
+          data: { currentStage: 6 }
         })
       } else {
         // Update currentStage to the lowest stage with pending tasks
@@ -228,8 +229,8 @@ export async function PUT(request: NextRequest) {
         console.error('Failed to send stage advance notifications:', err)
  }
       
-      // If completed (stage 5), notify manager
-      if (nextStage === 5) {
+      // If completed (stage 6), notify manager
+      if (nextStage === 6) {
         await db.notification.create({
           data: {
             userId: task.project.managerId,

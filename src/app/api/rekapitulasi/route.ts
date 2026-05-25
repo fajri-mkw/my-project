@@ -1,8 +1,9 @@
 import { NextResponse } from 'next/server'
-import { db } from '@/lib/db'
+import { db, ensureDbConnection } from '@/lib/db'
 
 export async function GET(request: Request) {
   try {
+    await ensureDbConnection()
     const { searchParams } = new URL(request.url)
     const isFastTrack = searchParams.get('fastTrack')
 

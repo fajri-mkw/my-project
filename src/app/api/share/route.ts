@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { db } from '@/lib/db'
+import { db, ensureDbConnection } from '@/lib/db'
 
 // Generate random token
 function generateToken(): string {
@@ -14,6 +14,7 @@ function generateToken(): string {
 // GET - Get project by public token
 export async function GET(request: NextRequest) {
   try {
+    await ensureDbConnection()
     const { searchParams } = new URL(request.url)
     const token = searchParams.get('token')
     
@@ -51,6 +52,7 @@ export async function GET(request: NextRequest) {
 // POST - Generate public token for a project
 export async function POST(request: NextRequest) {
   try {
+    await ensureDbConnection()
     const body = await request.json()
     const { projectId } = body
     
@@ -92,6 +94,7 @@ export async function POST(request: NextRequest) {
 // DELETE - Revoke public token
 export async function DELETE(request: NextRequest) {
   try {
+    await ensureDbConnection()
     const { searchParams } = new URL(request.url)
     const projectId = searchParams.get('projectId')
     

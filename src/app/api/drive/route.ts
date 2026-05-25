@@ -1,4 +1,4 @@
-import { db } from '@/lib/db'
+import { db, ensureDbConnection } from '@/lib/db'
 import { NextRequest, NextResponse } from 'next/server'
 import { checkMaintenanceMode } from '@/lib/maintenance-check'
 import { google } from 'googleapis'
@@ -286,6 +286,7 @@ export async function POST(request: NextRequest) {
   const maintenanceBlock = await checkMaintenanceMode(request)
   if (maintenanceBlock) return maintenanceBlock
   try {
+    await ensureDbConnection()
     const body = await request.json()
     const { projectTitle, folderTypes, assignedUsers, folderUserAccess } = body as {
       projectTitle: string
@@ -430,6 +431,7 @@ export async function PUT(request: NextRequest) {
   const maintenanceBlock = await checkMaintenanceMode(request)
   if (maintenanceBlock) return maintenanceBlock
   try {
+    await ensureDbConnection()
     const body = await request.json()
     const { folderId, role } = body as {
       folderId: string
@@ -472,6 +474,7 @@ export async function GET(request: NextRequest) {
   const maintenanceBlock = await checkMaintenanceMode(request)
   if (maintenanceBlock) return maintenanceBlock
   try {
+    await ensureDbConnection()
     const settings = await db.settings.findUnique({
       where: { id: 'main' }
     })

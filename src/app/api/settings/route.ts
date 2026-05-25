@@ -1,9 +1,10 @@
-import { db } from '@/lib/db'
+import { db, ensureDbConnection } from '@/lib/db'
 import { NextRequest, NextResponse } from 'next/server'
 
 // GET settings
 export async function GET() {
   try {
+    await ensureDbConnection()
     let settings = await db.settings.findUnique({
       where: { id: 'main' }
     })
@@ -33,6 +34,7 @@ export async function GET() {
 // PUT update settings
 export async function PUT(request: NextRequest) {
   try {
+    await ensureDbConnection()
     const body = await request.json()
     const { driveAutoCreate, driveParentFolderId, driveSharedDriveId, driveServiceAccountKey, driveApiKey, maintenanceMode, maintenanceMessage } = body
 

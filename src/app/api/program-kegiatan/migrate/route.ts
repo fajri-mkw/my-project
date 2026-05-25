@@ -1,9 +1,10 @@
 import { NextResponse } from 'next/server'
-import { db } from '@/lib/db'
+import { db, ensureDbConnection } from '@/lib/db'
 
 // POST - Run migration to ensure program_kegiatan table and all columns exist
 export async function POST() {
   try {
+    await ensureDbConnection()
     // Check if table exists
     const tableCheck = await db.$queryRawUnsafe(`
       SELECT EXISTS (

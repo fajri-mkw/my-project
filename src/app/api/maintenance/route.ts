@@ -1,8 +1,9 @@
 import { NextResponse } from 'next/server'
-import { db } from '@/lib/db'
+import { db, ensureDbConnection } from '@/lib/db'
 
 export async function GET() {
   try {
+    await ensureDbConnection()
     const settings = await db.settings.findUnique({
       where: { id: 'main' },
       select: {
@@ -26,6 +27,7 @@ export async function GET() {
 
 export async function PUT(request: Request) {
   try {
+    await ensureDbConnection()
     const body = await request.json()
     const { maintenanceMode, maintenanceMessage, userId } = body
 
