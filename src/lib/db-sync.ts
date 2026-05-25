@@ -58,6 +58,14 @@ async function syncSqlite(): Promise<void> {
   await renameSqliteRole('tasks', 'role', 'VideographerAudio', 'PhotographerVideographerAudio')
   await renameSqliteRole('surat_tugas', 'role', 'PhotographerAudio', 'PhotographerVideographerAudio')
   await renameSqliteRole('surat_tugas', 'role', 'VideographerAudio', 'PhotographerVideographerAudio')
+
+  // === Role rename migration: EditorMedia → EditorVideo, EditorWebSocialMedia → EditorWebArticle ===
+  await renameSqliteRole('users', 'role', 'EditorMedia', 'EditorVideo')
+  await renameSqliteRole('users', 'role', 'EditorWebSocialMedia', 'EditorWebArticle')
+  await renameSqliteRole('tasks', 'role', 'EditorMedia', 'EditorVideo')
+  await renameSqliteRole('tasks', 'role', 'EditorWebSocialMedia', 'EditorWebArticle')
+  await renameSqliteRole('surat_tugas', 'role', 'EditorMedia', 'EditorVideo')
+  await renameSqliteRole('surat_tugas', 'role', 'EditorWebSocialMedia', 'EditorWebArticle')
 }
 
 async function addSqliteColumnIfNotExists(
@@ -120,6 +128,14 @@ async function syncPostgres(): Promise<void> {
   await renamePostgresRole('tasks', 'role', 'VideographerAudio', 'PhotographerVideographerAudio')
   await renamePostgresRole('surat_tugas', 'role', 'PhotographerAudio', 'PhotographerVideographerAudio')
   await renamePostgresRole('surat_tugas', 'role', 'VideographerAudio', 'PhotographerVideographerAudio')
+
+  // === Role rename migration: EditorMedia → EditorVideo, EditorWebSocialMedia → EditorWebArticle ===
+  await renamePostgresRole('users', 'role', 'EditorMedia', 'EditorVideo')
+  await renamePostgresRole('users', 'role', 'EditorWebSocialMedia', 'EditorWebArticle')
+  await renamePostgresRole('tasks', 'role', 'EditorMedia', 'EditorVideo')
+  await renamePostgresRole('tasks', 'role', 'EditorWebSocialMedia', 'EditorWebArticle')
+  await renamePostgresRole('surat_tugas', 'role', 'EditorMedia', 'EditorVideo')
+  await renamePostgresRole('surat_tugas', 'role', 'EditorWebSocialMedia', 'EditorWebArticle')
 }
 
 async function addPostgresColumnIfNotExists(

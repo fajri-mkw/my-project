@@ -4,7 +4,7 @@ import bcrypt from 'bcryptjs'
 
 const ROLES: string[] = [
   'Admin', 'Administrator', 'Manager', 'Reporter', 'PhotographerVideographerAudio',
-  'EditorMedia', 'EditorWebSocialMedia', 'GraphicDesigner',
+  'EditorVideo', 'EditorWebArticle', 'EditorFoto', 'EditorTemplateSosialMedia', 'GraphicDesigner',
   'StreamingOperator', 'PodcastOperator', 'Reviewer', 'PublisherWeb', 'PublisherSocialMedia'
 ]
 
@@ -14,8 +14,10 @@ const ROLE_DISPLAY_NAMES: Record<string, string> = {
   'Manager': 'Manager',
   'Reporter': 'Reporter',
   'PhotographerVideographerAudio': 'Photographer, Videographer, dan Audio',
-  'EditorMedia': 'Editor (Media)',
-  'EditorWebSocialMedia': 'Editor (Web Article & Social Media)',
+  'EditorVideo': 'Editor (Video)',
+  'EditorWebArticle': 'Editor (Web Article/Author)',
+  'EditorFoto': 'Editor (Foto)',
+  'EditorTemplateSosialMedia': 'Editor (Template Sosial Media)',
   'GraphicDesigner': 'Graphic Designer',
   'StreamingOperator': 'Streaming Operator',
   'PodcastOperator': 'Podcast Operator',

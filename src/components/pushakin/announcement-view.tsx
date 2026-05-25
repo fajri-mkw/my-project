@@ -585,8 +585,10 @@ Seluruh staff melihat dashboard, statistik, dan inbox yang sama:
 - **Graphic Designer**: Mengupload file desain grafis mentah
 
 ### **Tahap 2 - Pasca Produksi**
-- **Editor (Media)**: Mendownload file mentah, mengedit, dan mengupload hasil editan
-- **Editor (Web & Social Media)**: Mendownload file mentah, menyunting artikel/konten media sosial
+- **Editor (Video)**: Mendownload file video mentah, mengedit, dan mengupload hasil editan
+- **Editor (Web Article/Author)**: Mendownload file mentah, menyunting artikel/konten web
+- **Editor (Foto)**: Mendownload file foto mentah, mengedit, dan mengupload hasil editan
+- **Editor (Template Sosial Media)**: Membuat dan mengedit template konten media sosial
 - **Streaming Operator**: Menempelkan tautan streaming (URL)
 - **Podcast Operator**: Menempelkan tautan YouTube/podcast (URL)
 

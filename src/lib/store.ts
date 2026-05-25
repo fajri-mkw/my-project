@@ -7,8 +7,10 @@ export type Role =
   | 'Manager' 
   | 'Reporter' 
   | 'PhotographerVideographerAudio'
-  | 'EditorMedia' 
-  | 'EditorWebSocialMedia' 
+  | 'EditorVideo' 
+  | 'EditorWebArticle' 
+  | 'EditorFoto'
+  | 'EditorTemplateSosialMedia'
   | 'GraphicDesigner'
   | 'StreamingOperator' 
   | 'PodcastOperator' 
@@ -23,8 +25,10 @@ export const ROLE_DISPLAY_NAMES: Record<string, string> = {
   'Manager': 'Manager',
   'Reporter': 'Reporter',
   'PhotographerVideographerAudio': 'Photographer, Videographer, dan Audio',
-  'EditorMedia': 'Editor (Media)',
-  'EditorWebSocialMedia': 'Editor (Web Article & Social Media)',
+  'EditorVideo': 'Editor (Video)',
+  'EditorWebArticle': 'Editor (Web Article/Author)',
+  'EditorFoto': 'Editor (Foto)',
+  'EditorTemplateSosialMedia': 'Editor (Template Sosial Media)',
   'GraphicDesigner': 'Graphic Designer',
   'StreamingOperator': 'Streaming Operator',
   'PodcastOperator': 'Podcast Operator',
@@ -326,7 +330,7 @@ export const STAGES: Record<number, string> = {
 
 export const ROLES: Role[] = [
   'Admin', 'Administrator', 'Manager', 'Reporter', 'PhotographerVideographerAudio',
-  'EditorMedia', 'EditorWebSocialMedia', 'GraphicDesigner',
+  'EditorVideo', 'EditorWebArticle', 'EditorFoto', 'EditorTemplateSosialMedia', 'GraphicDesigner',
   'StreamingOperator', 'PodcastOperator', 'Reviewer', 'PublisherWeb', 'PublisherSocialMedia'
 ]
 
@@ -335,8 +339,10 @@ export const ROLE_CONFIG: Record<string, { stage: number; type: string; icon: st
   'PhotographerVideographerAudio': { stage: 1, type: 'upload', icon: 'FileImage' },
   'GraphicDesigner': { stage: 1, type: 'upload', icon: 'FileImage' },
   
-  'EditorMedia': { stage: 2, type: 'download_upload', icon: 'FileVideo' },
-  'EditorWebSocialMedia': { stage: 2, type: 'download_upload', icon: 'FileText' },
+  'EditorVideo': { stage: 2, type: 'download_upload', icon: 'FileVideo' },
+  'EditorWebArticle': { stage: 2, type: 'download_upload', icon: 'FileText' },
+  'EditorFoto': { stage: 2, type: 'download_upload', icon: 'FileImage' },
+  'EditorTemplateSosialMedia': { stage: 2, type: 'download_upload', icon: 'FileImage' },
   'StreamingOperator': { stage: 2, type: 'paste_streaming', icon: 'PlayCircle' },
   'PodcastOperator': { stage: 2, type: 'paste_youtube', icon: 'FileAudio' },
   
