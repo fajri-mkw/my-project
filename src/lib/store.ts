@@ -309,6 +309,7 @@ export type ViewType =
   | 'inbox'
   | 'announcements'
   | 'permohonan'
+  | 'surat'
   | 'kegiatan'
 
 export interface DialogState {

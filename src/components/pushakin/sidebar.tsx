@@ -45,7 +45,7 @@ export function Sidebar({ isOpen = false, onNavigate, onClose }: SidebarProps) {
   const menuItems = [
     { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
     { id: 'overview', label: 'Statistik & Progress', icon: BarChart2 },
-    ...(showPermohonan ? [{ id: 'permohonan', label: 'Manajemen Surat', icon: Inbox }] : []),
+    ...(showPermohonan ? [{ id: 'surat', label: 'Manajemen Surat', icon: Inbox }] : []),
     ...(showKegiatan ? [{ id: 'kegiatan', label: 'Program Kegiatan', icon: ClipboardList }] : []),
     { id: 'inbox', label: 'Inbox', icon: Inbox, badge: unreadSuratCount > 0 ? unreadSuratCount : undefined },
     ...(effectiveRole === 'Admin' ? [{ id: 'announcements', label: 'Manajemen Konten', icon: Megaphone }] : []),
@@ -56,7 +56,7 @@ export function Sidebar({ isOpen = false, onNavigate, onClose }: SidebarProps) {
   ]
 
   const handleMenuClick = (viewId: string) => {
-    setActiveView(viewId as 'dashboard' | 'overview' | 'reports' | 'profile' | 'users' | 'settings' | 'inbox' | 'announcements' | 'permohonan' | 'kegiatan')
+    setActiveView(viewId as 'dashboard' | 'overview' | 'reports' | 'profile' | 'users' | 'settings' | 'inbox' | 'announcements' | 'permohonan' | 'surat' | 'kegiatan')
     onNavigate?.(viewId)
   }
 

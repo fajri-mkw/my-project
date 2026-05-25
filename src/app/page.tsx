@@ -465,6 +465,7 @@ function AppContent() {
       case 'settings': return <SettingsView />
       case 'announcements': return <AnnouncementView />
       case 'permohonan': return <PermohonanView />
+      case 'surat': return <SuratManagementView />
       case 'kegiatan': return <ProgramKegiatanView />
       default: return <DashboardView />
     }
