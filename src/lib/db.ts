@@ -26,9 +26,12 @@ export function getLastDbError(): string | null {
 }
 
 /**
- * Ensure database connection only (no schema sync).
+ * Ensure database connection + schema sync.
  * Returns true if connected, false if failed.
- * Optimized to skip redundant $connect() calls on warm connections.
+ * 
+ * Schema sync uses version-based skip: on Vercel cold starts,
+ * only 1 query (version check) is needed instead of 26+ migration queries
+ * when the schema is already up-to-date.
  */
 export async function ensureDbConnection(): Promise<boolean> {
   try {
@@ -54,6 +57,12 @@ export async function ensureDbConnection(): Promise<boolean> {
       await Promise.race([connectionPromise, timeoutPromise])
     }
 
+    // Auto-sync schema — uses version-based skip for fast cold starts
+    // When schema is already current: 1 query (version check) → skip
+    // When schema needs migration: runs all migrations + stores version
+    const { ensureSchemaSync } = await import('./db-sync')
+    await ensureSchemaSync()
+
     return true
   } catch (error) {
     const errorMsg = error instanceof Error ? error.message : String(error)
@@ -72,23 +81,6 @@ export async function ensureDbConnection(): Promise<boolean> {
     }
     return false
   }
-}
-
-/**
- * Ensure database connection AND run schema sync.
- * Use this ONLY for write endpoints or startup.
- * Read endpoints should use ensureDbConnection() for faster response.
- */
-export async function ensureDbConnectionWithSync(): Promise<boolean> {
-  const connected = await ensureDbConnection()
-  if (!connected) return false
-
-  // Auto-sync schema for new columns (handles Vercel migrations)
-  // This is idempotent — runs only once per server lifecycle
-  const { ensureSchemaSync } = await import('./db-sync')
-  await ensureSchemaSync()
-
-  return true
 }
 
 // Pushakin Flows v1.0 - Production
