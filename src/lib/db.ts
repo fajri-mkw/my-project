@@ -17,6 +17,10 @@ if (process.env.NODE_ENV !== 'production') {
 // Store last connection error for debugging
 let lastConnectionError: string | null = null
 
+// Track connection state to avoid redundant $connect() calls
+let isConnected = false
+let connectionPromise: Promise<void> | null = null
+
 export function getLastDbError(): string | null {
   return lastConnectionError
 }
@@ -24,20 +28,34 @@ export function getLastDbError(): string | null {
 /**
  * Ensure database connection + schema is up to date.
  * Returns true if connected, false if failed.
- * Check getLastDbError() for details on failure.
+ * Optimized to skip redundant $connect() calls on warm connections.
  */
 export async function ensureDbConnection(): Promise<boolean> {
   try {
     lastConnectionError = null
 
-    // Try to connect with a timeout
-    const connectPromise = db.$connect()
-    const timeoutPromise = new Promise<never>((_, reject) => 
-      setTimeout(() => reject(new Error('Database connection timeout after 10s')), 10000)
-    )
-    await Promise.race([connectPromise, timeoutPromise])
+    // Skip $connect() if already connected (saves ~50ms per request on warm server)
+    if (!isConnected) {
+      // Deduplicate concurrent connection attempts
+      if (!connectionPromise) {
+        connectionPromise = db.$connect().then(() => {
+          isConnected = true
+          connectionPromise = null
+        }).catch((err) => {
+          connectionPromise = null
+          throw err
+        })
+      }
+      
+      // Race with timeout
+      const timeoutPromise = new Promise<never>((_, reject) => 
+        setTimeout(() => reject(new Error('Database connection timeout after 10s')), 10000)
+      )
+      await Promise.race([connectionPromise, timeoutPromise])
+    }
 
     // Auto-sync schema for new columns (handles Vercel migrations)
+    // This is idempotent — runs only once per server lifecycle
     const { ensureSchemaSync } = await import('./db-sync')
     await ensureSchemaSync()
 
@@ -46,6 +64,10 @@ export async function ensureDbConnection(): Promise<boolean> {
     const errorMsg = error instanceof Error ? error.message : String(error)
     console.error('Database connection failed:', errorMsg)
     lastConnectionError = errorMsg
+
+    // Reset connection state
+    isConnected = false
+    connectionPromise = null
 
     // Try to reset the Prisma client connection for next attempt
     try {

@@ -1,4 +1,5 @@
 import { db, ensureDbConnection } from '@/lib/db'
+import { invalidateMaintenanceCache } from '@/lib/maintenance-check'
 import { NextRequest, NextResponse } from 'next/server'
 
 // GET settings
@@ -78,6 +79,11 @@ export async function PUT(request: NextRequest) {
         ...updateData
       }
     })
+
+    // Invalidate maintenance mode cache when settings change
+    if (typeof maintenanceMode === 'boolean' || maintenanceMessage !== undefined) {
+      invalidateMaintenanceCache()
+    }
 
     return NextResponse.json({
       success: true,

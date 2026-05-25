@@ -29,6 +29,7 @@ model User {
   suratTugas        SuratTugas[]
   sops              SOP[]
 
+  @@index([role])
   @@map("users")
 }
 
@@ -60,6 +61,9 @@ model Project {
   notifications Notification[]
   suratTugas   SuratTugas[]
 
+  @@index([managerId])
+  @@index([currentStage])
+  @@index([createdAt])
   @@map("projects")
 }
 
@@ -78,6 +82,10 @@ model Task {
   project  Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
   assignee User    @relation(fields: [assignedTo], references: [id], onDelete: Cascade)
 
+  @@index([projectId])
+  @@index([assignedTo])
+  @@index([stage])
+  @@index([status])
   @@map("tasks")
 }
 
@@ -97,6 +105,7 @@ model DriveFolder {
 
   project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
 
+  @@index([projectId])
   @@map("drive_folders")
 }
 
@@ -112,6 +121,9 @@ model Notification {
   user    User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   project Project? @relation(fields: [projectId], references: [id], onDelete: SetNull)
 
+  @@index([userId])
+  @@index([projectId])
+  @@index([read])
   @@map("notifications")
 }
 
@@ -129,6 +141,9 @@ model SuratTugas {
   project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
   user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
 
+  @@index([projectId])
+  @@index([userId])
+  @@index([status])
   @@map("surat_tugas")
 }
 
@@ -172,6 +187,9 @@ model SOP {
 
   author User @relation(fields: [authorId], references: [id], onDelete: Cascade)
 
+  @@index([authorId])
+  @@index([type])
+  @@index([published])
   @@map("sops")
 }
 
@@ -197,6 +215,9 @@ model Permohonan {
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
+  @@index([administratorId])
+  @@index([managerId])
+  @@index([status])
   @@map("permohonan")
 }
 
@@ -225,6 +246,10 @@ model Surat {
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
 
+  @@index([administratorId])
+  @@index([managerId])
+  @@index([status])
+  @@index([kategori])
   @@map("surat")
 }
 
@@ -251,5 +276,8 @@ model ProgramKegiatan {
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
 
+  @@index([managerId])
+  @@index([status])
+  @@index([kategori])
   @@map("program_kegiatan")
 }

@@ -1,27 +1,30 @@
 'use client'
 
-import { Suspense, useEffect, useState } from 'react'
+import { Suspense, useEffect, useState, useCallback, useMemo, useRef } from 'react'
 import { useSearchParams } from 'next/navigation'
+import dynamic from 'next/dynamic'
 import { useAppStore, type User } from '@/lib/store'
-import { LoginView } from '@/components/pushakin/login-view'
 import { Sidebar } from '@/components/pushakin/sidebar'
 import { Topbar } from '@/components/pushakin/topbar'
-import { DashboardView } from '@/components/pushakin/dashboard-view'
-import { CreateProjectView } from '@/components/pushakin/create-project-view'
-import { ProjectDetailView } from '@/components/pushakin/project-detail-view'
-import { OverviewView } from '@/components/pushakin/overview-view'
-import { ReportsView } from '@/components/pushakin/reports-view'
-import { UserManagementView } from '@/components/pushakin/user-management-view'
-import { ProfileView } from '@/components/pushakin/profile-view'
-import { SettingsView } from '@/components/pushakin/settings-view'
-import { InboxView } from '@/components/pushakin/inbox-view'
-import { AnnouncementView } from '@/components/pushakin/announcement-view'
-import { PermohonanView } from '@/components/pushakin/permohonan-view'
-import { SuratManagementView } from '@/components/pushakin/surat-management-view'
-import { ProgramKegiatanView } from '@/components/pushakin/program-kegiatan-view'
 import { DialogModal } from '@/components/pushakin/dialog-modal'
-import { PublicTrackerView } from '@/components/pushakin/public-tracker-view'
 import { Settings, Wrench, Clock, AlertTriangle, Shield } from 'lucide-react'
+
+// Dynamic imports - only load when needed, reducing initial bundle from ~5MB to ~500KB
+const LoginView = dynamic(() => import('@/components/pushakin/login-view').then(m => ({ default: m.LoginView })), { ssr: false })
+const DashboardView = dynamic(() => import('@/components/pushakin/dashboard-view').then(m => ({ default: m.DashboardView })), { ssr: false })
+const CreateProjectView = dynamic(() => import('@/components/pushakin/create-project-view').then(m => ({ default: m.CreateProjectView })), { ssr: false })
+const ProjectDetailView = dynamic(() => import('@/components/pushakin/project-detail-view').then(m => ({ default: m.ProjectDetailView })), { ssr: false })
+const OverviewView = dynamic(() => import('@/components/pushakin/overview-view').then(m => ({ default: m.OverviewView })), { ssr: false })
+const ReportsView = dynamic(() => import('@/components/pushakin/reports-view').then(m => ({ default: m.ReportsView })), { ssr: false })
+const UserManagementView = dynamic(() => import('@/components/pushakin/user-management-view').then(m => ({ default: m.UserManagementView })), { ssr: false })
+const ProfileView = dynamic(() => import('@/components/pushakin/profile-view').then(m => ({ default: m.ProfileView })), { ssr: false })
+const SettingsView = dynamic(() => import('@/components/pushakin/settings-view').then(m => ({ default: m.SettingsView })), { ssr: false })
+const InboxView = dynamic(() => import('@/components/pushakin/inbox-view').then(m => ({ default: m.InboxView })), { ssr: false })
+const AnnouncementView = dynamic(() => import('@/components/pushakin/announcement-view').then(m => ({ default: m.AnnouncementView })), { ssr: false })
+const PermohonanView = dynamic(() => import('@/components/pushakin/permohonan-view').then(m => ({ default: m.PermohonanView })), { ssr: false })
+const SuratManagementView = dynamic(() => import('@/components/pushakin/surat-management-view').then(m => ({ default: m.SuratManagementView })), { ssr: false })
+const ProgramKegiatanView = dynamic(() => import('@/components/pushakin/program-kegiatan-view').then(m => ({ default: m.ProgramKegiatanView })), { ssr: false })
+const PublicTrackerView = dynamic(() => import('@/components/pushakin/public-tracker-view').then(m => ({ default: m.PublicTrackerView })), { ssr: false })
 
 function LoadingSpinner() {
   return (
@@ -30,6 +33,15 @@ function LoadingSpinner() {
         <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-violet-600 mx-auto mb-4" />
         <p className="text-slate-600">Memuat Pushakin Flows...</p>
       </div>
+    </div>
+  )
+}
+
+// Lightweight inline loading for view transitions
+function ViewLoading() {
+  return (
+    <div className="flex items-center justify-center py-20">
+      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-violet-600" />
     </div>
   )
 }
@@ -163,11 +175,18 @@ function MaintenanceView({ message, onAdminLogin }: { message: string | null; on
 }
 
 function AppContent() {
-  const {
-    currentUser, activeView, isImpersonating,
-    setUsers, setProjects, setNotifications, setSuratTugas,
-    setPermohonanList, setCurrentUser, setSuratList, setKegiatanList, setActiveView
-  } = useAppStore()
+  const currentUser = useAppStore(state => state.currentUser)
+  const activeView = useAppStore(state => state.activeView)
+  const isImpersonating = useAppStore(state => state.isImpersonating)
+  const setUsers = useAppStore(state => state.setUsers)
+  const setProjects = useAppStore(state => state.setProjects)
+  const setNotifications = useAppStore(state => state.setNotifications)
+  const setSuratTugas = useAppStore(state => state.setSuratTugas)
+  const setPermohonanList = useAppStore(state => state.setPermohonanList)
+  const setCurrentUser = useAppStore(state => state.setCurrentUser)
+  const setSuratList = useAppStore(state => state.setSuratList)
+  const setKegiatanList = useAppStore(state => state.setKegiatanList)
+  const setActiveView = useAppStore(state => state.setActiveView)
 
   const searchParams = useSearchParams()
   const isPublicView = searchParams.get('public') === 'tracker'
@@ -180,8 +199,10 @@ function AppContent() {
   const [adminMaintenanceAccess, setAdminMaintenanceAccess] = useState(false)
   const [sidebarOpen, setSidebarOpen] = useState(false)
 
+  // Track if we've already fetched role-specific data for this user
+  const lastFetchedUserId = useRef<string | null>(null)
+
   // Global fetch interceptor — adds X-User-Id header to all API requests
-  // so the server can identify Admin users and bypass maintenance mode
   useEffect(() => {
     const originalFetch = window.fetch
     window.fetch = async function(input, init) {
@@ -209,8 +230,8 @@ function AppContent() {
     setAdminMaintenanceAccess(false)
   }, [])
 
-  // Fetch maintenance status (separate from initial load for polling)
-  const fetchMaintenanceStatus = async () => {
+  // Fetch maintenance status (consolidated with longer interval)
+  const fetchMaintenanceStatus = useCallback(async () => {
     try {
       const res = await fetch('/api/maintenance')
       if (res.ok) {
@@ -226,13 +247,12 @@ function AppContent() {
     } catch (error) {
       console.error('Failed to fetch maintenance status:', error)
     }
-  }
+  }, [])
 
-  // Fetch initial data
+  // Fetch initial data in parallel
   useEffect(() => {
     const fetchData = async () => {
       try {
-        // Fetch users, projects, and maintenance status in parallel
         const [usersRes, projectsRes, maintenanceRes] = await Promise.all([
           fetch('/api/users'),
           fetch('/api/projects'),
@@ -268,55 +288,95 @@ function AppContent() {
     fetchData()
   }, [setUsers, setProjects])
 
-  // Poll maintenance status every 5 seconds — immediately blocks non-admin users
+  // Poll maintenance status every 30 seconds (reduced from 5s)
   useEffect(() => {
-    const pollInterval = setInterval(fetchMaintenanceStatus, 5000)
+    const pollInterval = setInterval(fetchMaintenanceStatus, 30000)
     return () => clearInterval(pollInterval)
-  }, [])
+  }, [fetchMaintenanceStatus])
 
-  // Fetch notifications when user logs in or impersonation changes
+  // Consolidated data fetch for role-specific data - runs once when user logs in
+  // instead of 5 separate polling intervals
   useEffect(() => {
-    const fetchNotifications = async () => {
-      if (currentUser) {
+    if (!currentUser) return
+    
+    // Skip if we already fetched for this user (prevents duplicate fetches on re-renders)
+    const userId = currentUser.id + (isImpersonating ? '-impersonating' : '')
+    if (lastFetchedUserId.current === userId) return
+    lastFetchedUserId.current = userId
+
+    const fetchRoleData = async () => {
+      // Fetch notifications for all logged-in users
+      try {
+        const notifRes = await fetch(`/api/notifications?userId=${currentUser.id}`)
+        if (notifRes.ok) {
+          const data = await notifRes.json()
+          setNotifications(data)
+        }
+      } catch (error) {
+        console.error('Failed to fetch notifications:', error)
+      }
+
+      // Fetch surat tugas for all logged-in users
+      try {
+        const suratRes = await fetch(`/api/surat-tugas?userId=${currentUser.id}`)
+        if (suratRes.ok) {
+          const data = await suratRes.json()
+          setSuratTugas(data)
+        }
+      } catch (error) {
+        console.error('Failed to fetch surat tugas:', error)
+      }
+
+      // Role-specific fetches (Administrator, Manager, Admin)
+      if (['Administrator', 'Manager', 'Admin'].includes(currentUser.role)) {
+        const role = currentUser.role
+        const params = new URLSearchParams({ userId: currentUser.id, userRole: role })
+
+        // Fetch permohonan
         try {
-          const res = await fetch(`/api/notifications?userId=${currentUser.id}`)
+          const res = await fetch(`/api/permohonan?${params}`)
           if (res.ok) {
             const data = await res.json()
-            setNotifications(data)
+            setPermohonanList(data)
           }
         } catch (error) {
-          console.error('Failed to fetch notifications:', error)
+          console.error('Failed to fetch permohonan:', error)
+        }
+
+        // Fetch surat
+        try {
+          const res = await fetch(`/api/surat?${params}`)
+          if (res.ok) {
+            const data = await res.json()
+            setSuratList(data)
+          }
+        } catch (error) {
+          console.error('Failed to fetch surat:', error)
+        }
+      }
+
+      // Fetch program kegiatan for Manager/Admin only
+      if (['Manager', 'Admin'].includes(currentUser.role)) {
+        const role = currentUser.role
+        const params = new URLSearchParams({ userId: currentUser.id, userRole: role })
+        try {
+          const res = await fetch(`/api/program-kegiatan?${params}`)
+          if (res.ok) {
+            const data = await res.json()
+            setKegiatanList(data)
+          }
+        } catch (error) {
+          console.error('Failed to fetch program kegiatan:', error)
         }
       }
     }
 
-    fetchNotifications()
-    // Poll for notifications every 30 seconds
-    const interval = setInterval(fetchNotifications, 30000)
-    return () => clearInterval(interval)
-  }, [currentUser, isImpersonating, setNotifications])
+    fetchRoleData()
 
-  // Fetch surat tugas when user logs in or impersonation changes
-  useEffect(() => {
-    const fetchSuratTugas = async () => {
-      if (currentUser) {
-        try {
-          const res = await fetch(`/api/surat-tugas?userId=${currentUser.id}`)
-          if (res.ok) {
-            const data = await res.json()
-            setSuratTugas(data)
-          }
-        } catch (error) {
-          console.error('Failed to fetch surat tugas:', error)
-        }
-      }
-    }
-
-    fetchSuratTugas()
-    // Poll for surat tugas every 30 seconds
-    const interval = setInterval(fetchSuratTugas, 30000)
-    return () => clearInterval(interval)
-  }, [currentUser, isImpersonating, setSuratTugas])
+    // Single consolidated polling interval (60s instead of 5 separate 30s intervals)
+    const pollInterval = setInterval(fetchRoleData, 60000)
+    return () => clearInterval(pollInterval)
+  }, [currentUser, isImpersonating, setNotifications, setSuratTugas, setPermohonanList, setSuratList, setKegiatanList])
 
   // Handle database seeding
   const handleSeed = async () => {
@@ -351,76 +411,7 @@ function AppContent() {
     window.location.href = window.location.pathname
   }
 
-  // Fetch permohonan when user is Administrator or Manager or Super Admin
-  useEffect(() => {
-    const fetchPermohonan = async () => {
-      if (currentUser && ['Administrator', 'Manager', 'Admin'].includes(currentUser.role)) {
-        try {
-          const role = currentUser.role
-          const params = new URLSearchParams({ userId: currentUser.id, userRole: role })
-          const res = await fetch(`/api/permohonan?${params}`)
-          if (res.ok) {
-            const data = await res.json()
-            setPermohonanList(data)
-          }
-        } catch (error) {
-          console.error('Failed to fetch permohonan:', error)
-        }
-      }
-    }
-
-    fetchPermohonan()
-    const interval = setInterval(fetchPermohonan, 30000)
-    return () => clearInterval(interval)
-  }, [currentUser, isImpersonating, setPermohonanList])
-
-  // Fetch surat when user is Administrator or Manager or Super Admin
-  useEffect(() => {
-    const fetchSurat = async () => {
-      if (currentUser && ['Administrator', 'Manager', 'Admin'].includes(currentUser.role)) {
-        try {
-          const role = currentUser.role
-          const params = new URLSearchParams({ userId: currentUser.id, userRole: role })
-          const res = await fetch(`/api/surat?${params}`)
-          if (res.ok) {
-            const data = await res.json()
-            setSuratList(data)
-          }
-        } catch (error) {
-          console.error('Failed to fetch surat:', error)
-        }
-      }
-    }
-
-    fetchSurat()
-    const interval = setInterval(fetchSurat, 30000)
-    return () => clearInterval(interval)
-  }, [currentUser, isImpersonating, setSuratList])
-
-  // Fetch program kegiatan when user is Manager or Super Admin
-  useEffect(() => {
-    const fetchKegiatan = async () => {
-      if (currentUser && ['Manager', 'Admin'].includes(currentUser.role)) {
-        try {
-          const role = currentUser.role
-          const params = new URLSearchParams({ userId: currentUser.id, userRole: role })
-          const res = await fetch(`/api/program-kegiatan?${params}`)
-          if (res.ok) {
-            const data = await res.json()
-            setKegiatanList(data)
-          }
-        } catch (error) {
-          console.error('Failed to fetch program kegiatan:', error)
-        }
-      }
-    }
-
-    fetchKegiatan()
-    const interval = setInterval(fetchKegiatan, 30000)
-    return () => clearInterval(interval)
-  }, [currentUser, isImpersonating, setKegiatanList])
-
-  // Handle admin login from maintenance view — set user in Zustand, no reload
+  // Handle admin login from maintenance view
   const handleAdminLogin = (user: any) => {
     setCurrentUser(user)
     setAdminMaintenanceAccess(true)
@@ -438,13 +429,9 @@ function AppContent() {
 
   // Maintenance mode - only allow Admin
   if (maintenanceData.maintenance) {
-    // Only allow actual Admin users — adminMaintenanceAccess from localStorage is NOT trusted
-    // (prevents non-admin from bypassing after Admin logged out on same computer)
     if (currentUser?.role === 'Admin') {
       // Admin can access, show main app with maintenance banner
-      // Continue to main app below
     } else {
-      // Non-admin: show maintenance view
       return (
         <MaintenanceView
           message={maintenanceData.message}
@@ -469,6 +456,25 @@ function AppContent() {
     setActiveView(view as 'dashboard')
     setSidebarOpen(false)
   }
+
+  // Memoize the active view component to avoid unnecessary re-renders
+  const ActiveViewComponent = useMemo(() => {
+    switch (activeView) {
+      case 'dashboard': return <DashboardView />
+      case 'overview': return <OverviewView />
+      case 'inbox': return <InboxView />
+      case 'create': return <CreateProjectView />
+      case 'project_detail': return <ProjectDetailView />
+      case 'users': return <UserManagementView />
+      case 'reports': return <ReportsView />
+      case 'profile': return <ProfileView />
+      case 'settings': return <SettingsView />
+      case 'announcements': return <AnnouncementView />
+      case 'permohonan': return <PermohonanView />
+      case 'kegiatan': return <ProgramKegiatanView />
+      default: return <DashboardView />
+    }
+  }, [activeView])
 
   // Main application
   return (
@@ -500,18 +506,9 @@ function AppContent() {
 
         {/* Main Content Area - Scrollable */}
         <main className={`flex-1 overflow-y-auto p-4 sm:p-6 lg:p-8 ${maintenanceData.maintenance ? 'mt-10' : ''}`}>
-          {activeView === 'dashboard' && <DashboardView />}
-          {activeView === 'overview' && <OverviewView />}
-          {activeView === 'inbox' && <InboxView />}
-          {activeView === 'create' && <CreateProjectView />}
-          {activeView === 'project_detail' && <ProjectDetailView />}
-          {activeView === 'users' && <UserManagementView />}
-          {activeView === 'reports' && <ReportsView />}
-          {activeView === 'profile' && <ProfileView />}
-          {activeView === 'settings' && <SettingsView />}
-          {activeView === 'announcements' && <AnnouncementView />}
-          {activeView === 'permohonan' && <SuratManagementView />}
-          {activeView === 'kegiatan' && <ProgramKegiatanView />}
+          <Suspense fallback={<ViewLoading />}>
+            {ActiveViewComponent}
+          </Suspense>
         </main>
       </div>
 

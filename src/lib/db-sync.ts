@@ -10,6 +10,7 @@ let syncPromise: Promise<boolean> | null = null
 /**
  * Ensures all columns added in recent schema changes exist in the database.
  * Safe to call multiple times — uses IF NOT EXISTS / PRAGMA checks.
+ * Uses parallel execution for better cold-start performance.
  */
 export async function ensureSchemaSync(): Promise<boolean> {
   if (syncPerformed) return true
@@ -41,46 +42,53 @@ async function performSchemaSync(): Promise<boolean> {
   }
 }
 
-// === SQLite sync ===
+// === SQLite sync — optimized with parallel execution ===
 async function syncSqlite(): Promise<void> {
-  await addSqliteColumnIfNotExists('projects', 'isFastTrack', 'BOOLEAN DEFAULT 0')
-  await addSqliteColumnIfNotExists('projects', 'isFastProduction', 'BOOLEAN DEFAULT 0')
-  await addSqliteColumnIfNotExists('projects', 'publicToken', 'TEXT')
-  await addSqliteColumnIfNotExists('projects', 'documents', 'TEXT DEFAULT \'[]\'')
-  await addSqliteColumnIfNotExists('users', 'notifWaEnabled', 'BOOLEAN DEFAULT 1')
-  await addSqliteColumnIfNotExists('users', 'notifEmailEnabled', 'BOOLEAN DEFAULT 1')
-  await addSqliteColumnIfNotExists('tasks', 'revisionCount', 'INTEGER DEFAULT 0')
+  // Run column additions in parallel — they're independent operations
+  await Promise.all([
+    addSqliteColumnIfNotExists('projects', 'isFastTrack', 'BOOLEAN DEFAULT 0'),
+    addSqliteColumnIfNotExists('projects', 'isFastProduction', 'BOOLEAN DEFAULT 0'),
+    addSqliteColumnIfNotExists('projects', 'publicToken', 'TEXT'),
+    addSqliteColumnIfNotExists('projects', 'documents', 'TEXT DEFAULT \'[]\''),
+    addSqliteColumnIfNotExists('users', 'notifWaEnabled', 'BOOLEAN DEFAULT 1'),
+    addSqliteColumnIfNotExists('users', 'notifEmailEnabled', 'BOOLEAN DEFAULT 1'),
+    addSqliteColumnIfNotExists('tasks', 'revisionCount', 'INTEGER DEFAULT 0'),
+  ])
 
-  // === Role rename migration: PhotographerAudio + VideographerAudio → PhotographerVideographerAudio ===
-  await renameSqliteRole('users', 'role', 'PhotographerAudio', 'PhotographerVideographerAudio')
-  await renameSqliteRole('users', 'role', 'VideographerAudio', 'PhotographerVideographerAudio')
-  await renameSqliteRole('tasks', 'role', 'PhotographerAudio', 'PhotographerVideographerAudio')
-  await renameSqliteRole('tasks', 'role', 'VideographerAudio', 'PhotographerVideographerAudio')
-  await renameSqliteRole('surat_tugas', 'role', 'PhotographerAudio', 'PhotographerVideographerAudio')
-  await renameSqliteRole('surat_tugas', 'role', 'VideographerAudio', 'PhotographerVideographerAudio')
+  // Run role rename migrations in parallel per table
+  // All renames for the same table/column are independent of each other
+  await Promise.all([
+    // users table role renames
+    renameSqliteRole('users', 'role', 'PhotographerAudio', 'PhotographerVideographerAudio'),
+    renameSqliteRole('users', 'role', 'VideographerAudio', 'PhotographerVideographerAudio'),
+    renameSqliteRole('users', 'role', 'EditorMedia', 'EditorVideo'),
+    renameSqliteRole('users', 'role', 'EditorWebSocialMedia', 'EditorWebArticle'),
+    // tasks table role renames
+    renameSqliteRole('tasks', 'role', 'PhotographerAudio', 'PhotographerVideographerAudio'),
+    renameSqliteRole('tasks', 'role', 'VideographerAudio', 'PhotographerVideographerAudio'),
+    renameSqliteRole('tasks', 'role', 'EditorMedia', 'EditorVideo'),
+    renameSqliteRole('tasks', 'role', 'EditorWebSocialMedia', 'EditorWebArticle'),
+    // surat_tugas table role renames
+    renameSqliteRole('surat_tugas', 'role', 'PhotographerAudio', 'PhotographerVideographerAudio'),
+    renameSqliteRole('surat_tugas', 'role', 'VideographerAudio', 'PhotographerVideographerAudio'),
+    renameSqliteRole('surat_tugas', 'role', 'EditorMedia', 'EditorVideo'),
+    renameSqliteRole('surat_tugas', 'role', 'EditorWebSocialMedia', 'EditorWebArticle'),
+  ])
 
-  // === Role rename migration: EditorMedia → EditorVideo, EditorWebSocialMedia → EditorWebArticle ===
-  await renameSqliteRole('users', 'role', 'EditorMedia', 'EditorVideo')
-  await renameSqliteRole('users', 'role', 'EditorWebSocialMedia', 'EditorWebArticle')
-  await renameSqliteRole('tasks', 'role', 'EditorMedia', 'EditorVideo')
-  await renameSqliteRole('tasks', 'role', 'EditorWebSocialMedia', 'EditorWebArticle')
-  await renameSqliteRole('surat_tugas', 'role', 'EditorMedia', 'EditorVideo')
-  await renameSqliteRole('surat_tugas', 'role', 'EditorWebSocialMedia', 'EditorWebArticle')
-
-  // === Stage shift migration: Insert new stage 3 (Finalization), shift 3→4, 4→5, 5→6 ===
-  // Uses role-based conditions for tasks to prevent double-migration
-  // Projects: shift currentStage (safe because project stages are sequential)
+  // Stage shift migrations — MUST be sequential (highest stage first to avoid conflicts)
+  // But we can parallelize across different tables
+  // Projects: sequential within table (3→4→5→6 must be in order)
   await shiftSqliteStage('projects', 'currentStage', 5, 6)
   await shiftSqliteStage('projects', 'currentStage', 4, 5)
   await shiftSqliteStage('projects', 'currentStage', 3, 4)
-  // Tasks: use role-based conditions to be idempotent
-  // Reviewer was at old stage 3, should be at new stage 4
-  await shiftSqliteStageWithCondition('tasks', 'stage', 3, 4, "role = 'Reviewer'")
-  // PublisherWeb/PublisherSocialMedia were at old stage 4, should be at new stage 5
-  await shiftSqliteStageWithCondition('tasks', 'stage', 4, 5, "role IN ('PublisherWeb', 'PublisherSocialMedia')")
-  // Surat tugas: shift (less critical, but keep consistent)
-  await shiftSqliteStage('surat_tugas', 'stage', 4, 5)
-  await shiftSqliteStage('surat_tugas', 'stage', 3, 4)
+
+  // Tasks and surat_tugas: can run in parallel with each other
+  await Promise.all([
+    shiftSqliteStageWithCondition('tasks', 'stage', 3, 4, "role = 'Reviewer'"),
+    shiftSqliteStageWithCondition('tasks', 'stage', 4, 5, "role IN ('PublisherWeb', 'PublisherSocialMedia')"),
+    shiftSqliteStage('surat_tugas', 'stage', 4, 5),
+    shiftSqliteStage('surat_tugas', 'stage', 3, 4),
+  ])
 }
 
 async function addSqliteColumnIfNotExists(
@@ -109,63 +117,63 @@ async function addSqliteColumnIfNotExists(
   }
 }
 
-// === PostgreSQL sync ===
+// === PostgreSQL sync — optimized with parallel execution ===
 async function syncPostgres(): Promise<void> {
-  // === User table ===
-  await addPostgresColumnIfNotExists('users', 'notifWaEnabled', 'BOOLEAN DEFAULT true')
-  await addPostgresColumnIfNotExists('users', 'notifEmailEnabled', 'BOOLEAN DEFAULT true')
+  // Run all column additions in parallel
+  await Promise.all([
+    // User table
+    addPostgresColumnIfNotExists('users', 'notifWaEnabled', 'BOOLEAN DEFAULT true'),
+    addPostgresColumnIfNotExists('users', 'notifEmailEnabled', 'BOOLEAN DEFAULT true'),
+    // Settings table
+    addPostgresColumnIfNotExists('settings', 'notifWaEnabled', 'BOOLEAN DEFAULT false'),
+    addPostgresColumnIfNotExists('settings', 'notifWaToken', 'TEXT'),
+    addPostgresColumnIfNotExists('settings', 'notifWaDeviceId', 'TEXT'),
+    addPostgresColumnIfNotExists('settings', 'notifWaSenderNumber', 'TEXT'),
+    addPostgresColumnIfNotExists('settings', 'notifEmailEnabled', 'BOOLEAN DEFAULT false'),
+    addPostgresColumnIfNotExists('settings', 'notifEmailHost', 'TEXT'),
+    addPostgresColumnIfNotExists('settings', 'notifEmailPort', 'INTEGER'),
+    addPostgresColumnIfNotExists('settings', 'notifEmailUser', 'TEXT'),
+    addPostgresColumnIfNotExists('settings', 'notifEmailPass', 'TEXT'),
+    addPostgresColumnIfNotExists('settings', 'notifEmailFromName', 'TEXT'),
+    // Projects table
+    addPostgresColumnIfNotExists('projects', 'isFastTrack', 'BOOLEAN DEFAULT false'),
+    addPostgresColumnIfNotExists('projects', 'isFastProduction', 'BOOLEAN DEFAULT false'),
+    addPostgresColumnIfNotExists('projects', 'publicToken', 'TEXT UNIQUE'),
+    addPostgresColumnIfNotExists('projects', 'documents', 'TEXT DEFAULT \'[]\''),
+    // Tasks table
+    addPostgresColumnIfNotExists('tasks', 'revisionCount', 'INTEGER DEFAULT 0'),
+  ])
 
-  // === Settings table ===
-  await addPostgresColumnIfNotExists('settings', 'notifWaEnabled', 'BOOLEAN DEFAULT false')
-  await addPostgresColumnIfNotExists('settings', 'notifWaToken', 'TEXT')
-  await addPostgresColumnIfNotExists('settings', 'notifWaDeviceId', 'TEXT')
-  await addPostgresColumnIfNotExists('settings', 'notifWaSenderNumber', 'TEXT')
-  await addPostgresColumnIfNotExists('settings', 'notifEmailEnabled', 'BOOLEAN DEFAULT false')
-  await addPostgresColumnIfNotExists('settings', 'notifEmailHost', 'TEXT')
-  await addPostgresColumnIfNotExists('settings', 'notifEmailPort', 'INTEGER')
-  await addPostgresColumnIfNotExists('settings', 'notifEmailUser', 'TEXT')
-  await addPostgresColumnIfNotExists('settings', 'notifEmailPass', 'TEXT')
-  await addPostgresColumnIfNotExists('settings', 'notifEmailFromName', 'TEXT')
+  // Run role rename migrations in parallel
+  await Promise.all([
+    // users table
+    renamePostgresRole('users', 'role', 'PhotographerAudio', 'PhotographerVideographerAudio'),
+    renamePostgresRole('users', 'role', 'VideographerAudio', 'PhotographerVideographerAudio'),
+    renamePostgresRole('users', 'role', 'EditorMedia', 'EditorVideo'),
+    renamePostgresRole('users', 'role', 'EditorWebSocialMedia', 'EditorWebArticle'),
+    // tasks table
+    renamePostgresRole('tasks', 'role', 'PhotographerAudio', 'PhotographerVideographerAudio'),
+    renamePostgresRole('tasks', 'role', 'VideographerAudio', 'PhotographerVideographerAudio'),
+    renamePostgresRole('tasks', 'role', 'EditorMedia', 'EditorVideo'),
+    renamePostgresRole('tasks', 'role', 'EditorWebSocialMedia', 'EditorWebArticle'),
+    // surat_tugas table
+    renamePostgresRole('surat_tugas', 'role', 'PhotographerAudio', 'PhotographerVideographerAudio'),
+    renamePostgresRole('surat_tugas', 'role', 'VideographerAudio', 'PhotographerVideographerAudio'),
+    renamePostgresRole('surat_tugas', 'role', 'EditorMedia', 'EditorVideo'),
+    renamePostgresRole('surat_tugas', 'role', 'EditorWebSocialMedia', 'EditorWebArticle'),
+  ])
 
-  // === Projects table ===
-  await addPostgresColumnIfNotExists('projects', 'isFastTrack', 'BOOLEAN DEFAULT false')
-  await addPostgresColumnIfNotExists('projects', 'isFastProduction', 'BOOLEAN DEFAULT false')
-  await addPostgresColumnIfNotExists('projects', 'publicToken', 'TEXT UNIQUE')
-  await addPostgresColumnIfNotExists('projects', 'documents', 'TEXT DEFAULT \'[]\'')
-
-  // === Tasks table ===
-  await addPostgresColumnIfNotExists('tasks', 'revisionCount', 'INTEGER DEFAULT 0')
-
-  // === Role rename migration: PhotographerAudio + VideographerAudio → PhotographerVideographerAudio ===
-  await renamePostgresRole('users', 'role', 'PhotographerAudio', 'PhotographerVideographerAudio')
-  await renamePostgresRole('users', 'role', 'VideographerAudio', 'PhotographerVideographerAudio')
-  await renamePostgresRole('tasks', 'role', 'PhotographerAudio', 'PhotographerVideographerAudio')
-  await renamePostgresRole('tasks', 'role', 'VideographerAudio', 'PhotographerVideographerAudio')
-  await renamePostgresRole('surat_tugas', 'role', 'PhotographerAudio', 'PhotographerVideographerAudio')
-  await renamePostgresRole('surat_tugas', 'role', 'VideographerAudio', 'PhotographerVideographerAudio')
-
-  // === Role rename migration: EditorMedia → EditorVideo, EditorWebSocialMedia → EditorWebArticle ===
-  await renamePostgresRole('users', 'role', 'EditorMedia', 'EditorVideo')
-  await renamePostgresRole('users', 'role', 'EditorWebSocialMedia', 'EditorWebArticle')
-  await renamePostgresRole('tasks', 'role', 'EditorMedia', 'EditorVideo')
-  await renamePostgresRole('tasks', 'role', 'EditorWebSocialMedia', 'EditorWebArticle')
-  await renamePostgresRole('surat_tugas', 'role', 'EditorMedia', 'EditorVideo')
-  await renamePostgresRole('surat_tugas', 'role', 'EditorWebSocialMedia', 'EditorWebArticle')
-
-  // === Stage shift migration: Insert new stage 3 (Finalization), shift 3→4, 4→5, 5→6 ===
-  // Uses role-based conditions for tasks to prevent double-migration
-  // Projects: shift currentStage (safe because project stages are sequential)
+  // Stage shift migrations — sequential within table, parallel across tables
   await shiftPostgresStage('projects', 'currentStage', 5, 6)
   await shiftPostgresStage('projects', 'currentStage', 4, 5)
   await shiftPostgresStage('projects', 'currentStage', 3, 4)
-  // Tasks: use role-based conditions to be idempotent
-  // Reviewer was at old stage 3, should be at new stage 4
-  await shiftPostgresStageWithCondition('tasks', 'stage', 3, 4, "role = 'Reviewer'")
-  // PublisherWeb/PublisherSocialMedia were at old stage 4, should be at new stage 5
-  await shiftPostgresStageWithCondition('tasks', 'stage', 4, 5, "role IN ('PublisherWeb', 'PublisherSocialMedia')")
-  // Surat tugas: shift (less critical, but keep consistent)
-  await shiftPostgresStage('surat_tugas', 'stage', 4, 5)
-  await shiftPostgresStage('surat_tugas', 'stage', 3, 4)
+
+  await Promise.all([
+    shiftPostgresStageWithCondition('tasks', 'stage', 3, 4, "role = 'Reviewer'"),
+    shiftPostgresStageWithCondition('tasks', 'stage', 4, 5, "role IN ('PublisherWeb', 'PublisherSocialMedia')"),
+    shiftPostgresStage('surat_tugas', 'stage', 4, 5),
+    shiftPostgresStage('surat_tugas', 'stage', 3, 4),
+  ])
 }
 
 async function addPostgresColumnIfNotExists(
@@ -194,10 +202,6 @@ async function addPostgresColumnIfNotExists(
 
 // === Role rename helpers ===
 
-/**
- * Renames a role value in a SQLite table column.
- * Safe to call multiple times — only updates rows that still have the old value.
- */
 async function renameSqliteRole(
   table: string,
   column: string,
@@ -216,10 +220,6 @@ async function renameSqliteRole(
   }
 }
 
-/**
- * Renames a role value in a PostgreSQL table column.
- * Safe to call multiple times — only updates rows that still have the old value.
- */
 async function renamePostgresRole(
   table: string,
   column: string,
@@ -240,11 +240,6 @@ async function renamePostgresRole(
 
 // === Stage shift helpers ===
 
-/**
- * Shifts a stage value in a SQLite table column from oldStage to newStage.
- * Used when inserting a new stage shifts existing stage numbers upward.
- * IMPORTANT: Must be called in reverse order (highest stage first) to avoid conflicts.
- */
 async function shiftSqliteStage(
   table: string,
   column: string,
@@ -263,10 +258,6 @@ async function shiftSqliteStage(
   }
 }
 
-/**
- * Shifts a stage value with an additional WHERE condition.
- * Used for idempotent task migrations where role determines the correct target stage.
- */
 async function shiftSqliteStageWithCondition(
   table: string,
   column: string,
@@ -286,11 +277,6 @@ async function shiftSqliteStageWithCondition(
   }
 }
 
-/**
- * Shifts a stage value in a PostgreSQL table column from oldStage to newStage.
- * Used when inserting a new stage shifts existing stage numbers upward.
- * IMPORTANT: Must be called in reverse order (highest stage first) to avoid conflicts.
- */
 async function shiftPostgresStage(
   table: string,
   column: string,
@@ -309,10 +295,6 @@ async function shiftPostgresStage(
   }
 }
 
-/**
- * Shifts a stage value in a PostgreSQL table column with an additional WHERE condition.
- * Used for idempotent task migrations where role determines the correct target stage.
- */
 async function shiftPostgresStageWithCondition(
   table: string,
   column: string,

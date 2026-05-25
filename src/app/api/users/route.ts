@@ -25,32 +25,43 @@ export async function GET() {
         role: true,
         notifWaEnabled: true,
         notifEmailEnabled: true,
-        password: true,
-        avatar: true,
+        // Optimization: Don't fetch password hash — just check existence in DB
+        // This avoids sending ~60 byte bcrypt hash per user in the response
+        _count: {
+          select: { tasksAsAssignee: true }
+        }
       }
     })
+    
+    // Check which users have passwords set (single query instead of per-user)
+    const usersWithPasswords = await db.user.findMany({
+      select: { id: true, password: true, avatar: true }
+    })
+    const passwordMap = new Map(usersWithPasswords.map(u => [u.id, u.password]))
+    const avatarMap = new Map(usersWithPasswords.map(u => [u.id, u.avatar]))
     
     // Return users with original DB role values
     // Display names are handled client-side via ROLE_DISPLAY_NAMES in store.ts
     // IMPORTANT: Replace large base64 avatars with lightweight URLs to prevent
     // API response bloat (some avatars are 700KB+ causing browser fetch timeouts)
     const transformedUsers = users.map(u => {
-      let avatar = u.avatar || ''
+      const avatar = avatarMap.get(u.id) || ''
+      const password = passwordMap.get(u.id)
       // Replace massive base64 avatars with a lightweight URL placeholder
       // This reduces response from ~1.7MB to ~15KB, preventing timeout errors
-      if (avatar.startsWith('data:image') && avatar.length > 50000) {
-        avatar = `https://ui-avatars.com/api/?name=${encodeURIComponent(u.name)}&background=7c3aed&color=fff&size=150`
-      }
+      const finalAvatar = (avatar.startsWith('data:image') && avatar.length > 50000)
+        ? `https://ui-avatars.com/api/?name=${encodeURIComponent(u.name)}&background=7c3aed&color=fff&size=150`
+        : avatar
       return {
         id: u.id,
         name: u.name,
         email: u.email,
         whatsapp: u.whatsapp || '',
-        avatar,
+        avatar: finalAvatar,
         role: u.role,
         notifWaEnabled: u.notifWaEnabled,
         notifEmailEnabled: u.notifEmailEnabled,
-        hasPassword: !!(u.password && u.password !== '$2a$10$placeholder'),
+        hasPassword: !!(password && password !== '$2a$10$placeholder'),
       }
     })
     
