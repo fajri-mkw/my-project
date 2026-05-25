@@ -323,9 +323,10 @@ export const STAGES: Record<number, string> = {
   0: 'Perencanaan',
   1: 'Produksi',
   2: 'Pasca Produksi',
-  3: 'Review',
-  4: 'Publikasi',
-  5: 'Selesai'
+  3: 'Finalization',
+  4: 'Review',
+  5: 'Publikasi',
+  6: 'Selesai'
 }
 
 export const ROLES: Role[] = [
@@ -342,14 +343,14 @@ export const ROLE_CONFIG: Record<string, { stage: number; type: string; icon: st
   'EditorVideo': { stage: 2, type: 'download_upload', icon: 'FileVideo' },
   'EditorWebArticle': { stage: 2, type: 'download_upload', icon: 'FileText' },
   'EditorFoto': { stage: 2, type: 'download_upload', icon: 'FileImage' },
-  'EditorTemplateSosialMedia': { stage: 2, type: 'download_upload', icon: 'FileImage' },
+  'EditorTemplateSosialMedia': { stage: 3, type: 'download_upload', icon: 'FileImage' },
   'StreamingOperator': { stage: 2, type: 'paste_streaming', icon: 'PlayCircle' },
   'PodcastOperator': { stage: 2, type: 'paste_youtube', icon: 'FileAudio' },
   
-  'Reviewer': { stage: 3, type: 'review', icon: 'AlertCircle' },
+  'Reviewer': { stage: 4, type: 'review', icon: 'AlertCircle' },
   
-  'PublisherWeb': { stage: 4, type: 'download_link', icon: 'Link' },
-  'PublisherSocialMedia': { stage: 4, type: 'download_link', icon: 'Link' },
+  'PublisherWeb': { stage: 5, type: 'download_link', icon: 'Link' },
+  'PublisherSocialMedia': { stage: 5, type: 'download_link', icon: 'Link' },
 }
 
 export const FOLDER_OPTIONS = [
@@ -540,7 +541,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       if (p.isFastProduction) {
         const allDone = updatedTasks.every(t => t.status === 'completed')
         if (allDone) {
-          return { ...p, tasks: updatedTasks, currentStage: 5 }
+          return { ...p, tasks: updatedTasks, currentStage: 6 }
         }
         // Keep currentStage at the lowest stage that still has pending tasks
         const pendingStages = updatedTasks.filter(t => t.status === 'pending').map(t => t.stage)
@@ -555,11 +556,11 @@ export const useAppStore = create<AppState>((set, get) => ({
       if (allCurrentDone) {
         nextStage = p.currentStage + 1
         // Fast Track: skip stages 1-3, jump directly to stage 4 (Publikasi)
-        if (p.isFastTrack && nextStage < 4) {
-          nextStage = 4
+        if (p.isFastTrack && nextStage < 5) {
+          nextStage = 5
           // Auto-complete all tasks in skipped stages
           updatedTasks = updatedTasks.map(t => {
-            if (t.stage >= 1 && t.stage <= 3 && t.status === 'pending') {
+            if (t.stage >= 1 && t.stage <= 4 && t.status === 'pending') {
               return { ...t, status: 'completed' as const, data: { fastTracked: true } }
             }
             return t
@@ -591,7 +592,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       if (p.id !== projectId) return p
       
       const updatedTasks = p.tasks.map(t => {
-        if (t.stage === 2 || t.stage === 3) return { ...t, status: 'pending' as const, data: {} }
+        if (t.stage === 2 || t.stage === 3 || t.stage === 4) return { ...t, status: 'pending' as const, data: {} }
         return t
       })
       
@@ -680,7 +681,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
   getCompletedProjects: () => {
     const state = get()
-    return state.projects.filter(p => p.currentStage === 5)
+    return state.projects.filter(p => p.currentStage === 6)
   },
   getMySuratTugas: () => {
     const state = get()

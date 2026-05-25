@@ -828,17 +828,17 @@ export function CreateProjectView() {
               <div className="mt-3 space-y-2">
                 <div className="flex items-center gap-2 text-xs text-amber-700">
                   <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
-                  <span>Tahap Produksi (1), Pasca Produksi (2), dan Review (3) akan otomatis dilewati. Publisher langsung mengerjakan.</span>
+                  <span>Tahap Produksi (1), Pasca Produksi (2), Finalization (3), dan Review (4) akan otomatis dilewati. Publisher langsung mengerjakan.</span>
                 </div>
                 <div className="flex flex-wrap gap-1.5 mt-1">
-                  {[1, 2, 3].map(stage => (
+                  {[1, 2, 3, 4].map(stage => (
                     <Badge key={stage} variant="outline" className="bg-purple-50 text-purple-600 border-purple-200 text-[10px] line-through decoration-purple-400">
                       <SkipForward className="h-2.5 w-2.5 mr-0.5" />
                       {STAGES[stage]}
                     </Badge>
                   ))}
                   <Badge variant="outline" className="bg-emerald-50 text-emerald-600 border-emerald-200 text-[10px]">
-                    → {STAGES[4]}
+                    → {STAGES[5]}
                   </Badge>
                 </div>
               </div>
@@ -891,7 +891,7 @@ export function CreateProjectView() {
                   <span>Produksi tidak berurutan — semua petugas bisa bekerja dan mengunggah laporan secara fleksibel tanpa menunggu tahap sebelumnya. Petugas dapat melakukan revisi.</span>
                 </div>
                 <div className="flex flex-wrap gap-1.5 mt-1">
-                  {[1, 2, 3, 4].map(stage => (
+                  {[1, 2, 3, 4, 5].map(stage => (
                     <Badge key={stage} variant="outline" className="bg-teal-50 text-teal-600 border-teal-200 text-[10px]">
                       {STAGES[stage]}
                     </Badge>
@@ -1256,12 +1256,12 @@ export function CreateProjectView() {
               </div>
             )}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              {[1, 2, 3, 4].map(stage => {
+              {[1, 2, 3, 4, 5].map(stage => {
                 const rolesInStage = Object.keys(ROLE_CONFIG).filter(r => ROLE_CONFIG[r].stage === stage)
                 if (rolesInStage.length === 0) return null
                 
-                // Fast Track: only show stage 4 (Publisher)
-                if (isFastTrack && stage !== 4) {
+                // Fast Track: only show stage 5 (Publisher)
+                if (isFastTrack && stage !== 5) {
                   return (
                     <div key={stage} className="bg-stone-50/30 p-5 rounded-2xl border border-stone-200/30 opacity-50">
                       <h4 className="text-xs font-bold text-stone-400 uppercase tracking-wider mb-3 border-b border-stone-200 pb-2 line-through decoration-purple-400">
@@ -1278,16 +1278,16 @@ export function CreateProjectView() {
                 
                 return (
                   <div key={stage} className={`p-5 rounded-2xl border ${
-                    isFastTrack && stage === 4 
+                    isFastTrack && stage === 5 
                       ? 'bg-amber-50/60 border-amber-300' 
                       : isFastProduction
                         ? 'bg-teal-50/40 border-teal-300'
                         : 'bg-stone-50/60 border-stone-200/60'
                   }`}>
                     <h4 className={`text-xs font-bold uppercase tracking-wider mb-4 border-b pb-2 ${
-                      isFastTrack && stage === 4 ? 'text-amber-700 border-amber-200' : isFastProduction ? 'text-teal-700 border-teal-200' : 'text-stone-600 border-stone-200'
+                      isFastTrack && stage === 5 ? 'text-amber-700 border-amber-200' : isFastProduction ? 'text-teal-700 border-teal-200' : 'text-stone-600 border-stone-200'
                     }`}>
-                      {isFastTrack && stage === 4 && <Zap className="h-3 w-3 inline mr-1" />}
+                      {isFastTrack && stage === 5 && <Zap className="h-3 w-3 inline mr-1" />}
                       {isFastProduction && <Rocket className="h-3 w-3 inline mr-1" />}
                       Tahap {stage}: {STAGES[stage]}
                     </h4>

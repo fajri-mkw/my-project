@@ -97,7 +97,7 @@ export function ReportsView() {
   }
 
   // Filter completed projects based on selected user (includes Manager via managerId)
-  const completedProjects = projects.filter(p => p.currentStage === 5)
+  const completedProjects = projects.filter(p => p.currentStage === 6)
   const filteredProjects = selectedUserId === 'all' 
     ? completedProjects 
     : completedProjects.filter(p => {

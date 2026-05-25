@@ -240,12 +240,12 @@ function buildContent() {
       ["6", "Editor (Video)", "Tahap 2 (Pasca Produksi)", "Download & Upload"],
       ["7", "Editor (Web Article/Author)", "Tahap 2 (Pasca Produksi)", "Download & Upload"],
       ["8", "Editor (Foto)", "Tahap 2 (Pasca Produksi)", "Download & Upload"],
-      ["9", "Editor (Template Sosial Media)", "Tahap 2 (Pasca Produksi)", "Download & Upload"],
-      ["10", "Streaming Operator", "Tahap 2 (Pasca Produksi)", "Tempel Link Streaming"],
-      ["11", "Podcast Operator", "Tahap 2 (Pasca Produksi)", "Tempel Link YouTube"],
-      ["12", "Reviewer", "Tahap 3 (Review)", "Review Konten"],
-      ["13", "Publisher Web", "Tahap 4 (Publikasi)", "Download & Tambah Link"],
-      ["14", "Publisher Social Media", "Tahap 4 (Publikasi)", "Download & Tambah Link"],
+      ["9", "Streaming Operator", "Tahap 2 (Pasca Produksi)", "Tempel Link Streaming"],
+      ["10", "Podcast Operator", "Tahap 2 (Pasca Produksi)", "Tempel Link YouTube"],
+      ["11", "Editor (Template Sosial Media)", "Tahap 3 (Finalization)", "Download & Upload"],
+      ["12", "Reviewer", "Tahap 4 (Review)", "Review Konten"],
+      ["13", "Publisher Web", "Tahap 5 (Publikasi)", "Download & Tambah Link"],
+      ["14", "Publisher Social Media", "Tahap 5 (Publikasi)", "Download & Tambah Link"],
       ["15", "Super Admin", "Semua Tahapan", "Pengelolaan Sistem"],
     ]
   ));
@@ -273,22 +273,23 @@ function buildContent() {
   content.push(heading("BAB III  ALUR KERJA UMUM"));
 
   content.push(heading("3.1  Gambaran Umum Alur Produksi", HeadingLevel.HEADING_2));
-  content.push(para("Alur kerja produksi kehumasan dalam Pushakin Flows terdiri dari 6 tahapan yang berurutan. Setiap tahapan harus diselesaikan sebelum tahapan berikutnya dimulai."));
+  content.push(para("Alur kerja produksi kehumasan dalam Pushakin Flows terdiri dari 7 tahapan yang berurutan. Setiap tahapan harus diselesaikan sebelum tahapan berikutnya dimulai."));
 
   content.push(makeTable(
     ["Tahap", "Nama Tahap", "Penanggung Jawab", "Keterangan"],
     [
       ["0", "Perencanaan", "Manager", "Pembuatan proyek, alokasi tugas dan folder"],
       ["1", "Produksi", "Reporter, Fotografer, Videografer, Desainer", "Pengumpulan materi mentah (teks, foto, video, desain)"],
-      ["2", "Pasca Produksi", "Editor, Streaming Op., Podcast Op.", "Pengeditan, pascaproduksi konten"],
-      ["3", "Review", "Reviewer", "Quality control dan persetujuan konten"],
-      ["4", "Publikasi", "Publisher Web, Publisher Sosmed", "Publikasi ke berbagai platform media"],
-      ["5", "Selesai", "\u2014", "Proyek ditandai selesai secara otomatis"],
+      ["2", "Pasca Produksi", "Editor, Streaming Op., Podcast Op.", "Pengeditan video, artikel, foto; pascaproduksi konten"],
+      ["3", "Finalization", "Editor (Template Sosial Media)", "Pembuatan template konten media sosial dari foto yang diedit"],
+      ["4", "Review", "Reviewer", "Quality control dan persetujuan konten"],
+      ["5", "Publikasi", "Publisher Web, Publisher Sosmed", "Publikasi ke berbagai platform media"],
+      ["6", "Selesai", "\u2014", "Proyek ditandai selesai secara otomatis"],
     ]
   ));
 
   content.push(heading("3.2  Peralihan Tahap Otomatis", HeadingLevel.HEADING_2));
-  content.push(para("Sistem akan secara otomatis memindahkan proyek ke tahap berikutnya ketika seluruh tugas pada tahap saat ini telah ditandai selesai oleh penanggung jawabnya. Pengecualian: pada Tahap 3 (Review), jika Reviewer menolak konten, proyek akan dikembalikan ke Tahap 2 (Pasca Produksi) dan seluruh tugas pada Tahap 2 dan 3 akan direset ke status pending."));
+  content.push(para("Sistem akan secara otomatis memindahkan proyek ke tahap berikutnya ketika seluruh tugas pada tahap saat ini telah ditandai selesai oleh penanggung jawabnya. Pengecualian: pada Tahap 4 (Review), jika Reviewer menolak konten, proyek akan dikembalikan ke Tahap 2 (Pasca Produksi) dan seluruh tugas pada Tahap 2, 3, dan 4 akan direset ke status pending."));
 
   // BAB IV - PROSEDUR ADMINISTRATOR
   content.push(heading("BAB IV  PROSEDUR ADMINISTRATOR"));

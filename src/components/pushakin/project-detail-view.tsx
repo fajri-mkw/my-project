@@ -504,17 +504,17 @@ export function ProjectDetailView() {
               ) : (
                 <div 
                   className="absolute left-0 top-1/2 -translate-y-1/2 h-1 bg-indigo-500 rounded-full z-0 transition-all duration-500" 
-                  style={{ width: `${((project.currentStage - 1) / 4) * 100}%` }}
+                  style={{ width: `${((project.currentStage - 1) / 5) * 100}%` }}
                 />
               )}
               
-              {[1, 2, 3, 4, 5].map((stageNum) => {
+              {[1, 2, 3, 4, 5, 6].map((stageNum) => {
                 const isCompleted = stageNum < project.currentStage
                 const isCurrent = stageNum === project.currentStage
-                const isFastTracked = project.isFastTrack && stageNum >= 1 && stageNum <= 3
-                const isFastProduction = project.isFastProduction && stageNum >= 1 && stageNum <= 4
+                const isFastTracked = project.isFastTrack && stageNum >= 1 && stageNum <= 4
+                const isFastProduction = project.isFastProduction && stageNum >= 1 && stageNum <= 5
                 
-                // Fast Production: stages 1-4 are all "active" (teal), stage 5 is pending until all done
+                // Fast Production: stages 1-5 are all "active" (teal), stage 6 is pending until all done
                 const isFPActive = isFastProduction && !isCompleted
                 
                 return (

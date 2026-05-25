@@ -66,6 +66,18 @@ async function syncSqlite(): Promise<void> {
   await renameSqliteRole('tasks', 'role', 'EditorWebSocialMedia', 'EditorWebArticle')
   await renameSqliteRole('surat_tugas', 'role', 'EditorMedia', 'EditorVideo')
   await renameSqliteRole('surat_tugas', 'role', 'EditorWebSocialMedia', 'EditorWebArticle')
+
+  // === Stage shift migration: Insert new stage 3 (Finalization), shift 3→4, 4→5, 5→6 ===
+  // Must run in reverse order (5→6 first) to avoid overwriting
+  await shiftSqliteStage('projects', 'currentStage', 5, 6)
+  await shiftSqliteStage('projects', 'currentStage', 4, 5)
+  await shiftSqliteStage('projects', 'currentStage', 3, 4)
+  // Also shift task stages
+  await shiftSqliteStage('tasks', 'stage', 4, 5)
+  await shiftSqliteStage('tasks', 'stage', 3, 4)
+  // Also shift surat_tugas stages
+  await shiftSqliteStage('surat_tugas', 'stage', 4, 5)
+  await shiftSqliteStage('surat_tugas', 'stage', 3, 4)
 }
 
 async function addSqliteColumnIfNotExists(
@@ -136,6 +148,18 @@ async function syncPostgres(): Promise<void> {
   await renamePostgresRole('tasks', 'role', 'EditorWebSocialMedia', 'EditorWebArticle')
   await renamePostgresRole('surat_tugas', 'role', 'EditorMedia', 'EditorVideo')
   await renamePostgresRole('surat_tugas', 'role', 'EditorWebSocialMedia', 'EditorWebArticle')
+
+  // === Stage shift migration: Insert new stage 3 (Finalization), shift 3→4, 4→5, 5→6 ===
+  // Must run in reverse order (5→6 first) to avoid overwriting
+  await shiftPostgresStage('projects', 'currentStage', 5, 6)
+  await shiftPostgresStage('projects', 'currentStage', 4, 5)
+  await shiftPostgresStage('projects', 'currentStage', 3, 4)
+  // Also shift task stages
+  await shiftPostgresStage('tasks', 'stage', 4, 5)
+  await shiftPostgresStage('tasks', 'stage', 3, 4)
+  // Also shift surat_tugas stages
+  await shiftPostgresStage('surat_tugas', 'stage', 4, 5)
+  await shiftPostgresStage('surat_tugas', 'stage', 3, 4)
 }
 
 async function addPostgresColumnIfNotExists(
@@ -205,5 +229,53 @@ async function renamePostgresRole(
     }
   } catch (error) {
     console.error(`[DB Sync Postgres] Failed to rename role ${oldRole} → ${newRole} in ${table}.${column}:`, error)
+  }
+}
+
+// === Stage shift helpers ===
+
+/**
+ * Shifts a stage value in a SQLite table column from oldStage to newStage.
+ * Used when inserting a new stage shifts existing stage numbers upward.
+ * IMPORTANT: Must be called in reverse order (highest stage first) to avoid conflicts.
+ */
+async function shiftSqliteStage(
+  table: string,
+  column: string,
+  oldStage: number,
+  newStage: number
+): Promise<void> {
+  try {
+    const result = await db.$executeRawUnsafe(
+      `UPDATE "${table}" SET "${column}" = ${newStage} WHERE "${column}" = ${oldStage}`
+    )
+    if (result > 0) {
+      console.log(`[DB Sync SQLite] Shifted stage ${oldStage} → ${newStage} in ${table}.${column} (${result} rows)`)
+    }
+  } catch (error) {
+    console.error(`[DB Sync SQLite] Failed to shift stage ${oldStage} → ${newStage} in ${table}.${column}:`, error)
+  }
+}
+
+/**
+ * Shifts a stage value in a PostgreSQL table column from oldStage to newStage.
+ * Used when inserting a new stage shifts existing stage numbers upward.
+ * IMPORTANT: Must be called in reverse order (highest stage first) to avoid conflicts.
+ */
+async function shiftPostgresStage(
+  table: string,
+  column: string,
+  oldStage: number,
+  newStage: number
+): Promise<void> {
+  try {
+    const result = await db.$executeRawUnsafe(
+      `UPDATE "${table}" SET "${column}" = ${newStage} WHERE "${column}" = ${oldStage}`
+    )
+    if (result > 0) {
+      console.log(`[DB Sync Postgres] Shifted stage ${oldStage} → ${newStage} in ${table}.${column} (${result} rows)`)
+    }
+  } catch (error) {
+    console.error(`[DB Sync Postgres] Failed to shift stage ${oldStage} → ${newStage} in ${table}.${column}:`, error)
   }
 }

@@ -239,7 +239,7 @@ export function PublicTrackerView({ onBack }: PublicTrackerViewProps) {
     const percentage = totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 100) : 0
     
     const stageProgress: Record<number, { total: number; completed: number }> = {}
-    for (let stage = 1; stage <= 4; stage++) {
+    for (let stage = 1; stage <= 5; stage++) {
       const stageTasks = project.tasks.filter(t => t.stage === stage)
       stageProgress[stage] = {
         total: stageTasks.length,
@@ -248,7 +248,7 @@ export function PublicTrackerView({ onBack }: PublicTrackerViewProps) {
     }
     
     const teamByStage: Record<number, Array<{ name: string; status: string; avatar: string | null }>> = {}
-    for (let stage = 1; stage <= 4; stage++) {
+    for (let stage = 1; stage <= 5; stage++) {
       teamByStage[stage] = project.tasks
         .filter(t => t.stage === stage)
         .map(t => ({
@@ -609,8 +609,8 @@ export function PublicTrackerView({ onBack }: PublicTrackerViewProps) {
                     ))}
                   {currentProjects.map(project => {
                     const { percentage, stageProgress, teamByStage } = getTaskProgress(project)
-                    const isCompleted = project.currentStage === 5
-                    const currentStage = Math.min(project.currentStage, 4)
+                    const isCompleted = project.currentStage === 6
+                    const currentStage = Math.min(project.currentStage, 5)
 
                     return (
                       <div
@@ -639,7 +639,7 @@ export function PublicTrackerView({ onBack }: PublicTrackerViewProps) {
                         <div className="px-2 sm:px-2.5 py-1.5 sm:py-2 border-b border-slate-700/50 shrink-0">
                           {/* Mobile: 2x2 grid */}
                           <div className="grid grid-cols-2 gap-1.5 sm:hidden">
-                            {[1, 2, 3, 4].map((stage) => {
+                            {[1, 2, 3, 4, 5].map((stage) => {
                               const colors = STAGE_COLORS[stage]
                               const isStageCompleted = stage < project.currentStage
                               const isCurrent = stage === project.currentStage
@@ -690,7 +690,7 @@ export function PublicTrackerView({ onBack }: PublicTrackerViewProps) {
 
                           {/* Desktop/Tablet: horizontal flow */}
                           <div className="hidden sm:flex items-center justify-between gap-0">
-                            {[1, 2, 3, 4].map((stage, idx) => {
+                            {[1, 2, 3, 4, 5].map((stage, idx) => {
                               const colors = STAGE_COLORS[stage]
                               const isStageCompleted = stage < project.currentStage
                               const isCurrent = stage === project.currentStage
@@ -744,7 +744,7 @@ export function PublicTrackerView({ onBack }: PublicTrackerViewProps) {
                         <div className="flex-1 px-2 sm:px-2.5 py-1 sm:py-1.5 overflow-hidden">
                           {/* Mobile: simple list (single column) */}
                           <div className="flex flex-col gap-1 sm:hidden h-full overflow-y-auto">
-                            {[1, 2, 3, 4].map((stage) => {
+                            {[1, 2, 3, 4, 5].map((stage) => {
                               const members = teamByStage[stage]
                               const progress = stageProgress[stage]
                               const isStageCompleted = stage < project.currentStage
@@ -824,7 +824,7 @@ export function PublicTrackerView({ onBack }: PublicTrackerViewProps) {
 
                           {/* Desktop/Tablet: 2x2 grid */}
                           <div className="hidden sm:grid grid-cols-2 gap-x-2 gap-y-0.5 h-full">
-                            {[1, 2, 3, 4].map((stage) => {
+                            {[1, 2, 3, 4, 5].map((stage) => {
                               const members = teamByStage[stage]
                               const progress = stageProgress[stage]
                               const isStageCompleted = stage < project.currentStage

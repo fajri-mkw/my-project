@@ -58,7 +58,7 @@ export function OverviewView() {
   const targetProjects = visibleProjects.filter(p => isDateInRange(p.createdAt, timeFilter))
   
   const totalProjects = targetProjects.length
-  const completedCount = targetProjects.filter(p => p.currentStage === 5).length
+  const completedCount = targetProjects.filter(p => p.currentStage === 6).length
   const activeCount = totalProjects - completedCount
 
   const handleSharePublic = async () => {
@@ -98,7 +98,7 @@ export function OverviewView() {
     
     // Progress per stage
     const stageProgress: Record<number, { total: number; completed: number }> = {}
-    for (let stage = 1; stage <= 4; stage++) {
+    for (let stage = 1; stage <= 5; stage++) {
       const stageTasks = project.tasks.filter(t => t.stage === stage)
       stageProgress[stage] = {
         total: stageTasks.length,
@@ -108,7 +108,7 @@ export function OverviewView() {
     
     // Team members per stage
     const teamByStage: Record<number, Array<{ userId: string | null; name: string; role: string; status: string }>> = {}
-    for (let stage = 1; stage <= 4; stage++) {
+    for (let stage = 1; stage <= 5; stage++) {
       teamByStage[stage] = project.tasks
         .filter(t => t.stage === stage)
         .map(t => ({
@@ -219,7 +219,7 @@ export function OverviewView() {
             <div className="space-y-4">
               {targetProjects.map(project => {
                 const { percentage, stageProgress, teamByStage } = getTaskProgress(project)
-                const isCompleted = project.currentStage === 5
+                const isCompleted = project.currentStage === 6
 
                 return (
                   <div
@@ -261,7 +261,7 @@ export function OverviewView() {
                     {/* Step Flow Progress */}
                     <div className="bg-slate-50 px-4 py-4 border-b border-slate-200">
                       <div className="flex items-center justify-between">
-                        {[1, 2, 3, 4].map((stage, idx) => {
+                        {[1, 2, 3, 4, 5].map((stage, idx) => {
                           const gradient = STAGE_GRADIENTS[stage]
                           const isStageCompleted = stage < project.currentStage
                           const isCurrent = stage === project.currentStage
@@ -327,7 +327,7 @@ export function OverviewView() {
                     {/* Team Members by Stage */}
                     <div className="p-4">
                       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
-                        {[1, 2, 3, 4].map((stage) => {
+                        {[1, 2, 3, 4, 5].map((stage) => {
                           const members = teamByStage[stage]
                           const progress = stageProgress[stage]
                           const gradient = STAGE_GRADIENTS[stage]

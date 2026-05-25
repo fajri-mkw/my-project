@@ -588,14 +588,16 @@ Seluruh staff melihat dashboard, statistik, dan inbox yang sama:
 - **Editor (Video)**: Mendownload file video mentah, mengedit, dan mengupload hasil editan
 - **Editor (Web Article/Author)**: Mendownload file mentah, menyunting artikel/konten web
 - **Editor (Foto)**: Mendownload file foto mentah, mengedit, dan mengupload hasil editan
-- **Editor (Template Sosial Media)**: Membuat dan mengedit template konten media sosial
 - **Streaming Operator**: Menempelkan tautan streaming (URL)
 - **Podcast Operator**: Menempelkan tautan YouTube/podcast (URL)
 
-### **Tahap 3 - Review**
-- **Reviewer**: Melakukan quality control terhadap seluruh hasil Tahap 2. Dapat menyetujui atau menolak (kembali ke Tahap 2)
+### **Tahap 3 - Finalization**
+- **Editor (Template Sosial Media)**: Membuat dan mengedit template konten media sosial dari foto yang sudah diedit
 
-### **Tahap 4 - Publikasi**
+### **Tahap 4 - Review**
+- **Reviewer**: Melakukan quality control terhadap seluruh hasil Tahap 2 dan 3. Dapat menyetujui atau menolak (kembali ke Tahap 2)
+
+### **Tahap 5 - Publikasi**
 - **Publisher Web**: Mendownload file final, menambahkan tautan publish ke platform web
 - **Publisher Social Media**: Mendownload file final, menambahkan tautan publish ke platform media sosial
 
@@ -644,27 +646,35 @@ Seluruh staff melihat dashboard, statistik, dan inbox yang sama:
 ### **Tahap 2 - Pasca Produksi**
 1. Editor menerima notifikasi bahwa proyek sudah masuk Tahap 2
 2. Editor mendownload file mentah dari folder RAW
-3. Editor melakukan proses editing
+3. Editor melakukan proses editing (video, web article, foto)
 4. Editor mengupload hasil editing ke folder REVISED
-5. Klik **"Selesai"** pada task card
-6. Streaming/Podcast Operator menempelkan tautan URL
+5. Streaming/Podcast Operator menempelkan tautan URL
+6. Klik **"Selesai"** pada task card
 7. Setelah **semua task Tahap 2 selesai**, proyek otomatis naik ke Tahap 3
 
-### **Tahap 3 - Review**
-1. Reviewer menerima notifikasi
-2. Reviewer meninjau seluruh hasil Tahap 2
-3. Reviewer memilih:
-   - **Setujui** → Proyek naik ke Tahap 4
-   - **Tolak** → Proyek kembali ke Tahap 2, seluruh task Tahap 2 dan 3 di-reset ke status pending
-4. Jika ditolak, tim Tahap 2 harus memperbaiki dan mengupload ulang
+### **Tahap 3 - Finalization**
+1. Editor (Template Sosial Media) menerima notifikasi
+2. Mendownload foto yang sudah diedit dari folder REVISED
+3. Membuat dan mengedit template konten media sosial
+4. Mengupload hasil template ke folder REVISED
+5. Klik **"Selesai"** pada task card
+6. Setelah **semua task Tahap 3 selesai**, proyek otomatis naik ke Tahap 4
 
-### **Tahap 4 - Publikasi**
+### **Tahap 4 - Review**
+1. Reviewer menerima notifikasi
+2. Reviewer meninjau seluruh hasil Tahap 2 dan 3
+3. Reviewer memilih:
+   - **Setujui** → Proyek naik ke Tahap 5
+   - **Tolak** → Proyek kembali ke Tahap 2, seluruh task Tahap 2, 3, dan 4 di-reset ke status pending
+4. Jika ditolak, tim Tahap 2 dan 3 harus memperbaiki dan mengupload ulang
+
+### **Tahap 5 - Publikasi**
 1. Publisher menerima notifikasi
 2. Publisher mendownload file final dari folder FINAL
 3. Publisher mempublikasikan ke platform yang ditentukan
 4. Publisher menambahkan tautan publish di task card
 5. Klik **"Selesai"** pada task card
-6. Setelah **semua task Tahap 4 selesai**, proyek otomatis berstatus **Selesai (Tahap 5)**
+6. Setelah **semua task Tahap 5 selesai**, proyek otomatis berstatus **Selesai (Tahap 6)**
 
 ---
 
@@ -674,8 +684,8 @@ Seluruh staff melihat dashboard, statistik, dan inbox yang sama:
 Setiap proyek memiliki 5 folder standar:
 
 - **RAW FOLDER**: File mentah dari tim produksi (Tahap 1)
-- **REVISED FOLDER**: File hasil editing (Tahap 2-3)
-- **FINAL PRODUCT**: File siap publikasi (Tahap 4)
+- **REVISED FOLDER**: File hasil editing (Tahap 2-4)
+- **FINAL PRODUCT**: File siap publikasi (Tahap 5)
 - **DESAIN FOLDER**: Aset desain grafis
 - **LAINNYA**: Folder tambahan untuk kebutuhan logistik
 
@@ -712,7 +722,7 @@ Setiap proyek memiliki 5 folder standar:
 
 ## 6.2 Statistik & Progress
 - Menampilkan metrik: Total Proyek, Sedang Berjalan, Telah Selesai
-- Detail progress per proyek dengan visualisasi 4 tahapan
+- Detail progress per proyek dengan visualisasi 5 tahapan
 - Informasi anggota tim per tahapan dengan status penyelesaian
 - Tombol **"Bagikan ke Publik"** untuk mendapatkan tautan tracker publik
 
@@ -730,7 +740,7 @@ Setiap proyek memiliki 5 folder standar:
 Hanya tersedia untuk **Manager** dan **Super Admin**
 
 ## 7.2 Konten Laporan
-- Menampilkan proyek yang telah **selesai (Tahap 5)**
+- Menampilkan proyek yang telah **selesai (Tahap 6)**
 - Detail per tahapan: peran, petugas, status, platform, tautan hasil produksi
 - Dokumen pendukung dari Manager
 - Tautan lampiran surat permohonan

@@ -22,10 +22,10 @@ export async function PUT(request: NextRequest) {
         return NextResponse.json({ error: 'Project not found' }, { status: 404 })
       }
       
-      // Update all stage 2 and 3 tasks to pending
+      // Update all stage 2, 3, and 4 tasks to pending
       const updatedTasks = await Promise.all(
         project.tasks
-          .filter(t => t.stage === 2 || t.stage === 3)
+          .filter(t => t.stage === 2 || t.stage === 3 || t.stage === 4)
           .map(t => db.task.update({
             where: { id: t.id },
             data: { status: 'pending', data: '{}' }
@@ -165,13 +165,13 @@ export async function PUT(request: NextRequest) {
     if (allCurrentDone) {
       nextStage = task.project.currentStage + 1
       
-      // Fast Track: skip stages 1-3, jump directly to stage 4 (Publikasi)
-      if (project?.isFastTrack && nextStage < 4) {
-        nextStage = 4
+      // Fast Track: skip stages 1-4, jump directly to stage 5 (Publikasi)
+      if (project?.isFastTrack && nextStage < 5) {
+        nextStage = 5
         // Auto-complete all tasks in skipped stages
         await Promise.all(
           projectTasks
-            .filter(t => t.stage >= 1 && t.stage <= 3 && t.status === 'pending')
+            .filter(t => t.stage >= 1 && t.stage <= 4 && t.status === 'pending')
             .map(t => db.task.update({
               where: { id: t.id },
               data: { status: 'completed', data: JSON.stringify({ fastTracked: true }) }
