@@ -3,7 +3,7 @@ import { NextResponse } from 'next/server'
 import bcrypt from 'bcryptjs'
 
 const ROLES: string[] = [
-  'Admin', 'Administrator', 'Manager', 'Reporter', 'PhotographerAudio', 'VideographerAudio',
+  'Admin', 'Administrator', 'Manager', 'Reporter', 'PhotographerVideographerAudio',
   'EditorMedia', 'EditorWebSocialMedia', 'GraphicDesigner',
   'StreamingOperator', 'PodcastOperator', 'Reviewer', 'PublisherWeb', 'PublisherSocialMedia'
 ]
@@ -13,8 +13,7 @@ const ROLE_DISPLAY_NAMES: Record<string, string> = {
   'Administrator': 'Administrator',
   'Manager': 'Manager',
   'Reporter': 'Reporter',
-  'PhotographerAudio': 'Photographer & Audio',
-  'VideographerAudio': 'Videographer & Audio',
+  'PhotographerVideographerAudio': 'Photographer, Videographer, dan Audio',
   'EditorMedia': 'Editor (Media)',
   'EditorWebSocialMedia': 'Editor (Web Article & Social Media)',
   'GraphicDesigner': 'Graphic Designer',

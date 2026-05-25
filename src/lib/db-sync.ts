@@ -50,6 +50,14 @@ async function syncSqlite(): Promise<void> {
   await addSqliteColumnIfNotExists('users', 'notifWaEnabled', 'BOOLEAN DEFAULT 1')
   await addSqliteColumnIfNotExists('users', 'notifEmailEnabled', 'BOOLEAN DEFAULT 1')
   await addSqliteColumnIfNotExists('tasks', 'revisionCount', 'INTEGER DEFAULT 0')
+
+  // === Role rename migration: PhotographerAudio + VideographerAudio → PhotographerVideographerAudio ===
+  await renameSqliteRole('users', 'role', 'PhotographerAudio', 'PhotographerVideographerAudio')
+  await renameSqliteRole('users', 'role', 'VideographerAudio', 'PhotographerVideographerAudio')
+  await renameSqliteRole('tasks', 'role', 'PhotographerAudio', 'PhotographerVideographerAudio')
+  await renameSqliteRole('tasks', 'role', 'VideographerAudio', 'PhotographerVideographerAudio')
+  await renameSqliteRole('surat_tugas', 'role', 'PhotographerAudio', 'PhotographerVideographerAudio')
+  await renameSqliteRole('surat_tugas', 'role', 'VideographerAudio', 'PhotographerVideographerAudio')
 }
 
 async function addSqliteColumnIfNotExists(
@@ -104,6 +112,14 @@ async function syncPostgres(): Promise<void> {
 
   // === Tasks table ===
   await addPostgresColumnIfNotExists('tasks', 'revisionCount', 'INTEGER DEFAULT 0')
+
+  // === Role rename migration: PhotographerAudio + VideographerAudio → PhotographerVideographerAudio ===
+  await renamePostgresRole('users', 'role', 'PhotographerAudio', 'PhotographerVideographerAudio')
+  await renamePostgresRole('users', 'role', 'VideographerAudio', 'PhotographerVideographerAudio')
+  await renamePostgresRole('tasks', 'role', 'PhotographerAudio', 'PhotographerVideographerAudio')
+  await renamePostgresRole('tasks', 'role', 'VideographerAudio', 'PhotographerVideographerAudio')
+  await renamePostgresRole('surat_tugas', 'role', 'PhotographerAudio', 'PhotographerVideographerAudio')
+  await renamePostgresRole('surat_tugas', 'role', 'VideographerAudio', 'PhotographerVideographerAudio')
 }
 
 async function addPostgresColumnIfNotExists(
@@ -127,5 +143,51 @@ async function addPostgresColumnIfNotExists(
     }
   } catch (error) {
     console.error(`[DB Sync Postgres] Failed to add column ${table}.${column}:`, error)
+  }
+}
+
+// === Role rename helpers ===
+
+/**
+ * Renames a role value in a SQLite table column.
+ * Safe to call multiple times — only updates rows that still have the old value.
+ */
+async function renameSqliteRole(
+  table: string,
+  column: string,
+  oldRole: string,
+  newRole: string
+): Promise<void> {
+  try {
+    const result = await db.$executeRawUnsafe(
+      `UPDATE "${table}" SET "${column}" = '${newRole}' WHERE "${column}" = '${oldRole}'`
+    )
+    if (result > 0) {
+      console.log(`[DB Sync SQLite] Renamed role '${oldRole}' → '${newRole}' in ${table}.${column} (${result} rows)`)
+    }
+  } catch (error) {
+    console.error(`[DB Sync SQLite] Failed to rename role ${oldRole} → ${newRole} in ${table}.${column}:`, error)
+  }
+}
+
+/**
+ * Renames a role value in a PostgreSQL table column.
+ * Safe to call multiple times — only updates rows that still have the old value.
+ */
+async function renamePostgresRole(
+  table: string,
+  column: string,
+  oldRole: string,
+  newRole: string
+): Promise<void> {
+  try {
+    const result = await db.$executeRawUnsafe(
+      `UPDATE "${table}" SET "${column}" = '${newRole}' WHERE "${column}" = '${oldRole}'`
+    )
+    if (result > 0) {
+      console.log(`[DB Sync Postgres] Renamed role '${oldRole}' → '${newRole}' in ${table}.${column} (${result} rows)`)
+    }
+  } catch (error) {
+    console.error(`[DB Sync Postgres] Failed to rename role ${oldRole} → ${newRole} in ${table}.${column}:`, error)
   }
 }

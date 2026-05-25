@@ -581,8 +581,7 @@ Seluruh staff melihat dashboard, statistik, dan inbox yang sama:
 
 ### **Tahap 1 - Produksi**
 - **Reporter**: Mengupload materi liputan berupa teks/artikel
-- **Photographer & Audio**: Mengupload foto dan file audio mentah
-- **Videographer & Audio**: Mengupload video dan file audio mentah
+- **Photographer, Videographer, dan Audio**: Mengupload foto, video, dan file audio mentah
 - **Graphic Designer**: Mengupload file desain grafis mentah
 
 ### **Tahap 2 - Pasca Produksi**

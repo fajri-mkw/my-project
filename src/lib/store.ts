@@ -6,8 +6,7 @@ export type Role =
   | 'Administrator'
   | 'Manager' 
   | 'Reporter' 
-  | 'PhotographerAudio' 
-  | 'VideographerAudio'
+  | 'PhotographerVideographerAudio'
   | 'EditorMedia' 
   | 'EditorWebSocialMedia' 
   | 'GraphicDesigner'
@@ -23,8 +22,7 @@ export const ROLE_DISPLAY_NAMES: Record<string, string> = {
   'Administrator': 'Administrator',
   'Manager': 'Manager',
   'Reporter': 'Reporter',
-  'PhotographerAudio': 'Photographer & Audio',
-  'VideographerAudio': 'Videographer & Audio',
+  'PhotographerVideographerAudio': 'Photographer, Videographer, dan Audio',
   'EditorMedia': 'Editor (Media)',
   'EditorWebSocialMedia': 'Editor (Web Article & Social Media)',
   'GraphicDesigner': 'Graphic Designer',
@@ -327,15 +325,14 @@ export const STAGES: Record<number, string> = {
 }
 
 export const ROLES: Role[] = [
-  'Admin', 'Administrator', 'Manager', 'Reporter', 'PhotographerAudio', 'VideographerAudio',
+  'Admin', 'Administrator', 'Manager', 'Reporter', 'PhotographerVideographerAudio',
   'EditorMedia', 'EditorWebSocialMedia', 'GraphicDesigner',
   'StreamingOperator', 'PodcastOperator', 'Reviewer', 'PublisherWeb', 'PublisherSocialMedia'
 ]
 
 export const ROLE_CONFIG: Record<string, { stage: number; type: string; icon: string }> = {
   'Reporter': { stage: 1, type: 'upload', icon: 'FileText' },
-  'PhotographerAudio': { stage: 1, type: 'upload', icon: 'FileImage' },
-  'VideographerAudio': { stage: 1, type: 'upload', icon: 'FileVideo' },
+  'PhotographerVideographerAudio': { stage: 1, type: 'upload', icon: 'FileImage' },
   'GraphicDesigner': { stage: 1, type: 'upload', icon: 'FileImage' },
   
   'EditorMedia': { stage: 2, type: 'download_upload', icon: 'FileVideo' },
