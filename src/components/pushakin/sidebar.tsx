@@ -41,6 +41,7 @@ export function Sidebar({ isOpen = false, onNavigate, onClose }: SidebarProps) {
   const canViewReports = ['Manager', 'Admin'].includes(effectiveRole)
   const showPermohonan = ['Administrator', 'Admin'].includes(effectiveRole)
   const showKegiatan = ['Manager', 'Admin'].includes(effectiveRole)
+  const canManageContent = ['Manager', 'Admin'].includes(effectiveRole)
 
   const menuItems = [
     { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
@@ -48,7 +49,7 @@ export function Sidebar({ isOpen = false, onNavigate, onClose }: SidebarProps) {
     ...(showPermohonan ? [{ id: 'surat', label: 'Manajemen Surat', icon: Inbox }] : []),
     ...(showKegiatan ? [{ id: 'kegiatan', label: 'Program Kegiatan', icon: ClipboardList }] : []),
     { id: 'inbox', label: 'Inbox', icon: Inbox, badge: unreadSuratCount > 0 ? unreadSuratCount : undefined },
-    ...(effectiveRole === 'Admin' ? [{ id: 'announcements', label: 'Manajemen Konten', icon: Megaphone }] : []),
+    ...(canManageContent ? [{ id: 'announcements', label: 'Manajemen Konten', icon: Megaphone }] : []),
     ...(canViewReports ? [{ id: 'reports', label: 'Laporan Kegiatan', icon: FileText, badge: completedCount > 0 ? completedCount : undefined }] : []),
     { id: 'profile', label: 'Profil Saya', icon: UserCircle },
     ...(canManageUsers ? [{ id: 'users', label: 'Manajemen User', icon: Users }] : []),

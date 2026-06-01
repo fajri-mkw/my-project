@@ -71,7 +71,7 @@ export function AnnouncementView() {
   const [previewFile, setPreviewFile] = useState<{ url: string; type: 'pdf' | 'image' } | null>(null)
   const [previewIndex, setPreviewIndex] = useState(0)
 
-  const isAdmin = currentUser?.role === 'Admin'
+  const canManage = currentUser?.role === 'Admin' || currentUser?.role === 'Manager'
 
   // Form state
   const [isDialogOpen, setIsDialogOpen] = useState(false)
@@ -87,11 +87,11 @@ export function AnnouncementView() {
     order: 0
   })
 
-  // Fetch items — non-Admin only sees published items
+  // Fetch items — non-managers only see published items
   const fetchItems = async () => {
     try {
       const params = new URLSearchParams({ type: activeTab })
-      if (!isAdmin) {
+      if (!canManage) {
         params.set('published', 'true')
       }
       const response = await fetch(`/api/sop?${params}`)
@@ -861,14 +861,14 @@ Jika mengalami kendala teknis atau pertanyaan terkait SOP:
               {getTabIcon(activeTab)}
             </div>
             <h3 className="text-lg font-semibold text-stone-800">
-              {isAdmin ? `Belum ada ${activeTab}` : `Belum ada ${activeTab.toLowerCase()}`}
+              {canManage ? `Belum ada ${activeTab}` : `Belum ada ${activeTab.toLowerCase()}`}
             </h3>
             <p className="text-stone-500 mt-2 mb-4">
-              {isAdmin
+              {canManage
                 ? `Klik tombol "Buat Baru" untuk membuat ${activeTab.toLowerCase()} pertama`
-                : `Belum ada ${activeTab.toLowerCase()} yang dipublikasikan oleh Super Admin.`}
+                : `Belum ada ${activeTab.toLowerCase()} yang dipublikasikan.`}
             </p>
-            {isAdmin && (
+            {canManage && (
               <div className="flex items-center gap-2">
                 <Button onClick={openCreateDialog} variant="outline">
                   <Plus className="w-4 h-4 mr-2" />
@@ -947,8 +947,8 @@ Jika mengalami kendala teknis atau pertanyaan terkait SOP:
                   >
                     <Download className="w-4 h-4" />
                   </Button>
-                  {/* Admin-only action buttons */}
-                  {isAdmin && (
+                  {/* Admin/Manager action buttons */}
+                  {canManage && (
                     <>
                       <Button variant="ghost" size="icon" onClick={() => moveOrder(item, 'up')} disabled={index === 0} className="h-8 w-8">
                         <ChevronUp className="w-4 h-4" />
@@ -1045,14 +1045,14 @@ Jika mengalami kendala teknis atau pertanyaan terkait SOP:
           )} />
           <div>
             <h1 className="text-2xl font-bold text-stone-800">
-              {isAdmin ? 'Manajemen Konten' : 'Informasi'}
+              {canManage ? 'Manajemen Konten' : 'Informasi'}
             </h1>
             <p className="text-stone-500 text-sm">
-              {isAdmin ? 'Kelola Pengumuman, SOP, dan Panduan' : 'Pengumuman, SOP, dan Panduan terbaru dari Super Admin'}
+              {canManage ? 'Kelola Pengumuman, SOP, dan Panduan' : 'Pengumuman, SOP, dan Panduan terbaru'}
             </p>
           </div>
         </div>
-        {isAdmin && (
+        {canManage && (
           <Button
             onClick={openCreateDialog}
             className="bg-gradient-to-r from-violet-600 to-purple-600 hover:from-violet-700 hover:to-purple-700"
@@ -1063,7 +1063,7 @@ Jika mengalami kendala teknis atau pertanyaan terkait SOP:
         )}
       </div>
 
-      {/* Tabs - shown to ALL users (Admin sees management UI, non-Admin sees published only) */}
+      {/* Tabs - shown to ALL users (Admin/Manager sees management UI, others see published only) */}
       <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as typeof activeTab)}>
         <TabsList className="grid w-full grid-cols-3 max-w-md">
           <TabsTrigger value="Pengumuman" className="gap-2">
@@ -1133,8 +1133,8 @@ Jika mengalami kendala teknis atau pertanyaan terkait SOP:
         </DialogContent>
       </Dialog>
 
-      {/* Create/Edit Dialog - Admin only */}
-      {isAdmin && (
+      {/* Create/Edit Dialog - Admin/Manager only */}
+      {canManage && (
         <Dialog open={isDialogOpen} onOpenChange={(open) => { setIsDialogOpen(open); if (!open) resetForm(); }}>
           <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
             <DialogHeader>
