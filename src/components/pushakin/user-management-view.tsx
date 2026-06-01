@@ -37,7 +37,10 @@ import {
   UploadCloud,
   Users,
   UserCheck,
-  LogIn
+  LogIn,
+  KeyRound,
+  Eye,
+  EyeOff
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useState, useRef } from 'react'
@@ -57,6 +60,15 @@ export function UserManagementView() {
     whatsapp: ''
   })
   const fileInputRef = useRef<HTMLInputElement>(null)
+
+  // Reset password state
+  const [isResetModalOpen, setIsResetModalOpen] = useState(false)
+  const [resetTargetUser, setResetTargetUser] = useState<User | null>(null)
+  const [newPassword, setNewPassword] = useState('')
+  const [confirmPassword, setConfirmPassword] = useState('')
+  const [showNewPassword, setShowNewPassword] = useState(false)
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false)
+  const [isResetting, setIsResetting] = useState(false)
 
   const filteredUsers = users.filter(u => 
     u.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
@@ -155,6 +167,61 @@ export function UserManagementView() {
     }
   }
 
+  const handleOpenResetPassword = (user: User) => {
+    setResetTargetUser(user)
+    setNewPassword('')
+    setConfirmPassword('')
+    setShowNewPassword(false)
+    setShowConfirmPassword(false)
+    setIsResetModalOpen(true)
+  }
+
+  const handleResetPassword = async () => {
+    if (!resetTargetUser) return
+
+    if (newPassword.length < 8) {
+      showAlert('Password baru minimal 8 karakter')
+      return
+    }
+
+    if (!/[a-zA-Z]/.test(newPassword) || !/[0-9]/.test(newPassword)) {
+      showAlert('Password baru harus kombinasi huruf dan angka')
+      return
+    }
+
+    if (newPassword !== confirmPassword) {
+      showAlert('Konfirmasi password tidak cocok')
+      return
+    }
+
+    setIsResetting(true)
+    try {
+      const response = await fetch('/api/users/reset-password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          adminUserId: currentUser?.id,
+          targetUserId: resetTargetUser.id,
+          newPassword
+        })
+      })
+
+      if (response.ok) {
+        const data = await response.json()
+        showAlert(data.message || `Password ${resetTargetUser.name} berhasil direset`)
+        setIsResetModalOpen(false)
+        setResetTargetUser(null)
+      } else {
+        const err = await response.json().catch(() => ({}))
+        showAlert(err.error || 'Gagal mereset password')
+      }
+    } catch {
+      showAlert('Gagal mereset password. Silakan coba lagi.')
+    } finally {
+      setIsResetting(false)
+    }
+  }
+
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (file) {
@@ -246,6 +313,18 @@ export function UserManagementView() {
                       >
                         <LogIn className="w-3.5 h-3.5" />
                         <span>Login Sebagai</span>
+                      </Button>
+                    )}
+                    {/* Reset Password - Super Admin only, cannot reset self */}
+                    {currentUser?.role === 'Admin' && user.id !== currentUser?.id && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => handleOpenResetPassword(user)}
+                        className="text-amber-600 hover:text-amber-700 hover:bg-amber-50 gap-1.5 text-xs"
+                      >
+                        <KeyRound className="w-3.5 h-3.5" />
+                        <span>Reset Password</span>
                       </Button>
                     )}
                     <Button
@@ -372,6 +451,120 @@ export function UserManagementView() {
               </Button>
             </DialogFooter>
           </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* Reset Password Modal */}
+      <Dialog open={isResetModalOpen} onOpenChange={setIsResetModalOpen}>
+        <DialogContent className="max-w-md mx-4 sm:mx-0 sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <KeyRound className="w-5 h-5 text-amber-600" />
+              Reset Password
+            </DialogTitle>
+          </DialogHeader>
+          {resetTargetUser && (
+            <div className="space-y-4">
+              {/* Target user info */}
+              <div className="flex items-center gap-3 p-3 bg-stone-50 rounded-lg border">
+                <Avatar className="h-10 w-10 border border-stone-200">
+                  <AvatarImage src={resetTargetUser.avatar} alt={resetTargetUser.name} />
+                  <AvatarFallback>{resetTargetUser.name.charAt(0)}</AvatarFallback>
+                </Avatar>
+                <div>
+                  <div className="font-semibold text-stone-800">{resetTargetUser.name}</div>
+                  <div className="text-xs text-stone-500">{resetTargetUser.email} · {getRoleDisplayName(resetTargetUser.role)}</div>
+                </div>
+              </div>
+
+              <p className="text-sm text-stone-600">
+                Masukkan password baru untuk pengguna ini. Password akan langsung berubah tanpa perlu konfirmasi dari pengguna.
+              </p>
+
+              {/* New Password */}
+              <div>
+                <Label>Password Baru</Label>
+                <div className="relative mt-1">
+                  <Input
+                    type={showNewPassword ? 'text' : 'password'}
+                    placeholder="Minimal 8 karakter (huruf + angka)"
+                    value={newPassword}
+                    onChange={e => setNewPassword(e.target.value)}
+                    className="pr-10"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowNewPassword(!showNewPassword)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-stone-400 hover:text-stone-600"
+                  >
+                    {showNewPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
+                </div>
+              </div>
+
+              {/* Confirm Password */}
+              <div>
+                <Label>Konfirmasi Password</Label>
+                <div className="relative mt-1">
+                  <Input
+                    type={showConfirmPassword ? 'text' : 'password'}
+                    placeholder="Ulangi password baru"
+                    value={confirmPassword}
+                    onChange={e => setConfirmPassword(e.target.value)}
+                    className="pr-10"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-stone-400 hover:text-stone-600"
+                  >
+                    {showConfirmPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
+                </div>
+                {confirmPassword && newPassword !== confirmPassword && (
+                  <p className="text-xs text-red-500 mt-1">Password tidak cocok</p>
+                )}
+              </div>
+
+              {/* Password requirements hint */}
+              <div className="text-xs text-stone-500 space-y-1 bg-amber-50 p-3 rounded-lg border border-amber-100">
+                <p className="font-medium text-amber-700">Persyaratan password:</p>
+                <ul className="space-y-0.5 ml-3">
+                  <li className={newPassword.length >= 8 ? 'text-emerald-600' : ''}>• Minimal 8 karakter</li>
+                  <li className={/[a-zA-Z]/.test(newPassword) && newPassword.length > 0 ? 'text-emerald-600' : ''}>• Mengandung huruf</li>
+                  <li className={/[0-9]/.test(newPassword) && newPassword.length > 0 ? 'text-emerald-600' : ''}>• Mengandung angka</li>
+                </ul>
+              </div>
+            </div>
+          )}
+          <DialogFooter className="pt-4 border-t">
+            <Button 
+              type="button" 
+              variant="ghost" 
+              onClick={() => setIsResetModalOpen(false)}
+              disabled={isResetting}
+            >
+              Batal
+            </Button>
+            <Button
+              type="button"
+              onClick={handleResetPassword}
+              disabled={isResetting || !newPassword || !confirmPassword || newPassword !== confirmPassword}
+              className="bg-amber-600 hover:bg-amber-700 gap-2"
+            >
+              {isResetting ? (
+                <>
+                  <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                  Mereset...
+                </>
+              ) : (
+                <>
+                  <KeyRound className="w-4 h-4" />
+                  Reset Password
+                </>
+              )}
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>
