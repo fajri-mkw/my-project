@@ -40,7 +40,7 @@ export function CreateProjectView() {
   const [waktu, setWaktu] = useState('')
   const [picName, setPicName] = useState('')
   const [picWhatsApp, setPicWhatsApp] = useState('')
-  const [selectedRoles, setSelectedRoles] = useState<Record<string, boolean>>({})
+  const [selectedUsers, setSelectedUsers] = useState<Record<string, string[]>>({}) // role → list of selected user IDs
   const [selectedFolders, setSelectedFolders] = useState(['raw', 'revised', 'final'])
   const [folderRoles, setFolderRoles] = useState<Record<string, string[]>>({})
   const [jenisKegiatan, setJenisKegiatan] = useState<string[]>([])
@@ -261,21 +261,21 @@ export function CreateProjectView() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    const rolesToAssign = Object.keys(selectedRoles).filter(k => selectedRoles[k])
+    const activeRoles = Object.keys(selectedUsers).filter(k => selectedUsers[k].length > 0)
     // Fast Track: only Publisher roles are required
     if (isFastTrack) {
-      const hasPublisher = rolesToAssign.some(r => r === 'PublisherWeb' || r === 'PublisherSocialMedia')
+      const hasPublisher = activeRoles.some(r => r === 'PublisherWeb' || r === 'PublisherSocialMedia')
       if (!hasPublisher) {
         showAlert('Fast Track: Pilih minimal satu Publisher (Web atau Social Media).')
         return
       }
     } else if (isFastProduction) {
       // Fast Production: at least 1 role required (same as normal mode)
-      if (rolesToAssign.length === 0) {
+      if (activeRoles.length === 0) {
         showAlert('Fast Production: Pilih minimal satu peran/petugas untuk proyek ini.')
         return
       }
-    } else if (rolesToAssign.length === 0) {
+    } else if (activeRoles.length === 0) {
       showAlert('Pilih minimal satu peran/petugas untuk proyek ini.')
       return
     }
@@ -283,14 +283,18 @@ export function CreateProjectView() {
     setIsCreatingProject(true)
 
     try {
-      const tasks = rolesToAssign.map(role => {
+      // Create one task per selected user per role
+      const tasks: Array<{ role: string; stage: number; assignedTo: string }> = []
+      activeRoles.forEach(role => {
         const config = ROLE_CONFIG[role]
-        const assignedUser = users.find(u => u.role === role)
-        return {
-          role,
-          stage: config?.stage || 1,
-          assignedTo: assignedUser?.id || ''
-        }
+        const userIds = selectedUsers[role] || []
+        userIds.forEach(userId => {
+          tasks.push({
+            role,
+            stage: config?.stage || 1,
+            assignedTo: userId
+          })
+        })
       })
 
       // Generate folder data - either real or mock
@@ -352,7 +356,7 @@ export function CreateProjectView() {
               // Map real Google Drive folders
               generatedFolders = driveData.folders.map((f: { folderId: string; name: string; webViewLink: string }) => {
                 const optionInfo = FOLDER_OPTIONS.find(opt => opt.id === f.folderId)
-                const assignedToFolder = (folderRoles[f.folderId] || []).filter((r: string) => rolesToAssign.includes(r))
+                const assignedToFolder = (folderRoles[f.folderId] || []).filter((r: string) => activeRoles.includes(r))
                 // Check if this is a subfolder (folderId contains dashes like 'raw-reporter-userId')
                 const isSub = f.folderId.includes('-') && !['raw', 'revised', 'final', 'desain', 'lainnya'].includes(f.folderId)
                 
@@ -407,20 +411,20 @@ export function CreateProjectView() {
             } else {
               // Fallback to mock
               console.log('[DRIVE] Auto-create failed, using mock folders')
-              generatedFolders = createMockFolders(selectedFolders, rolesToAssign, tasks)
+              generatedFolders = createMockFolders(selectedFolders, activeRoles, tasks)
             }
           } else {
             // Fallback to mock
             console.log('[DRIVE] API error, using mock folders')
-            generatedFolders = createMockFolders(selectedFolders, rolesToAssign, tasks)
+            generatedFolders = createMockFolders(selectedFolders, activeRoles, tasks)
           }
         } catch (driveError) {
           console.error('[DRIVE] Error:', driveError)
-          generatedFolders = createMockFolders(selectedFolders, rolesToAssign, tasks)
+          generatedFolders = createMockFolders(selectedFolders, activeRoles, tasks)
         }
       } else {
         // Use mock folders
-        generatedFolders = createMockFolders(selectedFolders, rolesToAssign, tasks)
+        generatedFolders = createMockFolders(selectedFolders, activeRoles, tasks)
       }
 
       setDriveCreatingStatus(null)
@@ -564,7 +568,7 @@ export function CreateProjectView() {
   }
 
   // Helper function to create mock folders driven by UL checkbox (folderUserAccess)
-  const createMockFolders = (folderIds: string[], rolesToAssign: string[], tasksData: Array<{ role: string; assignedTo: string; stage: number }>) => {
+  const createMockFolders = (folderIds: string[], activeRoles: string[], tasksData: Array<{ role: string; assignedTo: string; stage: number }>) => {
     const folders: Array<{
       folderId: string
       name: string
@@ -645,7 +649,7 @@ export function CreateProjectView() {
       const isCustom = folderId.startsWith('custom-')
       const optionInfo = isCustom ? null : FOLDER_OPTIONS.find(opt => opt.id === folderId)
       const customInfo = isCustom ? customFolders.find(f => f.id === folderId) : null
-      const assignedToFolder = (folderRoles[folderId] || []).filter(r => rolesToAssign.includes(r))
+      const assignedToFolder = (folderRoles[folderId] || []).filter(r => activeRoles.includes(r))
       const nowTs = Date.now()
       
       // Create parent folder
@@ -668,7 +672,7 @@ export function CreateProjectView() {
     return folders
   }
 
-  const activeRolesForAssignment = Object.keys(selectedRoles).filter(k => selectedRoles[k])
+  const activeRolesForAssignment = Object.keys(selectedUsers).filter(k => selectedUsers[k].length > 0)
 
   // Template feature for project description
   const [showTemplatePanel, setShowTemplatePanel] = useState(false)
@@ -732,21 +736,27 @@ export function CreateProjectView() {
         }
 
         // ONLY initialize for roles that are explicitly in folderRoles[folderId]
+        // AND only for users that are explicitly selected for that role
         const assignedRolesForFolder = folderRoles[folderId] || []
         assignedRolesForFolder.forEach(role => {
-          const matchedUsers = users.filter(u => u.role === role)
-          matchedUsers.forEach(user => {
+          const selectedUserIds = selectedUsers[role] || []
+          selectedUserIds.forEach(userId => {
             // Only set default if this user doesn't already have an entry for this folder
-            if (!updated[folderId][user.id]) {
-              updated[folderId][user.id] = { download: true, upload: true }
+            if (!updated[folderId][userId]) {
+              updated[folderId][userId] = { download: true, upload: true }
             }
           })
         })
 
-        // Remove entries for roles that are NO LONGER in folderRoles for this folder
+        // Remove entries for users who are no longer selected for their role
         Object.keys(updated[folderId] || {}).forEach(userId => {
           const user = users.find(u => u.id === userId)
-          if (!user || !assignedRolesForFolder.includes(user.role)) {
+          if (!user) {
+            delete updated[folderId][userId]
+            return
+          }
+          // Keep if role is in folderRoles AND user is selected for that role
+          if (!assignedRolesForFolder.includes(user.role) || !(selectedUsers[user.role] || []).includes(userId)) {
             delete updated[folderId][userId]
           }
         })
@@ -759,10 +769,10 @@ export function CreateProjectView() {
         }
       })
 
-      // Remove entries for roles that are no longer in the team assignment
+      // Remove entries for users that are no longer selected for any role
       const assignedUserIds = new Set<string>()
-      activeRolesForAssignment.forEach(role => {
-        users.filter(u => u.role === role).forEach(u => assignedUserIds.add(u.id))
+      Object.values(selectedUsers).forEach(userIds => {
+        userIds.forEach(id => assignedUserIds.add(id))
       })
       Object.keys(updated).forEach(folderId => {
         Object.keys(updated[folderId]).forEach(userId => {
@@ -774,7 +784,7 @@ export function CreateProjectView() {
 
       return updated
     })
-  }, [selectedFolders, activeRolesForAssignment.length, users.length, JSON.stringify(folderRoles)]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [selectedFolders, JSON.stringify(selectedUsers), users.length, JSON.stringify(folderRoles)]) // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <Card className="max-w-4xl mx-auto overflow-hidden">
@@ -1292,26 +1302,57 @@ export function CreateProjectView() {
                       Tahap {stage}: {STAGES[stage]}
                     </h4>
                     <div className="space-y-3">
-                      {rolesInStage.map(role => (
-                        <label key={role} className="flex items-start gap-3 p-2 rounded-lg hover:bg-white cursor-pointer transition-all group">
-                          <Checkbox
-                            checked={selectedRoles[role] || false}
-                            onCheckedChange={(checked) => 
-                              setSelectedRoles({...selectedRoles, [role]: !!checked})
-                            }
-                          />
-                          <div>
-                            <div className="text-sm font-bold text-stone-700 group-hover:text-indigo-700 transition-colors">
-                              {getRoleDisplayName(role)}
+                      {rolesInStage.map(role => {
+                        const usersWithRole = users.filter(u => u.role === role)
+                        const selectedForRole = selectedUsers[role] || []
+                        const isRoleSelected = selectedForRole.length > 0
+                        return (
+                          <div key={role} className={`p-3 rounded-xl border transition-all ${isRoleSelected ? 'bg-white border-violet-300 shadow-sm' : 'bg-stone-50/50 border-stone-200/60'}`}>
+                            <div className="flex items-center justify-between mb-2">
+                              <div className="text-sm font-bold text-stone-700">
+                                {getRoleDisplayName(role)}
+                              </div>
+                              {isRoleSelected && (
+                                <Badge variant="default" className="bg-violet-600 text-[10px] px-1.5 py-0">
+                                  {selectedForRole.length} petugas
+                                </Badge>
+                              )}
                             </div>
-                            <div className="flex items-center gap-1 text-[10px] text-stone-400 mt-0.5">
-                              <Folder className="w-3 h-3" /> <span>Drive</span>
-                              <span className="mx-1">•</span>
-                              <Users className="w-3 h-3" /> <span>Auto-Assign</span>
-                            </div>
+                            {usersWithRole.length === 0 ? (
+                              <p className="text-xs text-stone-400 italic">Belum ada pengguna dengan peran ini</p>
+                            ) : (
+                              <div className="space-y-1.5">
+                                {usersWithRole.map(user => {
+                                  const isSelected = selectedForRole.includes(user.id)
+                                  return (
+                                    <label key={user.id} className="flex items-center gap-2 p-1.5 rounded-lg hover:bg-stone-50 cursor-pointer transition-all">
+                                      <Checkbox
+                                        checked={isSelected}
+                                        onCheckedChange={(checked) => {
+                                          setSelectedUsers(prev => {
+                                            const current = prev[role] || []
+                                            if (checked) {
+                                              return { ...prev, [role]: [...current, user.id] }
+                                            } else {
+                                              return { ...prev, [role]: current.filter(id => id !== user.id) }
+                                            }
+                                          })
+                                        }}
+                                      />
+                                      <div className="flex items-center gap-2 flex-1 min-w-0">
+                                        <div className="w-6 h-6 rounded-full bg-violet-100 text-violet-700 flex items-center justify-center text-[10px] font-bold shrink-0">
+                                          {user.name.charAt(0).toUpperCase()}
+                                        </div>
+                                        <span className="text-xs font-medium text-stone-700 truncate">{user.name}</span>
+                                      </div>
+                                    </label>
+                                  )
+                                })}
+                              </div>
+                            )}
                           </div>
-                        </label>
-                      ))}
+                        )
+                      })}
                     </div>
                   </div>
                 )
@@ -1377,48 +1418,52 @@ export function CreateProjectView() {
                         <div className="space-y-2">
                           {activeRolesForAssignment.map(role => {
                             const isRoleAssigned = (folderRoles[folder.id] || []).includes(role)
-                            const assignedUser = users.find(u => u.role === role)
-                            if (!assignedUser) return null
-                            const access = folderUserAccess[folder.id]?.[assignedUser.id] || { download: true, upload: true }
+                            const roleUsers = (selectedUsers[role] || []).map(uid => users.find(u => u.id === uid)).filter(Boolean) as Array<{id: string; name: string}>
+                            if (roleUsers.length === 0) return null
                             return (
-                              <div key={role} className="flex items-center justify-between gap-2 p-2 bg-stone-50 rounded-lg">
-                                <div className="flex items-center gap-2 flex-1 min-w-0">
-                                  <Button
-                                    type="button"
-                                    variant="ghost"
-                                    size="sm"
-                                    className={cn(
-                                      "h-auto px-2 py-1 text-[10px] shrink-0",
-                                      isRoleAssigned
-                                        ? "bg-indigo-600 text-white shadow-sm"
-                                        : "bg-stone-100 text-stone-500 border border-stone-200"
-                                    )}
-                                    onClick={(e) => { e.preventDefault(); toggleRoleForFolder(folder.id, role); }}
-                                  >
-                                    {role}
-                                  </Button>
-                                  <span className="text-[10px] text-stone-400 truncate">{assignedUser.name}</span>
-                                </div>
-                                {isRoleAssigned && (
-                                  <div className="flex items-center gap-3 shrink-0">
-                                    <label className="flex items-center gap-1 cursor-pointer select-none">
-                                      <Checkbox
-                                        checked={access.download}
-                                        onCheckedChange={() => toggleFolderUserAccess(folder.id, assignedUser.id, 'download')}
-                                        className="h-3.5 w-3.5"
-                                      />
-                                      <span className="text-[10px] font-semibold text-stone-500">DL</span>
-                                    </label>
-                                    <label className="flex items-center gap-1 cursor-pointer select-none">
-                                      <Checkbox
-                                        checked={access.upload}
-                                        onCheckedChange={() => toggleFolderUserAccess(folder.id, assignedUser.id, 'upload')}
-                                        className="h-3.5 w-3.5"
-                                      />
-                                      <span className="text-[10px] font-semibold text-stone-500">UL</span>
-                                    </label>
-                                  </div>
-                                )}
+                              <div key={role} className="space-y-1">
+                                <Button
+                                  type="button"
+                                  variant="ghost"
+                                  size="sm"
+                                  className={cn(
+                                    "h-auto px-2 py-1 text-[10px] shrink-0",
+                                    isRoleAssigned
+                                      ? "bg-indigo-600 text-white shadow-sm"
+                                      : "bg-stone-100 text-stone-500 border border-stone-200"
+                                  )}
+                                  onClick={(e) => { e.preventDefault(); toggleRoleForFolder(folder.id, role); }}
+                                >
+                                  {role}
+                                </Button>
+                                {roleUsers.map(user => {
+                                  const access = folderUserAccess[folder.id]?.[user.id] || { download: true, upload: true }
+                                  return (
+                                    <div key={user.id} className="flex items-center justify-between gap-2 px-2 py-1 bg-stone-50 rounded-lg ml-2">
+                                      <span className="text-[10px] text-stone-400 truncate">{user.name}</span>
+                                      {isRoleAssigned && (
+                                        <div className="flex items-center gap-3 shrink-0">
+                                          <label className="flex items-center gap-1 cursor-pointer select-none">
+                                            <Checkbox
+                                              checked={access.download}
+                                              onCheckedChange={() => toggleFolderUserAccess(folder.id, user.id, 'download')}
+                                              className="h-3.5 w-3.5"
+                                            />
+                                            <span className="text-[10px] font-semibold text-stone-500">DL</span>
+                                          </label>
+                                          <label className="flex items-center gap-1 cursor-pointer select-none">
+                                            <Checkbox
+                                              checked={access.upload}
+                                              onCheckedChange={() => toggleFolderUserAccess(folder.id, user.id, 'upload')}
+                                              className="h-3.5 w-3.5"
+                                            />
+                                            <span className="text-[10px] font-semibold text-stone-500">UL</span>
+                                          </label>
+                                        </div>
+                                      )}
+                                    </div>
+                                  )
+                                })}
                               </div>
                             )
                           })}
@@ -1476,48 +1521,52 @@ export function CreateProjectView() {
                           <div className="space-y-2">
                             {activeRolesForAssignment.map(role => {
                               const isRoleAssigned = (folderRoles[folder.id] || []).includes(role)
-                              const assignedUser = users.find(u => u.role === role)
-                              if (!assignedUser) return null
-                              const access = folderUserAccess[folder.id]?.[assignedUser.id] || { download: true, upload: true }
+                              const roleUsers = (selectedUsers[role] || []).map(uid => users.find(u => u.id === uid)).filter(Boolean) as Array<{id: string; name: string}>
+                              if (roleUsers.length === 0) return null
                               return (
-                                <div key={role} className="flex items-center justify-between gap-2 p-2 bg-stone-50 rounded-lg">
-                                  <div className="flex items-center gap-2 flex-1 min-w-0">
-                                    <Button
-                                      type="button"
-                                      variant="ghost"
-                                      size="sm"
-                                      className={cn(
-                                        "h-auto px-2 py-1 text-[10px] shrink-0",
-                                        isRoleAssigned
-                                          ? "bg-teal-600 text-white shadow-sm"
-                                          : "bg-stone-100 text-stone-500 border border-stone-200"
-                                      )}
-                                      onClick={(e) => { e.preventDefault(); toggleRoleForFolder(folder.id, role); }}
-                                    >
-                                      {role}
-                                    </Button>
-                                    <span className="text-[10px] text-stone-400 truncate">{assignedUser.name}</span>
-                                  </div>
-                                  {isRoleAssigned && (
-                                    <div className="flex items-center gap-3 shrink-0">
-                                      <label className="flex items-center gap-1 cursor-pointer select-none">
-                                        <Checkbox
-                                          checked={access.download}
-                                          onCheckedChange={() => toggleFolderUserAccess(folder.id, assignedUser.id, 'download')}
-                                          className="h-3.5 w-3.5"
-                                        />
-                                        <span className="text-[10px] font-semibold text-stone-500">DL</span>
-                                      </label>
-                                      <label className="flex items-center gap-1 cursor-pointer select-none">
-                                        <Checkbox
-                                          checked={access.upload}
-                                          onCheckedChange={() => toggleFolderUserAccess(folder.id, assignedUser.id, 'upload')}
-                                          className="h-3.5 w-3.5"
-                                        />
-                                        <span className="text-[10px] font-semibold text-stone-500">UL</span>
-                                      </label>
-                                    </div>
-                                  )}
+                                <div key={role} className="space-y-1">
+                                  <Button
+                                    type="button"
+                                    variant="ghost"
+                                    size="sm"
+                                    className={cn(
+                                      "h-auto px-2 py-1 text-[10px] shrink-0",
+                                      isRoleAssigned
+                                        ? "bg-teal-600 text-white shadow-sm"
+                                        : "bg-stone-100 text-stone-500 border border-stone-200"
+                                    )}
+                                    onClick={(e) => { e.preventDefault(); toggleRoleForFolder(folder.id, role); }}
+                                  >
+                                    {role}
+                                  </Button>
+                                  {roleUsers.map(user => {
+                                    const access = folderUserAccess[folder.id]?.[user.id] || { download: true, upload: true }
+                                    return (
+                                      <div key={user.id} className="flex items-center justify-between gap-2 px-2 py-1 bg-stone-50 rounded-lg ml-2">
+                                        <span className="text-[10px] text-stone-400 truncate">{user.name}</span>
+                                        {isRoleAssigned && (
+                                          <div className="flex items-center gap-3 shrink-0">
+                                            <label className="flex items-center gap-1 cursor-pointer select-none">
+                                              <Checkbox
+                                                checked={access.download}
+                                                onCheckedChange={() => toggleFolderUserAccess(folder.id, user.id, 'download')}
+                                                className="h-3.5 w-3.5"
+                                              />
+                                              <span className="text-[10px] font-semibold text-stone-500">DL</span>
+                                            </label>
+                                            <label className="flex items-center gap-1 cursor-pointer select-none">
+                                              <Checkbox
+                                                checked={access.upload}
+                                                onCheckedChange={() => toggleFolderUserAccess(folder.id, user.id, 'upload')}
+                                                className="h-3.5 w-3.5"
+                                              />
+                                              <span className="text-[10px] font-semibold text-stone-500">UL</span>
+                                            </label>
+                                          </div>
+                                        )}
+                                      </div>
+                                    )
+                                  })}
                                 </div>
                               )
                             })}
