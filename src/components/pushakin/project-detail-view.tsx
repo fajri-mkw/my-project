@@ -145,6 +145,7 @@ export function ProjectDetailView() {
   if (!project) return null
 
   const isManagerOrAdmin = currentUser ? ['Manager', 'Admin'].includes(currentUser.role) : false
+  const isAdministratorOrAdmin = currentUser ? ['Administrator', 'Admin'].includes(currentUser.role) : false
   const canManageProject = isManagerOrAdmin
 
   const formatDateTime = (dateString: string) => {
@@ -821,8 +822,8 @@ export function ProjectDetailView() {
         </CardContent>
       </Card>
 
-      {/* Dokumen Pendukung Manager — hanya Admin & Manager */}
-      {isManagerOrAdmin && (
+      {/* Dokumen Pendukung — hanya Administrator & Super Admin */}
+      {isAdministratorOrAdmin && (
         <Card className="overflow-hidden border-stone-200">
           {/* Header — visible to all */}
           {project.documents && project.documents.length > 0 && (
@@ -830,7 +831,7 @@ export function ProjectDetailView() {
               <div className="flex items-center justify-between gap-3">
                 <div className="flex items-center gap-3">
                   <Paperclip className="w-5 h-5 text-emerald-600" />
-                  <h3 className="text-sm font-bold text-emerald-900">Laporan Kegiatan Manager</h3>
+                  <h3 className="text-sm font-bold text-emerald-900">Dokumen Pendukung</h3>
                   <Badge className="bg-emerald-100 text-emerald-700 text-xs border-emerald-200">
                     {project.documents.length} Dokumen
                   </Badge>
@@ -849,14 +850,14 @@ export function ProjectDetailView() {
                 </div>
               </div>
               <p className="text-[11px] text-emerald-600/70 mt-1.5 ml-8">
-                Dokumen pendukung dari pemohon (surat permohonan, berkas pelengkap) — diunggah oleh Manager sebagai arsip dan bukti kinerja.
+                Dokumen pendukung (surat permohonan, berkas pelengkap) — diunggah oleh Administrator.
               </p>
             </div>
           )}
 
           <CardContent className="p-4">
-            {/* Upload area — Manager only */}
-            {isManagerOrAdmin && (
+            {/* Upload area — Administrator & Super Admin only */}
+            {isAdministratorOrAdmin && (
               <div className="mb-4">
                 <label className="flex flex-col items-center justify-center w-full h-24 border-2 border-dashed border-emerald-200 rounded-xl cursor-pointer hover:bg-emerald-50/50 hover:border-emerald-400 transition-all group">
                   <input
@@ -906,8 +907,8 @@ export function ProjectDetailView() {
                         Lihat
                       </a>
                     )}
-                    {/* Delete button — Manager only */}
-                    {isManagerOrAdmin && (
+                    {/* Delete button — Administrator & Super Admin only */}
+                    {isAdministratorOrAdmin && (
                       <button
                         type="button"
                         onClick={() => handleDeleteDocument(doc.id)}
@@ -920,8 +921,8 @@ export function ProjectDetailView() {
                   </div>
                 ))}
               </div>
-            ) : isManagerOrAdmin ? null : (
-              <p className="text-sm text-stone-400 italic text-center py-4">Belum ada dokumen pendukung dari Manager.</p>
+            ) : isAdministratorOrAdmin ? null : (
+              <p className="text-sm text-stone-400 italic text-center py-4">Belum ada dokumen pendukung.</p>
             )}
 
             {/* Upload progress indicator */}
