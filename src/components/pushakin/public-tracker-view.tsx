@@ -73,6 +73,13 @@ const STAGE_COLORS: Record<number, { bg: string; border: string; text: string }>
   2: { bg: 'bg-orange-500', border: 'border-orange-400', text: 'text-orange-400' },
   3: { bg: 'bg-blue-600', border: 'border-blue-400', text: 'text-blue-400' },
   4: { bg: 'bg-purple-600', border: 'border-purple-400', text: 'text-purple-400' },
+  5: { bg: 'bg-teal-600', border: 'border-teal-400', text: 'text-teal-400' },
+}
+
+const DEFAULT_STAGE_COLOR = { bg: 'bg-slate-600', border: 'border-slate-400', text: 'text-slate-400' }
+
+function getStageColors(stage: number) {
+  return STAGE_COLORS[stage] || DEFAULT_STAGE_COLOR
 }
 
 const AUTO_REFRESH_INTERVAL = 30 * 60 * 1000 // 30 minutes
@@ -190,7 +197,7 @@ export function PublicTrackerView({ onBack }: PublicTrackerViewProps) {
   useEffect(() => {
     let filtered = allProjects
     if (timeFilter === 'active') {
-      filtered = allProjects.filter(p => p.currentStage < 5)
+      filtered = allProjects.filter(p => p.currentStage < 6)
     }
     setProjects(filtered)
     setCurrentPage(0)
@@ -640,7 +647,7 @@ export function PublicTrackerView({ onBack }: PublicTrackerViewProps) {
                           {/* Mobile: 2x2 grid */}
                           <div className="grid grid-cols-2 gap-1.5 sm:hidden">
                             {[1, 2, 3, 4, 5].map((stage) => {
-                              const colors = STAGE_COLORS[stage]
+                              const colors = getStageColors(stage)
                               const isStageCompleted = stage < project.currentStage
                               const isCurrent = stage === project.currentStage
                               const progress = stageProgress[stage]
@@ -691,7 +698,7 @@ export function PublicTrackerView({ onBack }: PublicTrackerViewProps) {
                           {/* Desktop/Tablet: horizontal flow */}
                           <div className="hidden sm:flex items-center justify-between gap-0">
                             {[1, 2, 3, 4, 5].map((stage, idx) => {
-                              const colors = STAGE_COLORS[stage]
+                              const colors = getStageColors(stage)
                               const isStageCompleted = stage < project.currentStage
                               const isCurrent = stage === project.currentStage
                               const progress = stageProgress[stage]
@@ -757,7 +764,7 @@ export function PublicTrackerView({ onBack }: PublicTrackerViewProps) {
                                   className={cn(
                                     "rounded-lg px-2 py-1.5 flex flex-col min-h-0 border shrink-0",
                                     isStageCompleted ? "bg-green-900/20 border-green-800/50" :
-                                    isCurrent ? cn(STAGE_COLORS[stage].bg, "/20 border", STAGE_COLORS[stage].border, "/40") :
+                                    isCurrent ? cn(getStageColors(stage).bg, "/20 border", getStageColors(stage).border, "/40") :
                                     hasTasks ? "bg-slate-700/20 border-slate-700/50" :
                                     "bg-transparent border-transparent"
                                   )}
@@ -837,7 +844,7 @@ export function PublicTrackerView({ onBack }: PublicTrackerViewProps) {
                                   className={cn(
                                     "rounded px-1 py-0.5 flex flex-col min-h-0 border",
                                     isStageCompleted ? "bg-green-900/20 border-green-800/50" :
-                                    isCurrent ? cn(STAGE_COLORS[stage].bg, "/20 border", STAGE_COLORS[stage].border, "/40") :
+                                    isCurrent ? cn(getStageColors(stage).bg, "/20 border", getStageColors(stage).border, "/40") :
                                     hasTasks ? "bg-slate-700/20 border-slate-700/50" :
                                     "bg-transparent border-transparent"
                                   )}
