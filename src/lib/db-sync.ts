@@ -9,7 +9,7 @@
 import { db } from './db'
 
 // Increment this when adding new migrations
-const SCHEMA_VERSION = 3
+const SCHEMA_VERSION = 4
 
 let syncPerformed = false
 let syncPromise: Promise<boolean> | null = null
@@ -102,6 +102,7 @@ async function syncSqlite(): Promise<void> {
     addSqliteColumnIfNotExists('users', 'notifWaEnabled', 'BOOLEAN DEFAULT 1'),
     addSqliteColumnIfNotExists('users', 'notifEmailEnabled', 'BOOLEAN DEFAULT 1'),
     addSqliteColumnIfNotExists('tasks', 'revisionCount', 'INTEGER DEFAULT 0'),
+    addSqliteColumnIfNotExists('users', 'autoApproveReview', 'BOOLEAN DEFAULT 0'),
   ])
 
   // Run role rename migrations in parallel per table
@@ -191,6 +192,7 @@ async function syncPostgres(): Promise<void> {
     addPostgresColumnIfNotExists('projects', 'documents', 'TEXT DEFAULT \'[]\''),
     // Tasks table
     addPostgresColumnIfNotExists('tasks', 'revisionCount', 'INTEGER DEFAULT 0'),
+    addPostgresColumnIfNotExists('users', 'autoApproveReview', 'BOOLEAN DEFAULT false'),
   ])
 
   // Run role rename migrations in parallel

@@ -3,8 +3,12 @@ import { NextRequest, NextResponse } from 'next/server'
 
 // GET reviewer settings
 export async function GET(request: NextRequest) {
-  await ensureDbConnection()
   try {
+    const isConnected = await ensureDbConnection()
+    if (!isConnected) {
+      return NextResponse.json({ error: 'Database connection failed' }, { status: 500 })
+    }
+    
     const { searchParams } = new URL(request.url)
     const userId = searchParams.get('userId')
     
@@ -30,8 +34,12 @@ export async function GET(request: NextRequest) {
 
 // PUT update reviewer settings
 export async function PUT(request: NextRequest) {
-  await ensureDbConnection()
   try {
+    const isConnected = await ensureDbConnection()
+    if (!isConnected) {
+      return NextResponse.json({ error: 'Database connection failed' }, { status: 500 })
+    }
+    
     const body = await request.json()
     const { userId, autoApproveReview } = body
     
@@ -53,6 +61,7 @@ export async function PUT(request: NextRequest) {
     return NextResponse.json({ success: true, autoApproveReview: autoApproveReview ?? false })
   } catch (error) {
     console.error('Error updating reviewer settings:', error)
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
+    const errorMessage = error instanceof Error ? error.message : 'Internal server error'
+    return NextResponse.json({ error: errorMessage }, { status: 500 })
   }
 }

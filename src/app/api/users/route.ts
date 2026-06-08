@@ -28,6 +28,7 @@ export async function GET() {
         notifEmailEnabled: true,
         password: true,
         avatar: true,
+        autoApproveReview: true,
       }
     })
     
@@ -52,6 +53,7 @@ export async function GET() {
         notifWaEnabled: u.notifWaEnabled,
         notifEmailEnabled: u.notifEmailEnabled,
         hasPassword: !!(u.password && u.password !== '$2a$10$placeholder'),
+        autoApproveReview: u.autoApproveReview || false,
       }
     })
     
@@ -107,6 +109,7 @@ export async function POST(request: NextRequest) {
       whatsapp: user.whatsapp || '',
       avatar: user.avatar || '',
       role: user.role,
+      autoApproveReview: user.autoApproveReview || false,
       defaultPassword: password ? null : 'pushakin123'
     })
   } catch (error) {
@@ -142,7 +145,8 @@ export async function PUT(request: NextRequest) {
         email,
         whatsapp,
         avatar,
-        role: dbRole
+        role: dbRole,
+        autoApproveReview: body.autoApproveReview !== undefined ? body.autoApproveReview : undefined,
       }
     })
     
@@ -152,7 +156,8 @@ export async function PUT(request: NextRequest) {
       email: user.email,
       whatsapp: user.whatsapp || '',
       avatar: user.avatar || '',
-      role: user.role
+      role: user.role,
+      autoApproveReview: user.autoApproveReview || false,
     })
   } catch (error) {
     console.error('Update user error:', error)

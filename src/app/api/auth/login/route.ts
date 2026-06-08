@@ -4,13 +4,14 @@ import bcrypt from 'bcryptjs'
 
 // Transform user for frontend — keep original DB role value
 // Display names are handled client-side via ROLE_DISPLAY_NAMES in store.ts
-const transformUser = (user: { id: string; name: string; email: string; whatsapp: string | null; avatar: string | null; role: string }) => ({
+const transformUser = (user: { id: string; name: string; email: string; whatsapp: string | null; avatar: string | null; role: string; autoApproveReview: boolean | null }) => ({
   id: user.id,
   name: user.name,
   email: user.email,
   whatsapp: user.whatsapp || '',
   avatar: user.avatar || '',
-  role: user.role
+  role: user.role,
+  autoApproveReview: user.autoApproveReview || false,
 })
 
 // POST - Login with email and password
