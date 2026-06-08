@@ -40,7 +40,7 @@ interface SettingsData {
 }
 
 export function SettingsView() {
-  const { currentUser, showAlert } = useAppStore()
+  const { currentUser, showAlert, updateUser } = useAppStore()
   const [isLoading, setIsLoading] = useState(true)
   const [isSaving, setIsSaving] = useState(false)
   const [isSavingMaintenance, setIsSavingMaintenance] = useState(false)
@@ -80,6 +80,17 @@ export function SettingsView() {
   const [isSavingNotif, setIsSavingNotif] = useState(false)
   const [isTestingNotif, setIsTestingNotif] = useState(false)
   const [testResult, setTestResult] = useState<{waSuccess?: boolean; emailSuccess?: boolean; waError?: string; emailError?: string} | null>(null)
+
+  // Reviewer auto-approve state
+  const [autoApprove, setAutoApprove] = useState(false)
+  const [isSavingAutoApprove, setIsSavingAutoApprove] = useState(false)
+
+  // Load reviewer settings
+  useEffect(() => {
+    if (currentUser?.role === 'Reviewer') {
+      setAutoApprove(currentUser.autoApproveReview || false)
+    }
+  }, [currentUser])
 
   // Load settings
   useEffect(() => {
@@ -246,13 +257,131 @@ export function SettingsView() {
     }
   }
 
+  // Reviewer-specific settings view
+  if (currentUser?.role === 'Reviewer') {
+    const handleToggleAutoApprove = async (checked: boolean) => {
+      setIsSavingAutoApprove(true)
+      try {
+        const response = await fetch('/api/users/reviewer-settings', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ userId: currentUser.id, autoApproveReview: checked })
+        })
+        if (response.ok) {
+          setAutoApprove(checked)
+          // Update the store's currentUser
+          if (currentUser) {
+            updateUser({ ...currentUser, autoApproveReview: checked })
+          }
+          showAlert(checked
+            ? 'Auto-Approve diaktifkan! Review akan otomatis disetujui saat Finalization selesai.'
+            : 'Auto-Approve dinonaktifkan. Anda harus melakukan review secara manual.'
+          )
+        } else {
+          showAlert('Gagal mengubah pengaturan auto-approve')
+        }
+      } catch {
+        showAlert('Terjadi kesalahan saat mengubah pengaturan')
+      } finally {
+        setIsSavingAutoApprove(false)
+      }
+    }
+
+    return (
+      <div className="max-w-2xl mx-auto space-y-6">
+        {/* Header */}
+        <div className="flex items-center gap-3">
+          <SettingsIcon className="w-6 h-6 text-stone-600" />
+          <div>
+            <h1 className="text-2xl font-bold text-stone-800">Pengaturan Reviewer</h1>
+            <p className="text-stone-500 text-sm">Konfigurasi otomatisasi proses review</p>
+          </div>
+        </div>
+
+        {/* Auto-Approve Card */}
+        <Card className={cn(
+          "border-2 transition-all",
+          autoApprove
+            ? "bg-green-50/50 border-green-300"
+            : "bg-white border-stone-200"
+        )}>
+          <CardHeader className="border-b border-stone-100">
+            <div className="flex items-center gap-3">
+              <div className={cn(
+                "p-2 rounded-lg",
+                autoApprove ? "bg-green-100" : "bg-amber-50"
+              )}>
+                <CheckCircle2 className={cn(
+                  "w-5 h-5",
+                  autoApprove ? "text-green-600" : "text-amber-600"
+                )} />
+              </div>
+              <div className="flex-1">
+                <div className="flex items-center gap-2">
+                  <CardTitle className="text-lg">Auto-Approve Review</CardTitle>
+                  {autoApprove && (
+                    <span className="px-2 py-0.5 bg-green-500 text-white text-xs rounded-full font-medium">
+                      AKTIF
+                    </span>
+                  )}
+                </div>
+                <CardDescription>
+                  Otomatis menyetujui review saat tahap Finalization selesai
+                </CardDescription>
+              </div>
+            </div>
+          </CardHeader>
+          <CardContent className="p-6 space-y-4">
+            {/* Info box */}
+            <div className={cn(
+              "p-4 rounded-xl text-sm",
+              autoApprove
+                ? "bg-green-50 text-green-800"
+                : "bg-amber-50 text-amber-800"
+            )}>
+              <div className="flex items-start gap-3">
+                <AlertCircle className="w-5 h-5 flex-shrink-0 mt-0.5" />
+                <div>
+                  <p className="font-semibold">
+                    {autoApprove ? "✅ Auto-Approve Aktif" : "ℹ️ Tentang Auto-Approve"}
+                  </p>
+                  <p className="mt-1">
+                    {autoApprove
+                      ? "Saat semua tugas di tahap Finalization (tahap 3) selesai, proses review akan otomatis disetujui dan proyek langsung menuju tahap Publikasi tanpa perlu Anda menekan tombol \"Teruskan File\"."
+                      : "Saat diaktifkan, jika semua tugas di tahap Finalization (tahap 3) telah selesai, proses review akan otomatis disetujui dan proyek langsung berpindah ke tahap Publikasi. Anda tidak perlu membuka proyek dan menekan tombol \"Teruskan File (Approve)\"."
+                    }
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            {/* Toggle */}
+            <div className="flex items-center justify-between gap-3 p-3 sm:p-4 rounded-xl bg-stone-50">
+              <div className="min-w-0">
+                <Label className="text-base font-semibold">Aktifkan Auto-Approve</Label>
+                <p className="text-sm text-stone-500 mt-1">
+                  Lewati tahap review secara otomatis
+                </p>
+              </div>
+              <Switch
+                checked={autoApprove}
+                onCheckedChange={handleToggleAutoApprove}
+                disabled={isSavingAutoApprove}
+              />
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+    )
+  }
+
   if (currentUser?.role !== 'Admin') {
     return (
       <Card className="max-w-2xl mx-auto">
         <CardContent className="p-8 text-center">
           <AlertCircle className="w-12 h-12 text-red-400 mx-auto mb-4" />
           <h2 className="text-lg font-semibold text-stone-800">Akses Ditolak</h2>
-          <p className="text-stone-500 mt-2">Hanya Super Admin yang dapat mengakses pengaturan.</p>
+          <p className="text-stone-500 mt-2">Hanya Super Admin dan Reviewer yang dapat mengakses pengaturan.</p>
         </CardContent>
       </Card>
     )

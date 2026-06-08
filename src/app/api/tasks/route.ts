@@ -180,6 +180,45 @@ export async function PUT(request: NextRequest) {
         )
       }
       
+      // Auto-approve: If advancing to stage 4 (Review), check if reviewer has auto-approve enabled
+      if (nextStage === 4) {
+        const reviewerTasks = projectTasks.filter(t => t.stage === 4)
+        const reviewerIds = [...new Set(reviewerTasks.map(t => t.assignedTo))]
+        
+        if (reviewerIds.length > 0) {
+          const reviewers = await db.user.findMany({
+            where: { id: { in: reviewerIds }, autoApproveReview: true }
+          })
+          
+          // If ALL reviewers for this project have auto-approve enabled
+          if (reviewers.length === reviewerIds.length && reviewers.length > 0) {
+            // Auto-complete all review tasks
+            await Promise.all(
+              reviewerTasks.map(t => db.task.update({
+                where: { id: t.id },
+                data: { status: 'completed', data: JSON.stringify({ autoApproved: true }) }
+              }))
+            )
+            
+            // Skip to stage 5
+            nextStage = 5
+            
+            // Create notification for reviewers
+            for (const reviewer of reviewers) {
+              await db.notification.create({
+                data: {
+                  userId: reviewer.id,
+                  message: `Proyek "${task.project.title}" telah di-auto-approve. Tahap review dilewati otomatis.`,
+                  projectId: projectId,
+                  targetView: 'project_detail',
+                  read: false
+                }
+              })
+            }
+          }
+        }
+      }
+      
       // Update project stage
       await db.project.update({
         where: { id: projectId },

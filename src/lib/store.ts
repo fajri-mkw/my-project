@@ -49,6 +49,7 @@ export interface User {
   whatsapp: string
   avatar: string
   role: Role
+  autoApproveReview?: boolean
 }
 
 export interface PublishLink {

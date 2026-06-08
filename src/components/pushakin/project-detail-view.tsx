@@ -23,6 +23,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { ScrollArea } from '@/components/ui/scroll-area'
+import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import { useAppStore, STAGES, ROLE_CONFIG, getRoleDisplayName } from '@/lib/store'
 import { FileUpload } from '@/components/pushakin/file-upload'
 import { 
@@ -108,6 +109,7 @@ export function ProjectDetailView() {
   const [isRejectDialogOpen, setIsRejectDialogOpen] = useState(false)
   const [rejectReason, setRejectReason] = useState('')
   const [driveForm, setDriveForm] = useState<Record<string, string>>({})
+  const [folderUserAccess, setFolderUserAccess] = useState<Record<string, { userId: string; userName: string; download: boolean; upload: boolean }[]>>({})
   const [taskInputs, setTaskInputs] = useState<Record<string, string>>({})
   const [taskVerified, setTaskVerified] = useState<Record<string, boolean>>({})
   const [isUploadingDetailDoc, setIsUploadingDetailDoc] = useState(false)
@@ -161,19 +163,67 @@ export function ProjectDetailView() {
 
   const handleOpenEditDrive = () => {
     const formState: Record<string, string> = {}
+    const accessState: Record<string, { userId: string; userName: string; download: boolean; upload: boolean }[]> = {}
     project.driveFolders.forEach(f => {
       formState[f.id] = f.link
+      // Initialize from existing assignedUsers data
+      if (f.assignedUsers && Array.isArray(f.assignedUsers)) {
+        accessState[f.id] = f.assignedUsers.map(u => ({
+          userId: u.userId,
+          userName: u.userName,
+          download: u.download,
+          upload: u.upload
+        }))
+      } else {
+        accessState[f.id] = []
+      }
     })
     setDriveForm(formState)
+    setFolderUserAccess(accessState)
     setIsEditDriveOpen(true)
+  }
+
+  const toggleFolderUserAccess = (folderId: string, userId: string, userName: string, field: 'download' | 'upload') => {
+    setFolderUserAccess(prev => {
+      const current = prev[folderId] || []
+      const existing = current.find(u => u.userId === userId)
+      if (existing) {
+        return { ...prev, [folderId]: current.map(u => u.userId === userId ? { ...u, [field]: !u[field] } : u) }
+      } else {
+        return { ...prev, [folderId]: [...current, { userId, userName, download: field === 'download', upload: field === 'upload' }] }
+      }
+    })
   }
 
   const handleSaveDriveLinks = async (e: React.FormEvent) => {
     e.preventDefault()
-    const folders = project.driveFolders.map(f => ({
-      id: f.id,
-      link: driveForm[f.id] || f.link
-    }))
+    // Get unique team members from tasks
+    const teamMembers = Array.from(
+      new Map(project.tasks.map(t => [t.assignedTo, t])).values()
+    ).filter(t => t.assignedTo)
+
+    const folders = project.driveFolders.map(f => {
+      const accessList = folderUserAccess[f.id] || []
+      // Build assignedUsers: include all team members that have any access checked
+      const assignedUsers = teamMembers
+        .filter(t => t.assignedTo)
+        .map(t => {
+          const existing = accessList.find(u => u.userId === t.assignedTo)
+          return {
+            userId: t.assignedTo!,
+            userName: getUserDetails(t.assignedTo!).name,
+            download: existing?.download || false,
+            upload: existing?.upload || false
+          }
+        })
+        .filter(u => u.download || u.upload)
+      
+      return {
+        id: f.id,
+        link: driveForm[f.id] || f.link,
+        assignedUsers
+      }
+    })
     
     try {
       await fetch('/api/drive-folders', {
@@ -182,10 +232,14 @@ export function ProjectDetailView() {
         body: JSON.stringify({ projectId: project.id, folders })
       })
       
-      const updatedFolders = project.driveFolders.map(f => ({
-        ...f,
-        link: driveForm[f.id] || f.link
-      }))
+      const updatedFolders = project.driveFolders.map(f => {
+        const savedFolder = folders.find(sf => sf.id === f.id)
+        return {
+          ...f,
+          link: driveForm[f.id] || f.link,
+          assignedUsers: savedFolder?.assignedUsers || []
+        }
+      })
       updateProject({ ...project, driveFolders: updatedFolders })
       setIsEditDriveOpen(false)
     } catch {
@@ -1133,31 +1187,134 @@ export function ProjectDetailView() {
 
       {/* Edit Drive Modal */}
       <Dialog open={isEditDriveOpen} onOpenChange={setIsEditDriveOpen}>
-        <DialogContent className="max-w-xl mx-4 sm:mx-0">
+        <DialogContent className="max-w-2xl mx-4 sm:mx-0">
           <DialogHeader>
             <DialogTitle>Manajemen Workspace Drive</DialogTitle>
             <DialogDescription>
-              Tempelkan (Paste) link tautan folder Google Drive yang telah Anda siapkan untuk proyek ini.
+              Kelola tautan folder dan akses upload/download per petugas untuk proyek ini.
             </DialogDescription>
           </DialogHeader>
           <form onSubmit={handleSaveDriveLinks} className="space-y-5">
-            <ScrollArea className="max-h-[60vh]">
-              {project.driveFolders.map((folder) => (
-                <div key={folder.id} className="mb-4">
-                  <Label className="flex items-center gap-2 text-sm font-bold text-stone-700 mb-2">
-                    <Folder className={cn("w-4 h-4", folder.color)} />
-                    <span>Link {folder.name}</span>
-                  </Label>
-                  <Input
-                    required
-                    type="url"
-                    value={driveForm[folder.id] || ''}
-                    onChange={e => setDriveForm({...driveForm, [folder.id]: e.target.value})}
-                    className={cn("mt-1", folder.bg?.replace('50', '50/30'))}
-                    placeholder="https://drive.google.com/drive/folders/..."
-                  />
-                </div>
-              ))}
+            <ScrollArea className="max-h-[65vh]">
+              {project.driveFolders.map((folder) => {
+                const folderAccess = folderUserAccess[folder.id] || []
+                const teamMembers = Array.from(
+                  new Map(
+                    project.tasks
+                      .filter(t => t.assignedTo)
+                      .map(t => [t.assignedTo, t])
+                  ).values()
+                )
+                const hasUsersWithAccess = teamMembers.some(t => {
+                  const acc = folderAccess.find(u => u.userId === t.assignedTo)
+                  return acc && (acc.download || acc.upload)
+                })
+
+                return (
+                  <div key={folder.id} className="mb-5 p-4 rounded-xl border border-stone-100 bg-stone-50/40">
+                    {/* Folder header */}
+                    <div className="flex items-center gap-2 mb-3">
+                      <div className={cn("p-1.5 rounded-lg", folder.bg || 'bg-stone-100', folder.color || 'text-stone-600')}>
+                        <Folder className="w-4 h-4" />
+                      </div>
+                      <span className="font-bold text-sm text-stone-800">{folder.name}</span>
+                    </div>
+
+                    <Tabs defaultValue="link" className="w-full">
+                      <TabsList className="mb-3 h-8">
+                        <TabsTrigger value="link" className="text-xs gap-1 px-3 h-7">
+                          <LinkIcon className="w-3 h-3" />
+                          Link Folder
+                        </TabsTrigger>
+                        <TabsTrigger value="access" className="text-xs gap-1 px-3 h-7">
+                          <Users className="w-3 h-3" />
+                          Akses Petugas
+                          {hasUsersWithAccess && (
+                            <span className="ml-1 bg-emerald-500 text-white text-[9px] font-bold rounded-full w-4 h-4 inline-flex items-center justify-center">
+                              {teamMembers.filter(t => {
+                                const acc = folderAccess.find(u => u.userId === t.assignedTo)
+                                return acc && (acc.download || acc.upload)
+                              }).length}
+                            </span>
+                          )}
+                        </TabsTrigger>
+                      </TabsList>
+
+                      {/* Tab: Link Folder */}
+                      <TabsContent value="link">
+                        <Input
+                          required
+                          type="url"
+                          value={driveForm[folder.id] || ''}
+                          onChange={e => setDriveForm({...driveForm, [folder.id]: e.target.value})}
+                          className={cn(folder.bg?.replace('50', '50/30'))}
+                          placeholder="https://drive.google.com/drive/folders/..."
+                        />
+                      </TabsContent>
+
+                      {/* Tab: Akses Petugas */}
+                      <TabsContent value="access">
+                        {teamMembers.length === 0 ? (
+                          <p className="text-xs text-stone-400 italic py-3 text-center">
+                            Belum ada petugas yang ditugaskan pada proyek ini
+                          </p>
+                        ) : (
+                          <div className="space-y-0">
+                            {/* Table header */}
+                            <div className="grid grid-cols-[1fr_48px_48px] gap-2 px-3 py-1.5 text-[10px] font-bold text-stone-400 uppercase tracking-wider border-b border-stone-100">
+                              <span>Petugas</span>
+                              <span className="text-center" title="Download">DL</span>
+                              <span className="text-center" title="Upload">UL</span>
+                            </div>
+                            <ScrollArea className="max-h-48">
+                              {teamMembers.map(task => {
+                                const userId = task.assignedTo!
+                                const userName = getUserDetails(userId).name
+                                const userAccess = folderAccess.find(u => u.userId === userId)
+                                const dl = userAccess?.download || false
+                                const ul = userAccess?.upload || false
+
+                                return (
+                                  <div
+                                    key={userId}
+                                    className={cn(
+                                      "grid grid-cols-[1fr_48px_48px] gap-2 px-3 py-2 items-center text-sm border-b border-stone-50 last:border-b-0 hover:bg-white/60 transition-colors",
+                                      (dl || ul) && "bg-emerald-50/30"
+                                    )}
+                                  >
+                                    <span className="truncate text-xs font-medium text-stone-700" title={userName}>
+                                      {userName}
+                                    </span>
+                                    <div className="flex justify-center">
+                                      <Checkbox
+                                        checked={dl}
+                                        onCheckedChange={() => toggleFolderUserAccess(folder.id, userId, userName, 'download')}
+                                        className="data-[state=checked]:bg-emerald-500 data-[state=checked]:border-emerald-500"
+                                      />
+                                    </div>
+                                    <div className="flex justify-center">
+                                      <Checkbox
+                                        checked={ul}
+                                        onCheckedChange={() => toggleFolderUserAccess(folder.id, userId, userName, 'upload')}
+                                        className="data-[state=checked]:bg-amber-500 data-[state=checked]:border-amber-500"
+                                      />
+                                    </div>
+                                  </div>
+                                )
+                              })}
+                            </ScrollArea>
+                            {!hasUsersWithAccess && (
+                              <p className="text-[10px] text-stone-400 italic text-center py-2">
+                                Belum ada petugas ditambahkan — centang DL/UL untuk memberi akses
+                              </p>
+                            )}
+                          </div>
+                        )}
+                      </TabsContent>
+                    </Tabs>
+                  </div>
+                )
+              })}
             </ScrollArea>
             <DialogFooter>
               <Button type="button" variant="ghost" onClick={() => setIsEditDriveOpen(false)}>
@@ -1165,7 +1322,7 @@ export function ProjectDetailView() {
               </Button>
               <Button type="submit" className="gap-2">
                 <Save className="w-4 h-4" />
-                <span>Simpan Tautan Drive</span>
+                <span>Simpan Perubahan</span>
               </Button>
             </DialogFooter>
           </form>

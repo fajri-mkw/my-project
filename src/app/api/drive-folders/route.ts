@@ -11,7 +11,7 @@ export async function PUT(request: NextRequest) {
     const body = await request.json()
     const { projectId, folders } = body as {
       projectId: string
-      folders: { id: string; link: string; assignedRoles?: string[] }[]
+      folders: { id: string; link: string; assignedRoles?: string[]; assignedUsers?: { userId: string; userName: string; download: boolean; upload: boolean }[] }[]
     }
     
     const updates = await Promise.all(
@@ -20,7 +20,8 @@ export async function PUT(request: NextRequest) {
           where: { id: f.id },
           data: { 
             link: f.link,
-            assignedRoles: f.assignedRoles ? JSON.stringify(f.assignedRoles) : null
+            assignedRoles: f.assignedRoles ? JSON.stringify(f.assignedRoles) : null,
+            assignedUsers: f.assignedUsers ? JSON.stringify(f.assignedUsers) : null
           }
         })
       )
