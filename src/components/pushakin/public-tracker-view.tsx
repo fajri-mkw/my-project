@@ -74,6 +74,7 @@ const STAGE_COLORS: Record<number, { bg: string; border: string; text: string }>
   3: { bg: 'bg-blue-600', border: 'border-blue-400', text: 'text-blue-400' },
   4: { bg: 'bg-purple-600', border: 'border-purple-400', text: 'text-purple-400' },
   5: { bg: 'bg-teal-600', border: 'border-teal-400', text: 'text-teal-400' },
+  6: { bg: 'bg-emerald-600', border: 'border-emerald-400', text: 'text-emerald-400' },
 }
 
 const DEFAULT_STAGE_COLOR = { bg: 'bg-slate-600', border: 'border-slate-400', text: 'text-slate-400' }

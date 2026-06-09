@@ -32,6 +32,14 @@ const STAGE_GRADIENTS: Record<number, { from: string; to: string; border: string
   2: { from: 'from-orange-100', to: 'to-orange-50', border: 'border-orange-300', text: 'text-orange-700', bg: 'bg-orange-500' },
   3: { from: 'from-blue-100', to: 'to-blue-50', border: 'border-blue-300', text: 'text-blue-700', bg: 'bg-blue-600' },
   4: { from: 'from-purple-100', to: 'to-purple-50', border: 'border-purple-300', text: 'text-purple-700', bg: 'bg-purple-600' },
+  5: { from: 'from-green-100', to: 'to-green-50', border: 'border-green-300', text: 'text-green-700', bg: 'bg-green-600' },
+  6: { from: 'from-emerald-100', to: 'to-emerald-50', border: 'border-emerald-300', text: 'text-emerald-700', bg: 'bg-emerald-600' },
+}
+
+const DEFAULT_STAGE_GRADIENT = { from: 'from-slate-100', to: 'to-slate-50', border: 'border-slate-300', text: 'text-slate-700', bg: 'bg-slate-600' }
+
+function getStageGradient(stage: number) {
+  return STAGE_GRADIENTS[stage] || DEFAULT_STAGE_GRADIENT
 }
 
 export function OverviewView() {
@@ -262,7 +270,7 @@ export function OverviewView() {
                     <div className="bg-slate-50 px-4 py-4 border-b border-slate-200">
                       <div className="flex items-center justify-between">
                         {[1, 2, 3, 4, 5].map((stage, idx) => {
-                          const gradient = STAGE_GRADIENTS[stage]
+                          const gradient = getStageGradient(stage)
                           const isStageCompleted = stage < project.currentStage
                           const isCurrent = stage === project.currentStage
                           const isPending = stage > project.currentStage
@@ -330,7 +338,7 @@ export function OverviewView() {
                         {[1, 2, 3, 4, 5].map((stage) => {
                           const members = teamByStage[stage]
                           const progress = stageProgress[stage]
-                          const gradient = STAGE_GRADIENTS[stage]
+                          const gradient = getStageGradient(stage)
                           const isStageCompleted = stage < project.currentStage
                           const isCurrent = stage === project.currentStage
                           const isPending = stage > project.currentStage
