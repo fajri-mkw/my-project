@@ -31,7 +31,7 @@ import { useState, useEffect } from 'react'
 import { cn } from '@/lib/utils'
 
 const OPSI_KEGIATAN = ['Peliputan', 'Pemberitaan', 'Live Streaming', 'Podcast', 'Desain', 'Lainnya']
-const OPSI_OUTPUT = ['Teks', 'Foto', 'Video', 'Audio', 'Text', 'Streaming', 'Podcast', 'Desain', 'Template Sosial Media', 'Video Panjang', 'Video Pendek', 'Lainnya']
+const OPSI_OUTPUT = ['Teks', 'Foto', 'Video', 'Audio', 'Text', 'Streaming', 'Podcast', 'Desain', 'Template Sosial Media', 'Video Panjang', 'Video Pendek', 'Publish Web', 'Publish Sosmed', 'Review', 'Lainnya']
 
 export function CreateProjectView() {
   const { currentUser, users, showAlert, setActiveView, addProject, addNotification, addSuratTugas, isCreatingProject, setIsCreatingProject, preFillFromSurat, setPreFillFromSurat, preFillFromPermohonan, setPreFillFromPermohonan } = useAppStore()
