@@ -615,7 +615,7 @@ export function ProjectDetailView() {
             <div className="h-6" />
           </div>
 
-          {/* Team Progress */}
+          {/* Team Progress — aligned with timeline stages */}
           <div className="pt-6 border-t border-stone-100">
             <h3 className="text-xs font-bold text-stone-400 uppercase tracking-wider mb-4 flex items-center gap-2">
               <Users className="w-4 h-4" />
@@ -626,65 +626,199 @@ export function ProjectDetailView() {
                 </Badge>
               )}
             </h3>
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-              {project.tasks.map(task => {
-                const user = getUserDetails(task.assignedTo)
-                const isCompleted = task.status === 'completed'
-                const isCurrent = project.isFastProduction ? true : task.stage === project.currentStage
+            {/* Desktop: horizontal columns aligned with timeline stages */}
+            <div className="hidden sm:grid sm:grid-cols-6 gap-3">
+              {[1, 2, 3, 4, 5, 6].map(stageNum => {
+                const stageTasks = project.tasks.filter(t => t.stage === stageNum)
+                const isCompleted = stageNum < project.currentStage
+                const isCurrent = stageNum === project.currentStage
+                const isFPActive = project.isFastProduction && stageNum >= 1 && stageNum <= 5 && !isCompleted
                 
                 return (
-                  <div
-                    key={task.id}
-                    className={cn(
-                      "flex items-center p-3 rounded-xl border transition-all",
-                      isCompleted 
-                        ? project.isFastProduction 
-                          ? "bg-teal-50/50 border-teal-100" 
-                          : "bg-green-50/50 border-green-100"
-                        : isCurrent 
-                          ? project.isFastProduction
-                            ? "bg-white border-teal-200 shadow-sm ring-1 ring-teal-50"
-                            : "bg-white border-indigo-200 shadow-sm ring-1 ring-indigo-50"
-                          : "bg-stone-50/50 border-stone-200 opacity-70"
-                    )}
-                  >
-                    <Avatar className="h-10 w-10 border-2 border-white shadow-sm">
-                      <AvatarImage src={user.avatar} />
-                      <AvatarFallback>{user.name?.charAt(0) || '?'}</AvatarFallback>
-                    </Avatar>
-                    <div className="ml-3 flex-1 overflow-hidden">
-                      <p className="text-xs font-bold text-stone-800 truncate" title={user.name}>
-                        {user.name || 'Menunggu Assign'}
-                      </p>
-                      <p className="text-[10px] font-medium text-stone-500 truncate" title={getRoleDisplayName(task.role)}>
-                        {getRoleDisplayName(task.role)}
-                      </p>
+                  <div key={stageNum} className="flex flex-col gap-2">
+                    {/* Stage header */}
+                    <div className={cn(
+                      "text-center text-[10px] font-bold uppercase tracking-wider pb-2 border-b",
+                      isFPActive
+                        ? "text-teal-600 border-teal-200"
+                        : isCompleted
+                          ? "text-stone-500 border-stone-200"
+                          : isCurrent
+                            ? "text-indigo-600 border-indigo-200"
+                            : "text-stone-300 border-stone-100"
+                    )}>
+                      {STAGES[stageNum]}
                     </div>
-                    <div className="ml-2 relative">
-                      {isCompleted ? (
-                        <div className={cn(
-                          "p-1.5 rounded-lg relative",
-                          project.isFastProduction ? "bg-teal-100 text-teal-600" : "bg-green-100 text-green-600"
-                        )} title={task.revisionCount && task.revisionCount > 0 ? `Tugas Selesai (Revisi ${task.revisionCount}x)` : "Tugas Selesai"}>
-                          <CheckCircle2 className="w-4 h-4" />
-                          {task.revisionCount && task.revisionCount > 0 && (
-                            <span className="absolute -top-1 -right-1 bg-amber-400 text-white text-[8px] font-bold rounded-full w-3.5 h-3.5 flex items-center justify-center">
-                              {task.revisionCount}
-                            </span>
-                          )}
-                        </div>
-                      ) : isCurrent ? (
-                        <div className={cn(
-                          "p-1.5 rounded-lg",
-                          project.isFastProduction ? "bg-teal-100 text-teal-600" : "bg-orange-100 text-orange-600"
-                        )} title="Sedang Dikerjakan">
-                          <Clock className={cn("w-4 h-4", project.isFastProduction ? "" : "animate-pulse")} />
-                        </div>
-                      ) : (
-                        <div className="bg-stone-200 text-stone-400 p-1.5 rounded-lg" title="Terkunci">
-                          <Lock className="w-4 h-4" />
-                        </div>
-                      )}
+                    {/* Team members in this stage */}
+                    {stageTasks.length === 0 ? (
+                      <div className="text-[9px] text-stone-300 italic text-center py-2">—</div>
+                    ) : (
+                      stageTasks.map(task => {
+                        const user = getUserDetails(task.assignedTo)
+                        const taskCompleted = task.status === 'completed'
+                        const taskCurrent = project.isFastProduction ? true : task.stage === project.currentStage
+                        
+                        return (
+                          <div
+                            key={task.id}
+                            className={cn(
+                              "flex items-center p-2 rounded-lg border transition-all",
+                              taskCompleted
+                                ? project.isFastProduction
+                                  ? "bg-teal-50/50 border-teal-100"
+                                  : "bg-green-50/50 border-green-100"
+                                : taskCurrent
+                                  ? project.isFastProduction
+                                    ? "bg-white border-teal-200 shadow-sm"
+                                    : "bg-white border-indigo-200 shadow-sm"
+                                  : "bg-stone-50/50 border-stone-200 opacity-70"
+                            )}
+                          >
+                            <Avatar className="h-7 w-7 border border-white shadow-sm shrink-0">
+                              <AvatarImage src={user.avatar} />
+                              <AvatarFallback className="text-[9px]">{user.name?.charAt(0) || '?'}</AvatarFallback>
+                            </Avatar>
+                            <div className="ml-1.5 flex-1 overflow-hidden min-w-0">
+                              <p className="text-[10px] font-bold text-stone-800 truncate leading-tight" title={user.name}>
+                                {user.name || '—'}
+                              </p>
+                              <p className="text-[8px] font-medium text-stone-400 truncate leading-tight" title={getRoleDisplayName(task.role)}>
+                                {getRoleDisplayName(task.role)}
+                              </p>
+                            </div>
+                            <div className="ml-1 shrink-0 relative">
+                              {taskCompleted ? (
+                                <div className={cn(
+                                  "p-1 rounded-md relative",
+                                  project.isFastProduction ? "bg-teal-100 text-teal-600" : "bg-green-100 text-green-600"
+                                )} title={task.revisionCount && task.revisionCount > 0 ? `Selesai (Revisi ${task.revisionCount}x)` : "Selesai"}>
+                                  <CheckCircle2 className="w-3 h-3" />
+                                  {task.revisionCount && task.revisionCount > 0 && (
+                                    <span className="absolute -top-1 -right-1 bg-amber-400 text-white text-[7px] font-bold rounded-full w-3 h-3 flex items-center justify-center">
+                                      {task.revisionCount}
+                                    </span>
+                                  )}
+                                </div>
+                              ) : taskCurrent ? (
+                                <div className={cn(
+                                  "p-1 rounded-md",
+                                  project.isFastProduction ? "bg-teal-100 text-teal-600" : "bg-orange-100 text-orange-600"
+                                )} title="Dikerjakan">
+                                  <Clock className={cn("w-3 h-3", project.isFastProduction ? "" : "animate-pulse")} />
+                                </div>
+                              ) : (
+                                <div className="bg-stone-200 text-stone-400 p-1 rounded-md" title="Terkunci">
+                                  <Lock className="w-3 h-3" />
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        )
+                      })
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+            {/* Mobile: vertical list grouped by stage */}
+            <div className="sm:hidden space-y-4">
+              {[1, 2, 3, 4, 5, 6].map(stageNum => {
+                const stageTasks = project.tasks.filter(t => t.stage === stageNum)
+                const isCompleted = stageNum < project.currentStage
+                const isCurrent = stageNum === project.currentStage
+                const isFPActive = project.isFastProduction && stageNum >= 1 && stageNum <= 5 && !isCompleted
+                
+                if (stageTasks.length === 0) return null
+                
+                return (
+                  <div key={stageNum}>
+                    <div className={cn(
+                      "text-[10px] font-bold uppercase tracking-wider mb-2 flex items-center gap-1.5",
+                      isFPActive
+                        ? "text-teal-600"
+                        : isCompleted
+                          ? "text-stone-500"
+                          : isCurrent
+                            ? "text-indigo-600"
+                            : "text-stone-300"
+                    )}>
+                      <span className={cn(
+                        "w-5 h-5 rounded-full flex items-center justify-center text-[9px] font-bold",
+                        isFPActive
+                          ? "bg-teal-500 text-white"
+                          : isCompleted
+                            ? "bg-indigo-600 text-white"
+                            : isCurrent
+                              ? "bg-white border-2 border-indigo-500 text-indigo-600"
+                              : "bg-stone-100 text-stone-400"
+                      )}>
+                        {isCompleted && !isFPActive ? '✓' : stageNum}
+                      </span>
+                      {STAGES[stageNum]}
+                    </div>
+                    <div className="space-y-2 ml-6">
+                      {stageTasks.map(task => {
+                        const user = getUserDetails(task.assignedTo)
+                        const taskCompleted = task.status === 'completed'
+                        const taskCurrent = project.isFastProduction ? true : task.stage === project.currentStage
+                        
+                        return (
+                          <div
+                            key={task.id}
+                            className={cn(
+                              "flex items-center p-3 rounded-xl border transition-all",
+                              taskCompleted
+                                ? project.isFastProduction
+                                  ? "bg-teal-50/50 border-teal-100"
+                                  : "bg-green-50/50 border-green-100"
+                                : taskCurrent
+                                  ? project.isFastProduction
+                                    ? "bg-white border-teal-200 shadow-sm"
+                                    : "bg-white border-indigo-200 shadow-sm"
+                                  : "bg-stone-50/50 border-stone-200 opacity-70"
+                            )}
+                          >
+                            <Avatar className="h-10 w-10 border-2 border-white shadow-sm">
+                              <AvatarImage src={user.avatar} />
+                              <AvatarFallback>{user.name?.charAt(0) || '?'}</AvatarFallback>
+                            </Avatar>
+                            <div className="ml-3 flex-1 overflow-hidden">
+                              <p className="text-xs font-bold text-stone-800 truncate" title={user.name}>
+                                {user.name || 'Menunggu Assign'}
+                              </p>
+                              <p className="text-[10px] font-medium text-stone-500 truncate" title={getRoleDisplayName(task.role)}>
+                                {getRoleDisplayName(task.role)}
+                              </p>
+                            </div>
+                            <div className="ml-2 relative">
+                              {taskCompleted ? (
+                                <div className={cn(
+                                  "p-1.5 rounded-lg relative",
+                                  project.isFastProduction ? "bg-teal-100 text-teal-600" : "bg-green-100 text-green-600"
+                                )} title={task.revisionCount && task.revisionCount > 0 ? `Selesai (Revisi ${task.revisionCount}x)` : "Selesai"}>
+                                  <CheckCircle2 className="w-4 h-4" />
+                                  {task.revisionCount && task.revisionCount > 0 && (
+                                    <span className="absolute -top-1 -right-1 bg-amber-400 text-white text-[8px] font-bold rounded-full w-3.5 h-3.5 flex items-center justify-center">
+                                      {task.revisionCount}
+                                    </span>
+                                  )}
+                                </div>
+                              ) : taskCurrent ? (
+                                <div className={cn(
+                                  "p-1.5 rounded-lg",
+                                  project.isFastProduction ? "bg-teal-100 text-teal-600" : "bg-orange-100 text-orange-600"
+                                )} title="Sedang Dikerjakan">
+                                  <Clock className={cn("w-4 h-4", project.isFastProduction ? "" : "animate-pulse")} />
+                                </div>
+                              ) : (
+                                <div className="bg-stone-200 text-stone-400 p-1.5 rounded-lg" title="Terkunci">
+                                  <Lock className="w-4 h-4" />
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        )
+                      })}
                     </div>
                   </div>
                 )
@@ -692,8 +826,8 @@ export function ProjectDetailView() {
             </div>
           </div>
 
-          {/* Drive Folders */}
-          {visibleFolders.length > 0 && (
+          {/* Drive Folders — only visible to Admin (Super Admin) and Manager */}
+          {canManageProject && visibleFolders.length > 0 && (
             <div className="pt-6 border-t border-stone-100 mt-6">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between mb-4 gap-2">
                 <h3 className="text-xs font-bold text-stone-400 uppercase tracking-wider flex items-center gap-2">
