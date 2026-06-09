@@ -58,7 +58,8 @@ import {
   Zap,
   SkipForward,
   Rocket,
-  RotateCcw
+  RotateCcw,
+  PenTool
 } from 'lucide-react'
 import { useState, useMemo } from 'react'
 import { cn } from '@/lib/utils'
@@ -71,7 +72,8 @@ const ICON_MAP: Record<string, React.ElementType> = {
   'FileAudio': FileAudio,
   'PlayCircle': PlayCircle,
   'AlertCircle': AlertCircle,
-  'Link': LinkIcon
+  'Link': LinkIcon,
+  'PenTool': PenTool
 }
 
 // Platform options for publishers

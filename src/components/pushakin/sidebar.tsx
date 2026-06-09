@@ -158,7 +158,7 @@ export function Sidebar({ isOpen = false, onNavigate, onClose }: SidebarProps) {
           </Avatar>
           <div className="overflow-hidden flex-1">
             <div className="text-sm font-semibold text-stone-100 truncate">{currentUser.name}</div>
-            <div className={`text-xs truncate ${isImpersonating ? 'text-amber-400' : currentUser.role === 'Admin' ? 'text-red-400' : 'text-orange-400'}`}>{getRoleDisplayName(currentUser.role)}</div>
+            <div className={`text-xs truncate ${isImpersonating ? 'text-amber-400' : currentUser.role === 'Admin' ? 'text-red-400' : currentUser.role === 'ContentCreator' ? 'text-cyan-400' : 'text-orange-400'}`}>{getRoleDisplayName(currentUser.role)}</div>
           </div>
         </div>
         
