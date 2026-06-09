@@ -8,6 +8,7 @@ import { Textarea } from '@/components/ui/textarea'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Badge } from '@/components/ui/badge'
 import { Switch } from '@/components/ui/switch'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { useAppStore, ROLES, ROLE_CONFIG, FOLDER_OPTIONS, STAGES, getRoleDisplayName } from '@/lib/store'
 import { 
   Rocket, 
@@ -17,6 +18,8 @@ import {
   FileText,
   Upload,
   X,
+  ChevronDown,
+  Plus,
   File,
   Paperclip,
   ExternalLink,
@@ -28,7 +31,7 @@ import { useState, useEffect } from 'react'
 import { cn } from '@/lib/utils'
 
 const OPSI_KEGIATAN = ['Peliputan', 'Pemberitaan', 'Live Streaming', 'Podcast', 'Desain', 'Lainnya']
-const OPSI_OUTPUT = ['Teks', 'Foto', 'Video', 'Audio', 'Streaming', 'Desain', 'Podcast', 'Lainnya']
+const OPSI_OUTPUT = ['Teks', 'Foto', 'Video', 'Audio', 'Text', 'Streaming', 'Podcast', 'Desain', 'Template Sosial Media', 'Video Panjang', 'Video Pendek', 'Lainnya']
 
 export function CreateProjectView() {
   const { currentUser, users, showAlert, setActiveView, addProject, addNotification, addSuratTugas, isCreatingProject, setIsCreatingProject, preFillFromSurat, setPreFillFromSurat, preFillFromPermohonan, setPreFillFromPermohonan } = useAppStore()
@@ -47,6 +50,9 @@ export function CreateProjectView() {
   const [kebutuhanOutput, setKebutuhanOutput] = useState<string[]>([])
   const [kegiatanLainnya, setKegiatanLainnya] = useState('')
   const [outputLainnya, setOutputLainnya] = useState('')
+  // Worker output assignment: userId → list of output types
+  const [workerOutputs, setWorkerOutputs] = useState<Record<string, string[]>>({})
+  const [workerCustomOutput, setWorkerCustomOutput] = useState<Record<string, string>>({})
   const [driveAutoCreate, setDriveAutoCreate] = useState(false)
   const [driveCreatingStatus, setDriveCreatingStatus] = useState<string | null>(null)
   const [isFastTrack, setIsFastTrack] = useState(false)
@@ -194,6 +200,63 @@ export function CreateProjectView() {
       setter([...currentItems, item])
     }
   }
+
+  // Worker output assignment helpers
+  const addWorkerOutput = (userId: string, outputType: string) => {
+    setWorkerOutputs(prev => {
+      const current = prev[userId] || []
+      if (current.includes(outputType)) return prev // already added
+      return { ...prev, [userId]: [...current, outputType] }
+    })
+  }
+
+  const removeWorkerOutput = (userId: string, outputType: string) => {
+    setWorkerOutputs(prev => {
+      const current = prev[userId] || []
+      const updated = current.filter(o => o !== outputType)
+      if (updated.length === 0) {
+        const { [userId]: _, ...rest } = prev
+        return rest
+      }
+      return { ...prev, [userId]: updated }
+    })
+    // Also clean up custom output if removing "Lainnya"
+    if (outputType === 'Lainnya') {
+      setWorkerCustomOutput(prev => {
+        const { [userId]: _, ...rest } = prev
+        return rest
+      })
+    }
+  }
+
+  // Clean up workerOutputs when users are deselected
+  useEffect(() => {
+    const selectedUserIds = new Set<string>()
+    Object.values(selectedUsers).forEach(ids => ids.forEach(id => selectedUserIds.add(id)))
+    
+    setWorkerOutputs(prev => {
+      const updated = { ...prev }
+      let changed = false
+      Object.keys(updated).forEach(userId => {
+        if (!selectedUserIds.has(userId)) {
+          delete updated[userId]
+          changed = true
+        }
+      })
+      return changed ? updated : prev
+    })
+    setWorkerCustomOutput(prev => {
+      const updated = { ...prev }
+      let changed = false
+      Object.keys(updated).forEach(userId => {
+        if (!selectedUserIds.has(userId)) {
+          delete updated[userId]
+          changed = true
+        }
+      })
+      return changed ? updated : prev
+    })
+  }, [selectedUsers])
 
   const toggleFolder = (folderId: string) => {
     if (selectedFolders.includes(folderId)) {
@@ -429,6 +492,21 @@ export function CreateProjectView() {
 
       setDriveCreatingStatus(null)
 
+      // Aggregate all output needs: from general checkbox + worker assignments
+      const allOutputNeeds = new Set(kebutuhanOutput)
+      Object.values(workerOutputs).forEach(outputs => {
+        outputs.forEach(o => allOutputNeeds.add(o))
+      })
+      const aggregatedOutputNeeds = Array.from(allOutputNeeds)
+      // Check if any worker has "Lainnya" custom output
+      const hasCustomOutput = aggregatedOutputNeeds.includes('Lainnya')
+      const customOutputText = hasCustomOutput
+        ? [outputLainnya, ...Object.entries(workerCustomOutput).filter(([, v]) => v.trim()).map(([userId, v]) => {
+            const user = users.find(u => u.id === userId)
+            return user ? `${user.name}: ${v}` : v
+          })].filter(Boolean).join('; ')
+        : ''
+
       const response = await fetch('/api/projects', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -442,8 +520,10 @@ export function CreateProjectView() {
           picWhatsApp,
           activityTypes: jenisKegiatan,
           customActivity: jenisKegiatan.includes('Lainnya') ? kegiatanLainnya : '',
-          outputNeeds: kebutuhanOutput,
-          customOutput: kebutuhanOutput.includes('Lainnya') ? outputLainnya : '',
+          outputNeeds: aggregatedOutputNeeds,
+          customOutput: customOutputText,
+          workerOutputs,
+          workerCustomOutput,
           managerId: currentUser?.id,
           tasks,
           driveFolders: generatedFolders,
@@ -1028,38 +1108,165 @@ export function CreateProjectView() {
               )}
             </div>
 
-            <div>
-              <Label className="text-xs font-bold text-stone-500 uppercase tracking-wider">
-                Kebutuhan Output
+            <div className="md:col-span-2">
+              <Label className="text-xs font-bold text-stone-500 uppercase tracking-wider mb-2 block">
+                Penugasan Petugas & Kebutuhan Output
               </Label>
-              <div className="flex flex-wrap gap-2 mt-2">
-                {OPSI_OUTPUT.map(output => (
-                  <Button
-                    key={output}
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    onClick={() => toggleItem(setKebutuhanOutput, kebutuhanOutput, output)}
-                    className={cn(
-                      "transition-colors",
-                      kebutuhanOutput.includes(output) 
-                        ? "bg-indigo-50 border-indigo-500 text-indigo-700" 
-                        : "bg-white border-stone-200 text-stone-600"
-                    )}
-                  >
-                    {output}
-                  </Button>
-                ))}
-              </div>
-              {kebutuhanOutput.includes('Lainnya') && (
-                <Input
-                  
-                  value={outputLainnya}
-                  onChange={e => setOutputLainnya(e.target.value)}
-                  className="mt-3"
-                  required
-                />
-              )}
+              <p className="text-[11px] text-stone-400 mb-3">
+                Centang petugas yang ditugaskan, lalu pilih kebutuhan output yang harus dikerjakan per petugas.
+              </p>
+
+              {/* Get all selected workers across all roles */}
+              {(() => {
+                const selectedWorkers = Object.entries(selectedUsers)
+                  .flatMap(([role, userIds]) => 
+                    userIds.map(uid => {
+                      const user = users.find(u => u.id === uid)
+                      return user ? { userId: uid, name: user.name, role, avatar: user.avatar } : null
+                    })
+                  )
+                  .filter(Boolean) as Array<{ userId: string; name: string; role: string; avatar: string }>
+
+                if (selectedWorkers.length === 0) {
+                  return (
+                    <div className="text-center py-6 bg-stone-50 rounded-xl border border-dashed border-stone-200">
+                      <Users className="w-8 h-8 text-stone-300 mx-auto mb-2" />
+                      <p className="text-sm text-stone-400">Pilih petugas di bagian Pilih Tim Produksi terlebih dahulu</p>
+                    </div>
+                  )
+                }
+
+                // Group by role for cleaner display
+                const workersByRole = new Map<string, typeof selectedWorkers>()
+                selectedWorkers.forEach(w => {
+                  const existing = workersByRole.get(w.role) || []
+                  existing.push(w)
+                  workersByRole.set(w.role, existing)
+                })
+
+                return (
+                  <div className="space-y-3">
+                    {Array.from(workersByRole.entries()).map(([role, workers]) => (
+                      <div key={role} className="border border-stone-200 rounded-xl overflow-hidden">
+                        <div className="bg-stone-50 px-4 py-2 border-b border-stone-200">
+                          <span className="text-[10px] font-bold text-stone-500 uppercase tracking-wider">
+                            {getRoleDisplayName(role)}
+                          </span>
+                        </div>
+                        <div className="divide-y divide-stone-100">
+                          {workers.map(worker => {
+                            const assignedOutputs = workerOutputs[worker.userId] || []
+                            const isChecked = assignedOutputs.length > 0
+                            const hasLainnya = assignedOutputs.includes('Lainnya')
+
+                            return (
+                              <div key={worker.userId} className={`p-3 transition-all ${isChecked ? 'bg-violet-50/30' : 'bg-white'}`}>
+                                {/* Worker row: checkbox + name + dropdown */}
+                                <div className="flex items-center gap-3">
+                                  <Checkbox
+                                    checked={isChecked}
+                                    onCheckedChange={(checked) => {
+                                      if (!checked) {
+                                        // Uncheck: remove all outputs for this worker
+                                        setWorkerOutputs(prev => {
+                                          const { [worker.userId]: _, ...rest } = prev
+                                          return rest
+                                        })
+                                        setWorkerCustomOutput(prev => {
+                                          const { [worker.userId]: _, ...rest } = prev
+                                          return rest
+                                        })
+                                      }
+                                    }}
+                                  />
+                                  <div className="flex items-center gap-2 flex-1 min-w-0">
+                                    <div className="w-7 h-7 rounded-full bg-violet-100 text-violet-700 flex items-center justify-center text-[11px] font-bold shrink-0">
+                                      {worker.name.charAt(0).toUpperCase()}
+                                    </div>
+                                    <span className="text-xs font-semibold text-stone-700 truncate">{worker.name}</span>
+                                  </div>
+                                  {/* Add output dropdown */}
+                                  <Select
+                                    onValueChange={(value) => {
+                                      addWorkerOutput(worker.userId, value)
+                                    }}
+                                  >
+                                    <SelectTrigger className="w-[160px] h-8 text-xs">
+                                      <SelectValue placeholder="+ Tambah output..." />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                      {OPSI_OUTPUT.filter(o => !assignedOutputs.includes(o)).map(output => (
+                                        <SelectItem key={output} value={output} className="text-xs">
+                                          {output}
+                                        </SelectItem>
+                                      ))}
+                                    </SelectContent>
+                                  </Select>
+                                </div>
+
+                                {/* Assigned output badges */}
+                                {assignedOutputs.length > 0 && (
+                                  <div className="mt-2 ml-9 flex flex-wrap gap-1.5">
+                                    {assignedOutputs.map(output => (
+                                      <Badge
+                                        key={output}
+                                        variant="secondary"
+                                        className="bg-indigo-50 text-indigo-700 border border-indigo-200 text-[10px] pr-1 gap-1"
+                                      >
+                                        {output}
+                                        <button
+                                          type="button"
+                                          onClick={() => removeWorkerOutput(worker.userId, output)}
+                                          className="ml-0.5 hover:text-red-500 transition-colors"
+                                        >
+                                          <X className="w-3 h-3" />
+                                        </button>
+                                      </Badge>
+                                    ))}
+                                  </div>
+                                )}
+
+                                {/* Custom "Lainnya" input */}
+                                {hasLainnya && (
+                                  <div className="mt-2 ml-9">
+                                    <Input
+                                      placeholder="Keterangan output lainnya..."
+                                      value={workerCustomOutput[worker.userId] || ''}
+                                      onChange={e => setWorkerCustomOutput(prev => ({ ...prev, [worker.userId]: e.target.value }))}
+                                      className="h-7 text-xs"
+                                    />
+                                  </div>
+                                )}
+                              </div>
+                            )
+                          })}
+                        </div>
+                      </div>
+                    ))}
+
+                    {/* Summary of all output needs aggregated */}
+                    {(() => {
+                      const allOutputs = new Set<string>()
+                      Object.values(workerOutputs).forEach(outputs => outputs.forEach(o => allOutputs.add(o)))
+                      if (allOutputs.size === 0) return null
+                      return (
+                        <div className="mt-3 p-3 bg-indigo-50/50 border border-indigo-100 rounded-xl">
+                          <p className="text-[10px] font-bold text-indigo-500 uppercase tracking-wider mb-2">
+                            Ringkasan Kebutuhan Output
+                          </p>
+                          <div className="flex flex-wrap gap-1.5">
+                            {Array.from(allOutputs).map(output => (
+                              <Badge key={output} variant="outline" className="bg-white text-indigo-700 border-indigo-200 text-[10px]">
+                                {output}
+                              </Badge>
+                            ))}
+                          </div>
+                        </div>
+                      )
+                    })()}
+                  </div>
+                )
+              })()}
             </div>
 
             <div className="md:col-span-2">
