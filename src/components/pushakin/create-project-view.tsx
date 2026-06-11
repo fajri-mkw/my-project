@@ -344,6 +344,28 @@ export function CreateProjectView() {
       return
     }
 
+    // Normal mode: require workers in every stage that has available users
+    // This prevents workflow from getting stuck when a stage has no workers
+    if (!isFastTrack && !isFastProduction) {
+      const currentMissingStages = [1, 2, 3, 4, 5].filter(stage => {
+        // Check if there are users available for this stage
+        const rolesInStage = Object.keys(ROLE_CONFIG).filter(r => ROLE_CONFIG[r].stage === stage)
+        const hasAvailableUsers = rolesInStage.some(role => users.filter(u => u.role === role).length > 0)
+        // Check if any workers are assigned to this stage
+        const hasAssignedWorkers = activeRoles.some(role => {
+          const config = ROLE_CONFIG[role]
+          return config?.stage === stage && (selectedUsers[role] || []).length > 0
+        })
+        return hasAvailableUsers && !hasAssignedWorkers
+      })
+
+      if (currentMissingStages.length > 0) {
+        const stageNames = currentMissingStages.map(s => `Tahap ${s} (${STAGES[s]})`).join(', ')
+        showAlert(`Wajib memilih petugas di setiap tahapan! Tahap yang belum memiliki petugas: ${stageNames}. Alur kerja akan terhambat jika ada tahapan tanpa petugas.`)
+        return
+      }
+    }
+
     setIsCreatingProject(true)
 
     try {
@@ -883,6 +905,33 @@ export function CreateProjectView() {
   }
 
   const activeRolesForAssignment = Object.keys(selectedUsers).filter(k => selectedUsers[k].length > 0)
+
+  // Compute which stages have available users (users in the system with roles for that stage)
+  // and which stages currently have workers assigned
+  const stagesWithAvailableUsers = new Set<number>()
+  const stagesWithAssignedWorkers = new Set<number>()
+  
+  // Check which stages have users available in the system
+  for (const role of Object.keys(ROLE_CONFIG)) {
+    const stage = ROLE_CONFIG[role].stage
+    const usersWithRole = users.filter(u => u.role === role)
+    if (usersWithRole.length > 0) {
+      stagesWithAvailableUsers.add(stage)
+    }
+  }
+  
+  // Check which stages currently have workers assigned
+  activeRolesForAssignment.forEach(role => {
+    const config = ROLE_CONFIG[role]
+    if (config) {
+      stagesWithAssignedWorkers.add(config.stage)
+    }
+  })
+  
+  // For normal (non-fast) mode: find stages that have available users but no assigned workers
+  const missingStages = !isFastTrack && !isFastProduction
+    ? [1, 2, 3, 4, 5].filter(stage => stagesWithAvailableUsers.has(stage) && !stagesWithAssignedWorkers.has(stage))
+    : []
 
   // Template feature for project description
   const [showTemplatePanel, setShowTemplatePanel] = useState(false)
@@ -1428,7 +1477,18 @@ export function CreateProjectView() {
                   <Rocket className="h-2.5 w-2.5 mr-0.5" />FAST PRODUCTION
                 </Badge>
               )}
+              {!isFastTrack && !isFastProduction && (
+                <Badge className="bg-stone-600 text-white text-[10px] px-1.5 py-0 ml-1">
+                  ALUR SEKUENSIAL
+                </Badge>
+              )}
             </div>
+            {!isFastTrack && !isFastProduction && (
+              <div className="mb-4 p-3 rounded-lg bg-violet-50 border border-violet-200 text-xs text-violet-700 flex items-center gap-2">
+                <ClipboardList className="h-3.5 w-3.5 shrink-0" />
+                <span>Mode Alur Sekuensial: Setiap tahapan wajib memiliki petugas agar proyek dapat berjalan dari awal sampai akhir tanpa hambatan. Gunakan Fast Track atau Fast Production jika tidak memerlukan semua tahapan.</span>
+              </div>
+            )}
             {isFastTrack && (
               <div className="mb-4 p-3 rounded-lg bg-amber-50 border border-amber-200 text-xs text-amber-700 flex items-center gap-2">
                 <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
@@ -1441,10 +1501,31 @@ export function CreateProjectView() {
                 <span>Semua petugas bisa bekerja bersamaan. Tidak ada tahap yang dilewati — semua peran tersedia untuk dipilih.</span>
               </div>
             )}
+            {/* Normal mode: warning about missing stages */}
+            {!isFastTrack && !isFastProduction && missingStages.length > 0 && (
+              <div className="mb-4 p-3 rounded-lg bg-red-50 border border-red-300 text-xs text-red-700 flex items-start gap-2">
+                <AlertTriangle className="h-3.5 w-3.5 shrink-0 mt-0.5" />
+                <div>
+                  <span className="font-semibold">Petugas wajib dipilih di setiap tahapan!</span>
+                  <span className="block mt-1">Tahap tanpa petugas: {missingStages.map(s => `Tahap ${s} (${STAGES[s]})`).join(', ')}. Alur kerja akan terhambat jika ada tahapan tanpa petugas.</span>
+                </div>
+              </div>
+            )}
+            {!isFastTrack && !isFastProduction && missingStages.length === 0 && activeRolesForAssignment.length > 0 && (
+              <div className="mb-4 p-3 rounded-lg bg-emerald-50 border border-emerald-200 text-xs text-emerald-700 flex items-center gap-2">
+                <span className="text-emerald-500">✓</span>
+                <span>Semua tahapan sudah memiliki petugas. Alur kerja dapat berjalan lancar dari awal sampai akhir.</span>
+              </div>
+            )}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               {[1, 2, 3, 4, 5].map(stage => {
                 const rolesInStage = Object.keys(ROLE_CONFIG).filter(r => ROLE_CONFIG[r].stage === stage)
                 if (rolesInStage.length === 0) return null
+                
+                // Check if this stage has workers assigned (for normal mode validation)
+                const hasWorkersInStage = rolesInStage.some(role => (selectedUsers[role] || []).length > 0)
+                const hasAvailableUsersInStage = rolesInStage.some(role => users.filter(u => u.role === role).length > 0)
+                const isStageMissing = !isFastTrack && !isFastProduction && hasAvailableUsersInStage && !hasWorkersInStage
                 
                 // Fast Track: only show stage 5 (Publisher)
                 if (isFastTrack && stage !== 5) {
@@ -1463,20 +1544,36 @@ export function CreateProjectView() {
                 }
                 
                 return (
-                  <div key={stage} className={`p-5 rounded-2xl border ${
-                    isFastTrack && stage === 5 
-                      ? 'bg-amber-50/60 border-amber-300' 
-                      : isFastProduction
-                        ? 'bg-teal-50/40 border-teal-300'
-                        : 'bg-stone-50/60 border-stone-200/60'
+                  <div key={stage} className={`p-5 rounded-2xl border-2 ${
+                    isStageMissing
+                      ? 'bg-red-50/40 border-red-300 shadow-sm'
+                      : isFastTrack && stage === 5 
+                        ? 'bg-amber-50/60 border-amber-300' 
+                        : isFastProduction
+                          ? 'bg-teal-50/40 border-teal-300'
+                          : 'bg-stone-50/60 border-stone-200/60'
                   }`}>
-                    <h4 className={`text-xs font-bold uppercase tracking-wider mb-4 border-b pb-2 ${
-                      isFastTrack && stage === 5 ? 'text-amber-700 border-amber-200' : isFastProduction ? 'text-teal-700 border-teal-200' : 'text-stone-600 border-stone-200'
+                    <h4 className={`text-xs font-bold uppercase tracking-wider mb-4 border-b pb-2 flex items-center gap-1.5 ${
+                      isStageMissing
+                        ? 'text-red-600 border-red-200'
+                        : isFastTrack && stage === 5 ? 'text-amber-700 border-amber-200' : isFastProduction ? 'text-teal-700 border-teal-200' : 'text-stone-600 border-stone-200'
                     }`}>
+                      {isStageMissing && <AlertTriangle className="h-3.5 w-3.5 text-red-500" />}
                       {isFastTrack && stage === 5 && <Zap className="h-3 w-3 inline mr-1" />}
                       {isFastProduction && <Rocket className="h-3 w-3 inline mr-1" />}
                       Tahap {stage}: {STAGES[stage]}
+                      {isStageMissing && (
+                        <Badge className="bg-red-500 text-white text-[9px] px-1.5 py-0 ml-auto">
+                          WAJIB ISI
+                        </Badge>
+                      )}
                     </h4>
+                    {isStageMissing && (
+                      <div className="mb-3 p-2 rounded-lg bg-red-50 border border-red-200 text-[10px] text-red-600 flex items-center gap-1.5">
+                        <AlertTriangle className="h-3 w-3 shrink-0" />
+                        <span>Pilih minimal satu petugas di tahap ini agar alur kerja tidak terhambat</span>
+                      </div>
+                    )}
                     <div className="space-y-3">
                       {rolesInStage.map(role => {
                         const usersWithRole = users.filter(u => u.role === role)
