@@ -25,7 +25,8 @@ import {
   ExternalLink,
   Zap,
   AlertTriangle,
-  SkipForward
+  SkipForward,
+  ClipboardList
 } from 'lucide-react'
 import { useState, useEffect } from 'react'
 import { cn } from '@/lib/utils'
@@ -1238,167 +1239,6 @@ export function CreateProjectView() {
             </div>
 
             <div className="md:col-span-2">
-              <Label className="text-xs font-bold text-stone-500 uppercase tracking-wider mb-2 block">
-                Penugasan Petugas & Kebutuhan Output
-              </Label>
-              <p className="text-[11px] text-stone-400 mb-3">
-                Centang petugas yang ditugaskan, lalu pilih kebutuhan output yang harus dikerjakan per petugas.
-              </p>
-
-              {/* Get all selected workers across all roles */}
-              {(() => {
-                const selectedWorkers = Object.entries(selectedUsers)
-                  .flatMap(([role, userIds]) => 
-                    userIds.map(uid => {
-                      const user = users.find(u => u.id === uid)
-                      return user ? { userId: uid, name: user.name, role, avatar: user.avatar } : null
-                    })
-                  )
-                  .filter(Boolean) as Array<{ userId: string; name: string; role: string; avatar: string }>
-
-                if (selectedWorkers.length === 0) {
-                  return (
-                    <div className="text-center py-6 bg-stone-50 rounded-xl border border-dashed border-stone-200">
-                      <Users className="w-8 h-8 text-stone-300 mx-auto mb-2" />
-                      <p className="text-sm text-stone-400">Pilih petugas di bagian Pilih Tim Produksi terlebih dahulu</p>
-                    </div>
-                  )
-                }
-
-                // Group by role for cleaner display
-                const workersByRole = new Map<string, typeof selectedWorkers>()
-                selectedWorkers.forEach(w => {
-                  const existing = workersByRole.get(w.role) || []
-                  existing.push(w)
-                  workersByRole.set(w.role, existing)
-                })
-
-                return (
-                  <div className="space-y-3">
-                    {Array.from(workersByRole.entries()).map(([role, workers]) => (
-                      <div key={role} className="border border-stone-200 rounded-xl overflow-hidden">
-                        <div className="bg-stone-50 px-4 py-2 border-b border-stone-200">
-                          <span className="text-[10px] font-bold text-stone-500 uppercase tracking-wider">
-                            {getRoleDisplayName(role)}
-                          </span>
-                        </div>
-                        <div className="divide-y divide-stone-100">
-                          {workers.map(worker => {
-                            const assignedOutputs = workerOutputs[worker.userId] || []
-                            const isChecked = assignedOutputs.length > 0
-                            const hasLainnya = assignedOutputs.includes('Lainnya')
-
-                            return (
-                              <div key={worker.userId} className={`p-3 transition-all ${isChecked ? 'bg-violet-50/30' : 'bg-white'}`}>
-                                {/* Worker row: checkbox + name + dropdown */}
-                                <div className="flex items-center gap-3">
-                                  <Checkbox
-                                    checked={isChecked}
-                                    onCheckedChange={(checked) => {
-                                      if (!checked) {
-                                        // Uncheck: remove all outputs for this worker
-                                        setWorkerOutputs(prev => {
-                                          const { [worker.userId]: _, ...rest } = prev
-                                          return rest
-                                        })
-                                        setWorkerCustomOutput(prev => {
-                                          const { [worker.userId]: _, ...rest } = prev
-                                          return rest
-                                        })
-                                      }
-                                    }}
-                                  />
-                                  <div className="flex items-center gap-2 flex-1 min-w-0">
-                                    <div className="w-7 h-7 rounded-full bg-violet-100 text-violet-700 flex items-center justify-center text-[11px] font-bold shrink-0">
-                                      {worker.name.charAt(0).toUpperCase()}
-                                    </div>
-                                    <span className="text-xs font-semibold text-stone-700 truncate">{worker.name}</span>
-                                  </div>
-                                  {/* Add output dropdown */}
-                                  <Select
-                                    onValueChange={(value) => {
-                                      addWorkerOutput(worker.userId, value)
-                                    }}
-                                  >
-                                    <SelectTrigger className="w-[160px] h-8 text-xs">
-                                      <SelectValue placeholder="+ Tambah output..." />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                      {OPSI_OUTPUT.filter(o => !assignedOutputs.includes(o)).map(output => (
-                                        <SelectItem key={output} value={output} className="text-xs">
-                                          {output}
-                                        </SelectItem>
-                                      ))}
-                                    </SelectContent>
-                                  </Select>
-                                </div>
-
-                                {/* Assigned output badges */}
-                                {assignedOutputs.length > 0 && (
-                                  <div className="mt-2 ml-9 flex flex-wrap gap-1.5">
-                                    {assignedOutputs.map(output => (
-                                      <Badge
-                                        key={output}
-                                        variant="secondary"
-                                        className="bg-indigo-50 text-indigo-700 border border-indigo-200 text-[10px] pr-1 gap-1"
-                                      >
-                                        {output}
-                                        <button
-                                          type="button"
-                                          onClick={() => removeWorkerOutput(worker.userId, output)}
-                                          className="ml-0.5 hover:text-red-500 transition-colors"
-                                        >
-                                          <X className="w-3 h-3" />
-                                        </button>
-                                      </Badge>
-                                    ))}
-                                  </div>
-                                )}
-
-                                {/* Custom "Lainnya" input */}
-                                {hasLainnya && (
-                                  <div className="mt-2 ml-9">
-                                    <Input
-                                      placeholder="Keterangan output lainnya..."
-                                      value={workerCustomOutput[worker.userId] || ''}
-                                      onChange={e => setWorkerCustomOutput(prev => ({ ...prev, [worker.userId]: e.target.value }))}
-                                      className="h-7 text-xs"
-                                    />
-                                  </div>
-                                )}
-                              </div>
-                            )
-                          })}
-                        </div>
-                      </div>
-                    ))}
-
-                    {/* Summary of all output needs aggregated */}
-                    {(() => {
-                      const allOutputs = new Set<string>()
-                      Object.values(workerOutputs).forEach(outputs => outputs.forEach(o => allOutputs.add(o)))
-                      if (allOutputs.size === 0) return null
-                      return (
-                        <div className="mt-3 p-3 bg-indigo-50/50 border border-indigo-100 rounded-xl">
-                          <p className="text-[10px] font-bold text-indigo-500 uppercase tracking-wider mb-2">
-                            Ringkasan Kebutuhan Output
-                          </p>
-                          <div className="flex flex-wrap gap-1.5">
-                            {Array.from(allOutputs).map(output => (
-                              <Badge key={output} variant="outline" className="bg-white text-indigo-700 border-indigo-200 text-[10px]">
-                                {output}
-                              </Badge>
-                            ))}
-                          </div>
-                        </div>
-                      )
-                    })()}
-                  </div>
-                )
-              })()}
-            </div>
-
-            <div className="md:col-span-2">
               <div className="flex items-center justify-between mb-2">
                 <Label htmlFor="desc">Detail & Instruksi Permohonan</Label>
                 <div className="flex gap-2">
@@ -1694,6 +1534,195 @@ export function CreateProjectView() {
                 )
               })}
             </div>
+          </div>
+
+          {/* Penugasan Petugas & Kebutuhan Output — Moved after Team Assignment for better UX */}
+          <div>
+            <div className="flex items-center gap-2 mb-4 border-b border-stone-200 pb-2">
+              <ClipboardList className="w-5 h-5 text-violet-600" />
+              <h3 className="text-sm font-semibold text-stone-800">
+                Penugasan Petugas & Kebutuhan Output
+              </h3>
+            </div>
+            <p className="text-[11px] text-stone-400 mb-4">
+              Centang petugas yang ditugaskan, lalu pilih kebutuhan output yang harus dikerjakan per petugas.
+            </p>
+
+            {/* Get all selected workers across all roles */}
+            {(() => {
+              const selectedWorkers = Object.entries(selectedUsers)
+                .flatMap(([role, userIds]) => 
+                  userIds.map(uid => {
+                    const user = users.find(u => u.id === uid)
+                    return user ? { userId: uid, name: user.name, role, avatar: user.avatar } : null
+                  })
+                )
+                .filter(Boolean) as Array<{ userId: string; name: string; role: string; avatar: string }>
+
+              if (selectedWorkers.length === 0) {
+                return (
+                  <div className="text-center py-8 bg-stone-50 rounded-xl border border-dashed border-stone-200">
+                    <Users className="w-10 h-10 text-stone-300 mx-auto mb-3" />
+                    <p className="text-sm text-stone-400">Pilih petugas di bagian Pembagian Tim & Penugasan terlebih dahulu</p>
+                  </div>
+                )
+              }
+
+              // Group by stage then by role for cleaner display
+              const workersByStage = new Map<number, Map<string, typeof selectedWorkers>>()
+              selectedWorkers.forEach(w => {
+                const stageConfig = ROLE_CONFIG[w.role]
+                const stage = stageConfig?.stage || 1
+                if (!workersByStage.has(stage)) workersByStage.set(stage, new Map())
+                const stageMap = workersByStage.get(stage)!
+                const existing = stageMap.get(w.role) || []
+                existing.push(w)
+                stageMap.set(w.role, existing)
+              })
+
+              return (
+                <div className="space-y-4">
+                  {Array.from(workersByStage.entries()).sort(([a], [b]) => a - b).map(([stage, roleMap]) => (
+                    <div key={stage} className="border border-stone-200 rounded-2xl overflow-hidden">
+                      {/* Stage header */}
+                      <div className="bg-gradient-to-r from-violet-50 to-purple-50 px-4 py-2.5 border-b border-violet-100">
+                        <div className="flex items-center gap-2">
+                          <span className="text-[10px] font-bold text-violet-600 uppercase tracking-wider">
+                            Tahap {stage}: {STAGES[stage]}
+                          </span>
+                          <Badge variant="outline" className="text-[9px] text-violet-600 border-violet-200 bg-violet-50">
+                            {Array.from(roleMap.values()).flat().length} petugas
+                          </Badge>
+                        </div>
+                      </div>
+                      
+                      {/* Workers by role */}
+                      <div className="divide-y divide-stone-100">
+                        {Array.from(roleMap.entries()).map(([role, workers]) => (
+                          <div key={role}>
+                            {/* Role sub-header */}
+                            <div className="bg-stone-50/80 px-4 py-1.5 border-b border-stone-100">
+                              <span className="text-[10px] font-bold text-stone-500 uppercase tracking-wider">
+                                {getRoleDisplayName(role)}
+                              </span>
+                            </div>
+                            <div className="divide-y divide-stone-50">
+                              {workers.map(worker => {
+                                const assignedOutputs = workerOutputs[worker.userId] || []
+                                const isChecked = assignedOutputs.length > 0
+                                const hasLainnya = assignedOutputs.includes('Lainnya')
+
+                                return (
+                                  <div key={worker.userId} className={`p-3 transition-all ${isChecked ? 'bg-violet-50/30' : 'bg-white'}`}>
+                                    {/* Worker row: checkbox + name + dropdown */}
+                                    <div className="flex items-center gap-3">
+                                      <Checkbox
+                                        checked={isChecked}
+                                        onCheckedChange={(checked) => {
+                                          if (!checked) {
+                                            // Uncheck: remove all outputs for this worker
+                                            setWorkerOutputs(prev => {
+                                              const { [worker.userId]: _, ...rest } = prev
+                                              return rest
+                                            })
+                                            setWorkerCustomOutput(prev => {
+                                              const { [worker.userId]: _, ...rest } = prev
+                                              return rest
+                                            })
+                                          }
+                                        }}
+                                      />
+                                      <div className="flex items-center gap-2 flex-1 min-w-0">
+                                        <div className="w-7 h-7 rounded-full bg-violet-100 text-violet-700 flex items-center justify-center text-[11px] font-bold shrink-0">
+                                          {worker.name.charAt(0).toUpperCase()}
+                                        </div>
+                                        <span className="text-xs font-semibold text-stone-700 truncate">{worker.name}</span>
+                                      </div>
+                                      {/* Add output dropdown */}
+                                      <Select
+                                        onValueChange={(value) => {
+                                          addWorkerOutput(worker.userId, value)
+                                        }}
+                                      >
+                                        <SelectTrigger className="w-[160px] h-8 text-xs">
+                                          <SelectValue placeholder="+ Tambah output..." />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                          {OPSI_OUTPUT.filter(o => !assignedOutputs.includes(o)).map(output => (
+                                            <SelectItem key={output} value={output} className="text-xs">
+                                              {output}
+                                            </SelectItem>
+                                          ))}
+                                        </SelectContent>
+                                      </Select>
+                                    </div>
+
+                                    {/* Assigned output badges */}
+                                    {assignedOutputs.length > 0 && (
+                                      <div className="mt-2 ml-9 flex flex-wrap gap-1.5">
+                                        {assignedOutputs.map(output => (
+                                          <Badge
+                                            key={output}
+                                            variant="secondary"
+                                            className="bg-indigo-50 text-indigo-700 border border-indigo-200 text-[10px] pr-1 gap-1"
+                                          >
+                                            {output}
+                                            <button
+                                              type="button"
+                                              onClick={() => removeWorkerOutput(worker.userId, output)}
+                                              className="ml-0.5 hover:text-red-500 transition-colors"
+                                            >
+                                              <X className="w-3 h-3" />
+                                            </button>
+                                          </Badge>
+                                        ))}
+                                      </div>
+                                    )}
+
+                                    {/* Custom "Lainnya" input */}
+                                    {hasLainnya && (
+                                      <div className="mt-2 ml-9">
+                                        <Input
+                                          placeholder="Keterangan output lainnya..."
+                                          value={workerCustomOutput[worker.userId] || ''}
+                                          onChange={e => setWorkerCustomOutput(prev => ({ ...prev, [worker.userId]: e.target.value }))}
+                                          className="h-7 text-xs"
+                                        />
+                                      </div>
+                                    )}
+                                  </div>
+                                )
+                              })}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+
+                  {/* Summary of all output needs aggregated */}
+                  {(() => {
+                    const allOutputs = new Set<string>()
+                    Object.values(workerOutputs).forEach(outputs => outputs.forEach(o => allOutputs.add(o)))
+                    if (allOutputs.size === 0) return null
+                    return (
+                      <div className="p-4 bg-violet-50/50 border border-violet-100 rounded-2xl">
+                        <p className="text-[10px] font-bold text-violet-600 uppercase tracking-wider mb-2">
+                          Ringkasan Kebutuhan Output
+                        </p>
+                        <div className="flex flex-wrap gap-1.5">
+                          {Array.from(allOutputs).map(output => (
+                            <Badge key={output} variant="outline" className="bg-white text-violet-700 border-violet-200 text-[10px]">
+                              {output}
+                            </Badge>
+                          ))}
+                        </div>
+                      </div>
+                    )
+                  })()}
+                </div>
+              )
+            })()}
           </div>
 
           {/* Folder Selection */}
