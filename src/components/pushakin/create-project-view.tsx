@@ -409,7 +409,9 @@ export function CreateProjectView() {
               projectTitle: title,
               folderTypes: selectedFolders,
               assignedUsers: assignedUsersData,
-              folderUserAccess: filteredFolderUserAccess
+              folderUserAccess: filteredFolderUserAccess,
+              workerOutputs,
+              workerCustomOutput
             })
           })
           
@@ -424,6 +426,28 @@ export function CreateProjectView() {
                 const isSub = f.folderId.includes('-') && !['raw', 'revised', 'final', 'desain', 'lainnya'].includes(f.folderId)
                 
                 if (isSub) {
+                  // Check if this is an output-type subfolder (pattern: raw-role-idx-output-outputIdx)
+                  const isOutputSub = f.folderId.includes('-output-')
+                  
+                  if (isOutputSub) {
+                    // Extract the parent user subfolder ID (everything before "-output-")
+                    const outputPrefix = f.folderId.substring(0, f.folderId.indexOf('-output-'))
+                    const parentType = ['raw', 'revised', 'final', 'desain', 'lainnya'].find(t => outputPrefix.startsWith(t + '-')) || ''
+                    
+                    return {
+                      folderId: f.folderId,
+                      name: f.name,
+                      desc: `Output ${f.name}`,
+                      color: 'text-stone-400',
+                      bg: 'bg-stone-50/50',
+                      border: 'border-stone-100',
+                      link: f.webViewLink,
+                      assignedRoles: assignedToFolder,
+                      assignedUsers: [],
+                      parentFolderId: outputPrefix
+                    }
+                  }
+                  
                   // Parse subfolder: extract parentType, role, userId from folderId
                   const parentType = ['raw', 'revised', 'final', 'desain', 'lainnya'].find(t => f.folderId.startsWith(t + '-')) || ''
                   const remaining = f.folderId.substring(parentType.length + 1)
@@ -677,6 +701,7 @@ export function CreateProjectView() {
     }
 
     // Helper to generate user subfolders ONLY for users with UL checked AND role in folderRoles
+    // Also creates output-type subfolders inside each user's folder (for RAW folder, based on workerOutputs)
     const generateSubfoldersForUpload = (parentFolderId: string) => {
       const folderAccess = folderUserAccess[parentFolderId] || {}
       const allowedRoles = folderRoles[parentFolderId] || []
@@ -703,9 +728,10 @@ export function CreateProjectView() {
           : assignedUser.name.substring(0, 2).toUpperCase()
       
         const subfolderName = `${userCode}_${assignedUser.name.replace(/\s+/g, '_')}_${roleName.replace(/\s*&\s*/g, '_')}`
+        const userSubfolderId = `${parentFolderId}-${roleName.toLowerCase().replace(/\s*&\s*/g, '-')}-${idx}`
         
         folders.push({
-          folderId: `${parentFolderId}-${roleName.toLowerCase().replace(/\s*&\s*/g, '-')}-${idx}`,
+          folderId: userSubfolderId,
           name: subfolderName,
           desc: `Subfolder untuk ${assignedUser.name} (${roleName})`,
           color: 'text-stone-500',
@@ -721,6 +747,36 @@ export function CreateProjectView() {
           }],
           parentFolderId: parentFolderId
         })
+
+        // For RAW folder: create output-type subfolders inside user's folder based on workerOutputs
+        if (parentFolderId === 'raw' && workerOutputs[userId] && workerOutputs[userId].length > 0) {
+          const userOutputs = workerOutputs[userId]
+          let outputIdx = 0
+          for (const outputType of userOutputs) {
+            const outputName = outputType === 'Lainnya' && workerCustomOutput[userId]
+              ? workerCustomOutput[userId]
+              : outputType
+            folders.push({
+              folderId: `${userSubfolderId}-output-${outputIdx}`,
+              name: outputName,
+              desc: `Output ${outputName} - ${assignedUser.name}`,
+              color: 'text-stone-400',
+              bg: 'bg-stone-50/50',
+              border: 'border-stone-100',
+              link: `https://drive.google.com/drive/folders/mock-${userSubfolderId}-output-${outputIdx}-${Date.now()}`,
+              assignedRoles: [roleName],
+              assignedUsers: [{
+                userId: assignedUser.id,
+                userName: assignedUser.name,
+                download: true,
+                upload: true
+              }],
+              parentFolderId: userSubfolderId
+            })
+            outputIdx++
+          }
+        }
+
         idx++
       }
     }

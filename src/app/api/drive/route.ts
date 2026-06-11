@@ -252,6 +252,40 @@ function generateUserCode(userName: string): string {
     : userName.substring(0, 2).toUpperCase()
 }
 
+// Create output-type subfolders inside a user's subfolder (for RAW folder)
+async function createOutputSubfolders(
+  drive: ReturnType<typeof google.drive>,
+  parentFolderId: string,
+  parentFolderType: string,
+  userSubfolderId: string,
+  userName: string,
+  outputTypes: string[],
+  customOutput: string | undefined,
+  sharedDriveId: string,
+  createdFolders: CreatedFolder[]
+): Promise<void> {
+  for (let i = 0; i < outputTypes.length; i++) {
+    const outputType = outputTypes[i]
+    const outputName = outputType === 'Lainnya' && customOutput
+      ? customOutput
+      : outputType
+    
+    const outputSubfolder = await createFolder(
+      drive,
+      outputName,
+      parentFolderId,
+      sharedDriveId
+    )
+    
+    createdFolders.push({
+      ...outputSubfolder,
+      folderId: `${userSubfolderId}-output-${i}`
+    })
+    
+    console.log(`[DRIVE] Created output subfolder "${outputName}" inside ${parentFolderType} for ${userName}`)
+  }
+}
+
 // Create user subfolders inside a parent folder
 async function createUserSubfolders(
   drive: ReturnType<typeof google.drive>,
@@ -259,7 +293,9 @@ async function createUserSubfolders(
   parentFolderType: string,
   users: AssignedUser[],
   sharedDriveId: string,
-  createdFolders: CreatedFolder[]
+  createdFolders: CreatedFolder[],
+  workerOutputs?: Record<string, string[]>,
+  workerCustomOutput?: Record<string, string>
 ): Promise<void> {
   for (const user of users) {
     const userCode = generateUserCode(user.userName)
@@ -272,12 +308,29 @@ async function createUserSubfolders(
       sharedDriveId
     )
     
+    const userSubfolderLogicalId = `${parentFolderType}-${user.role.toLowerCase().replace(/\s*&\s*/g, '-')}-${user.userId}`
+    
     createdFolders.push({
       ...userSubfolder,
-      folderId: `${parentFolderType}-${user.role.toLowerCase().replace(/\s*&\s*/g, '-')}-${user.userId}`
+      folderId: userSubfolderLogicalId
     })
     
     console.log(`[DRIVE] Created user subfolder "${subfolderName}" inside ${parentFolderType} for ${user.userName} (${user.role})`)
+
+    // For RAW folder: create output-type subfolders inside user's folder
+    if (parentFolderType === 'raw' && workerOutputs && workerOutputs[user.userId] && workerOutputs[user.userId].length > 0) {
+      await createOutputSubfolders(
+        drive,
+        userSubfolder.id,
+        parentFolderType,
+        userSubfolderLogicalId,
+        user.userName,
+        workerOutputs[user.userId],
+        workerCustomOutput?.[user.userId],
+        sharedDriveId,
+        createdFolders
+      )
+    }
   }
 }
 
@@ -288,11 +341,13 @@ export async function POST(request: NextRequest) {
   try {
     await ensureDbConnection()
     const body = await request.json()
-    const { projectTitle, folderTypes, assignedUsers, folderUserAccess } = body as {
+    const { projectTitle, folderTypes, assignedUsers, folderUserAccess, workerOutputs, workerCustomOutput } = body as {
       projectTitle: string
       folderTypes: string[]
       assignedUsers?: AssignedUser[] // ALL assigned users with stage info
       folderUserAccess?: Record<string, Record<string, { download: boolean; upload: boolean }>> // DL/UL per folder per user
+      workerOutputs?: Record<string, string[]> // userId → list of output types
+      workerCustomOutput?: Record<string, string> // userId → custom "Lainnya" text
     }
     
     // Get settings
@@ -402,7 +457,7 @@ export async function POST(request: NextRequest) {
 
       if (usersWithUpload.length > 0) {
         console.log(`[DRIVE] Creating subfolders in ${folderType} for UL-checked users:`, usersWithUpload.map(u => u.userName).join(', '))
-        await createUserSubfolders(drive, parentDriveId, folderType, usersWithUpload, settings.driveSharedDriveId, createdFolders)
+        await createUserSubfolders(drive, parentDriveId, folderType, usersWithUpload, settings.driveSharedDriveId, createdFolders, workerOutputs, workerCustomOutput)
       }
     }
     

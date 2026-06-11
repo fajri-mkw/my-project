@@ -427,18 +427,24 @@ export function ProjectDetailView() {
     return false
   })
 
-  // Separate parent folders and subfolders
+  // Separate parent folders and subfolders (including nested output subfolders)
   const parentFolders = visibleFolders.filter(f => !f.parentFolderId && !(['raw', 'revised', 'final', 'desain', 'lainnya'].some(b => f.folderId.startsWith(b + '-') && f.folderId.includes('-'))))
   const subfolders = visibleFolders.filter(f => f.parentFolderId || (f.folderId.includes('-') && ['raw', 'revised', 'final', 'desain', 'lainnya'].some(b => f.folderId.startsWith(b + '-'))))
   
-  // Get subfolders for a parent folder
+  // Get direct child subfolders for a given parent ID (supports 3-level hierarchy)
   const getSubfolders = (parentId: string) => {
-    // parentId is the logical type like "raw" — match by parentFolderId or folderId prefix
     return subfolders.filter(s => {
+      // Direct parent match (most reliable)
       if (s.parentFolderId === parentId) return true
-      if (s.folderId.startsWith(parentId + '-')) return true
+      // Legacy: folderId prefix match for top-level folders like "raw"
+      if (!s.parentFolderId && s.folderId.startsWith(parentId + '-') && !s.folderId.includes('-output-')) return true
       return false
     })
+  }
+  
+  // Check if a subfolder has nested output subfolders inside it
+  const getOutputSubfolders = (userSubfolderId: string) => {
+    return subfolders.filter(s => s.parentFolderId === userSubfolderId && s.folderId.includes('-output-'))
   }
 
   const visibleTasks = project.tasks.filter(t => 
@@ -880,27 +886,49 @@ export function ProjectDetailView() {
                           <div className="text-[9px] font-bold text-stone-500 uppercase tracking-wider mb-2">
                             Subfolder ({folderSubfolders.length})
                           </div>
-                          <div className="space-y-1.5 max-h-32 overflow-y-auto">
-                            {folderSubfolders.map(sub => (
-                              <div key={sub.id} className="flex items-center gap-2 p-2 bg-stone-50 rounded-lg border border-stone-100">
-                                <div className="p-1.5 rounded-md bg-white border border-stone-200">
-                                  <Folder className="w-3 h-3 text-stone-500" />
-                                </div>
-                                <div className="flex-1 overflow-hidden">
-                                  <div className="text-[10px] font-medium text-stone-700 truncate" title={sub.name}>
-                                    {sub.name}
+                          <div className="space-y-1.5 max-h-40 overflow-y-auto">
+                            {folderSubfolders.map(sub => {
+                              // Check if this user subfolder has output-type subfolders inside it
+                              const outputSubfolders = getOutputSubfolders(sub.folderId)
+                              return (
+                                <div key={sub.id} className="flex flex-col bg-stone-50 rounded-lg border border-stone-100 overflow-hidden">
+                                  <div className="flex items-center gap-2 p-2">
+                                    <div className="p-1.5 rounded-md bg-white border border-stone-200">
+                                      <Folder className="w-3 h-3 text-stone-500" />
+                                    </div>
+                                    <div className="flex-1 overflow-hidden">
+                                      <div className="text-[10px] font-medium text-stone-700 truncate" title={sub.name}>
+                                        {sub.name}
+                                      </div>
+                                      {sub.assignedRoles && sub.assignedRoles.length > 0 && (
+                                        <div className="text-[8px] text-stone-400 truncate">
+                                          {sub.assignedRoles.join(', ')}
+                                        </div>
+                                      )}
+                                    </div>
+                                    <div className="p-1 text-stone-300" title="Upload melalui Tugas Anda di bawah">
+                                      <Lock className="w-3 h-3" />
+                                    </div>
                                   </div>
-                                  {sub.assignedRoles && sub.assignedRoles.length > 0 && (
-                                    <div className="text-[8px] text-stone-400 truncate">
-                                      {sub.assignedRoles.join(', ')}
+                                  {/* Show output-type subfolders inside user folder */}
+                                  {outputSubfolders.length > 0 && (
+                                    <div className="px-2 pb-2 pt-1 border-t border-stone-100/50">
+                                      <div className="text-[8px] font-bold text-stone-400 uppercase tracking-wider mb-1">
+                                        Output ({outputSubfolders.length})
+                                      </div>
+                                      <div className="flex flex-wrap gap-1">
+                                        {outputSubfolders.map(outSub => (
+                                          <span key={outSub.id} className="inline-flex items-center gap-0.5 text-[8px] bg-white text-stone-600 px-1.5 py-0.5 rounded border border-stone-200 font-medium" title={outSub.name}>
+                                            <Folder className="w-2.5 h-2.5 text-stone-400" />
+                                            {outSub.name}
+                                          </span>
+                                        ))}
+                                      </div>
                                     </div>
                                   )}
                                 </div>
-                                <div className="p-1 text-stone-300" title="Upload melalui Tugas Anda di bawah">
-                                  <Lock className="w-3 h-3" />
-                                </div>
-                              </div>
-                            ))}
+                              )
+                            })}
                           </div>
                         </div>
                       )}
@@ -1563,7 +1591,14 @@ function TaskCard({
       return false
     })
 
-    if (mySubfolders.length > 0) return mySubfolders
+    if (mySubfolders.length > 0) {
+      // Also include output-type subfolders nested inside user's subfolders
+      const outputSubs = visibleFolders.filter(f => {
+        if (!f.parentFolderId || !f.folderId.includes('-output-')) return false
+        return mySubfolders.some(sf => f.parentFolderId === sf.folderId)
+      })
+      return [...mySubfolders, ...outputSubs]
+    }
 
     // 2. Fallback: HANYA parent folder yang manager centang UL untuk user ini
     return visibleFolders.filter(f => {
