@@ -87,6 +87,24 @@ function setupSchema() {
     console.error('[DB Setup] Failed to generate Prisma Client:', error.message);
     process.exit(1);
   }
+
+  // For PostgreSQL (Vercel/Neon): push schema changes to ensure DB is in sync
+  // This ensures new columns (like workerOutputs, workerCustomOutput) are created
+  // without data loss. SQLite uses db:push locally instead.
+  if (isPostgres) {
+    try {
+      console.log('[DB Setup] Pushing schema to PostgreSQL...');
+      execSync('npx prisma db push --accept-data-loss', {
+        stdio: 'pipe',
+        cwd: path.join(__dirname, '..'),
+        timeout: 30000
+      });
+      console.log('[DB Setup] PostgreSQL schema synced successfully');
+    } catch (error) {
+      console.error('[DB Setup] Warning: Failed to push schema to PostgreSQL:', error.message);
+      // Don't exit — the app may still work if schema is already up to date
+    }
+  }
 }
 
 setupSchema();
