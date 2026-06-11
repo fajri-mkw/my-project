@@ -47,6 +47,8 @@ model Project {
   customActivity  String?
   outputNeeds     String
   customOutput    String?
+  workerOutputs     String?  @default("{}")
+  workerCustomOutput String? @default("{}")
   currentStage      Int      @default(1)
   isFastTrack       Boolean  @default(false)
   isFastProduction  Boolean  @default(false)

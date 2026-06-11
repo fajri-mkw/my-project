@@ -1037,6 +1037,137 @@ export function ProjectDetailView() {
               </p>
             </div>
           </div>
+
+          {/* Petugas & Kebutuhan Output — Grouped by Stage */}
+          {(() => {
+            const workerOutputsMap: Record<string, string[]> = project.workerOutputs || {}
+            const workerCustomMap: Record<string, string> = project.workerCustomOutput || {}
+            
+            // Build a structured list: group tasks by stage, then show each worker + their outputs
+            const stagesToShow = [1, 2, 3, 4, 5]
+            const stageConfig: Record<number, { label: string; color: string; bg: string; border: string }> = {
+              1: { label: 'Tahap 1 — Produksi', color: 'text-violet-700', bg: 'bg-violet-50', border: 'border-violet-200' },
+              2: { label: 'Tahap 2 — Pasca Produksi', color: 'text-orange-700', bg: 'bg-orange-50', border: 'border-orange-200' },
+              3: { label: 'Tahap 3 — Finalisasi', color: 'text-cyan-700', bg: 'bg-cyan-50', border: 'border-cyan-200' },
+              4: { label: 'Tahap 4 — Review', color: 'text-amber-700', bg: 'bg-amber-50', border: 'border-amber-200' },
+              5: { label: 'Tahap 5 — Publikasi', color: 'text-green-700', bg: 'bg-green-50', border: 'border-green-200' },
+            }
+            
+            // Group tasks by stage
+            const tasksByStage = new Map<number, Array<{ task: Task; userName: string; outputs: string[]; customOutput: string }>>()
+            for (const stage of stagesToShow) {
+              const stageTasks = project.tasks.filter(t => t.stage === stage)
+              if (stageTasks.length === 0) continue
+              
+              const entries = stageTasks.map(t => {
+                const userDetails = getUserDetails(t.assignedTo)
+                const assigneeId = t.assignedTo || ''
+                const outputs = workerOutputsMap[assigneeId] || []
+                const customOutput = workerCustomMap[assigneeId] || ''
+                return { task: t, userName: userDetails.name || 'Unknown', outputs, customOutput }
+              })
+              tasksByStage.set(stage, entries)
+            }
+            
+            // Check if there's any data to show
+            const hasWorkerData = tasksByStage.size > 0 && (
+              Object.keys(workerOutputsMap).length > 0 || 
+              Array.from(tasksByStage.values()).some(entries => entries.length > 0)
+            )
+            
+            if (!hasWorkerData) return null
+            
+            // Count totals
+            const totalWorkers = project.tasks.filter(t => t.stage >= 1 && t.stage <= 5).length
+            const totalWithOutputs = Object.keys(workerOutputsMap).filter(uid => 
+              workerOutputsMap[uid] && workerOutputsMap[uid].length > 0
+            ).length
+            
+            return (
+              <div className="mt-6 pt-6 border-t border-stone-100">
+                <div className="flex items-center gap-2 mb-4">
+                  <Users className="w-4 h-4 text-violet-600" />
+                  <span className="text-sm font-bold text-stone-800">Petugas & Kebutuhan Output</span>
+                  <Badge variant="outline" className="text-[9px] font-bold text-violet-600 border-violet-200 bg-violet-50">
+                    {totalWorkers} Petugas{totalWithOutputs > 0 ? ` · ${totalWithOutputs} dengan output` : ''}
+                  </Badge>
+                </div>
+                <p className="text-[11px] text-stone-400 mb-4">
+                  Rangkuman penugasan petugas per tahap beserta kebutuhan output yang ditentukan manajer.
+                </p>
+                
+                <div className="space-y-3">
+                  {Array.from(tasksByStage.entries()).map(([stage, entries]) => {
+                    const config = stageConfig[stage] || stageConfig[1]
+                    return (
+                      <div key={stage} className={`rounded-xl border ${config.border} overflow-hidden`}>
+                        {/* Stage header */}
+                        <div className={`px-4 py-2 ${config.bg} border-b ${config.border}`}>
+                          <div className="flex items-center justify-between">
+                            <span className={`text-[10px] font-bold uppercase tracking-wider ${config.color}`}>
+                              {config.label}
+                            </span>
+                            <Badge variant="outline" className={`text-[9px] ${config.color} ${config.border} ${config.bg}`}>
+                              {entries.length} petugas
+                            </Badge>
+                          </div>
+                        </div>
+                        
+                        {/* Workers list */}
+                        <div className="divide-y divide-stone-50">
+                          {entries.map(({ task, userName, outputs, customOutput }) => (
+                            <div key={task.id} className="flex items-start gap-3 px-4 py-2.5">
+                              {/* Avatar */}
+                              <div className={`w-7 h-7 rounded-full ${config.bg} ${config.color} flex items-center justify-center text-[10px] font-bold shrink-0 mt-0.5`}>
+                                {userName.charAt(0).toUpperCase()}
+                              </div>
+                              
+                              {/* Name + Role */}
+                              <div className="flex-1 min-w-0">
+                                <div className="flex items-center gap-2">
+                                  <span className="text-xs font-semibold text-stone-800 truncate">{userName}</span>
+                                  <span className="text-[9px] font-medium text-stone-400">
+                                    {getRoleDisplayName(task.role)}
+                                  </span>
+                                  {task.status === 'completed' && (
+                                    <CheckCircle2 className="w-3 h-3 text-green-500 shrink-0" />
+                                  )}
+                                </div>
+                                
+                                {/* Output badges */}
+                                {outputs.length > 0 ? (
+                                  <div className="flex flex-wrap gap-1 mt-1.5">
+                                    {outputs.map(output => {
+                                      const displayOutput = output === 'Lainnya' && customOutput 
+                                        ? `Lainnya (${customOutput})` 
+                                        : output
+                                      return (
+                                        <Badge 
+                                          key={output} 
+                                          variant="secondary" 
+                                          className={`text-[9px] font-medium ${config.bg} ${config.color} border ${config.border} pr-1.5`}
+                                        >
+                                          {displayOutput}
+                                        </Badge>
+                                      )
+                                    })}
+                                  </div>
+                                ) : (
+                                  <span className="text-[10px] text-stone-300 italic mt-1 block">
+                                    Belum ada output ditentukan
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+            )
+          })()}
         </CardContent>
       </Card>
 

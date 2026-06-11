@@ -104,6 +104,8 @@ export interface Project {
   customActivity: string
   outputNeeds: string[]
   customOutput: string
+  workerOutputs: Record<string, string[]>
+  workerCustomOutput: Record<string, string>
   currentStage: number
   isFastTrack: boolean
   isFastProduction: boolean

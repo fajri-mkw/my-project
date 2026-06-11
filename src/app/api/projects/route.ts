@@ -59,6 +59,8 @@ export async function GET(request: NextRequest) {
       customActivity: p.customActivity || '',
       outputNeeds: JSON.parse(p.outputNeeds || '[]'),
       customOutput: p.customOutput || '',
+      workerOutputs: JSON.parse(p.workerOutputs || '{}'),
+      workerCustomOutput: JSON.parse(p.workerCustomOutput || '{}'),
       currentStage: p.currentStage,
       isFastTrack: p.isFastTrack,
       isFastProduction: p.isFastProduction,
@@ -106,7 +108,8 @@ export async function POST(request: NextRequest) {
     const {
       title, description, requesterUnit, location, executionTime,
       picName, picWhatsApp, activityTypes, customActivity,
-      outputNeeds, customOutput, managerId, tasks, driveFolders,
+      outputNeeds, customOutput, workerOutputs, workerCustomOutput,
+      managerId, tasks, driveFolders,
       isFastTrack, isFastProduction
     } = body
     
@@ -126,6 +129,8 @@ export async function POST(request: NextRequest) {
         customActivity: customActivity || null,
         outputNeeds: JSON.stringify(outputNeeds),
         customOutput: customOutput || null,
+        workerOutputs: JSON.stringify(workerOutputs || {}),
+        workerCustomOutput: JSON.stringify(workerCustomOutput || {}),
         currentStage: isFastTrack ? 5 : 1, // Fast Track: langsung ke tahap Publikasi (5)
         isFastTrack: isFastTrack || false,
         isFastProduction: isFastProduction || false,
