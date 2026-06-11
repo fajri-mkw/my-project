@@ -1564,6 +1564,7 @@ function TaskCard({
   }
 
   // Upload: tampilkan SUBFOLDER user sendiri (jika ada), atau PARENT FOLDER yang manager centang UL
+  // For stage 1 workers: direct output subfolders (raw-output-userId-idx) are shown instead of user-named subfolders
   const getUploadFolders = () => {
     const myUserId = currentUser?.id || ''
     const myRole = currentUser?.role || ''
@@ -1574,6 +1575,11 @@ function TaskCard({
       if (f.folderId.includes('-') && ['raw', 'revised', 'final', 'desain', 'lainnya'].some(b => f.folderId.startsWith(b + '-'))) return true
       if (/^[A-Z]{2}_/.test(f.name)) return true
       return false
+    }
+
+    const isDirectOutput = (f: DriveFolder) => {
+      // Match direct output subfolder pattern: raw-output-userId-idx
+      return /^(raw|revised|final|desain|lainnya)-output-(.+)-(\d+)$/.test(f.folderId)
     }
 
     const getParentType = (f: DriveFolder) => {
@@ -1591,6 +1597,23 @@ function TaskCard({
       return false
     })
 
+    // 2. Cari direct output subfolders untuk stage 1 workers (pattern: raw-output-userId-idx)
+    const myDirectOutputs = visibleFolders.filter(f => {
+      if (!isDirectOutput(f)) return false
+      // Match by assignedUsers userId
+      if (f.assignedUsers?.some((au: any) => au.userId === myUserId && au.upload)) return true
+      // Match by userId in folderId pattern
+      const match = f.folderId.match(/^(raw|revised|final|desain|lainnya)-output-(.+)-(\d+)$/)
+      if (match && match[2] === myUserId) return true
+      return false
+    })
+
+    // If we have direct output subfolders (stage 1 workers), use those as upload destinations
+    // Do NOT include user-named subfolders to avoid redundancy
+    if (myDirectOutputs.length > 0) {
+      return myDirectOutputs
+    }
+
     if (mySubfolders.length > 0) {
       // Also include output-type subfolders nested inside user's subfolders
       const outputSubs = visibleFolders.filter(f => {
@@ -1600,7 +1623,7 @@ function TaskCard({
       return [...mySubfolders, ...outputSubs]
     }
 
-    // 2. Fallback: HANYA parent folder yang manager centang UL untuk user ini
+    // 3. Fallback: HANYA parent folder yang manager centang UL untuk user ini
     return visibleFolders.filter(f => {
       if (isSub(f)) return false
       // Hanya centang UL dari manager yang menentukan

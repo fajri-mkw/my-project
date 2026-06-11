@@ -426,7 +426,34 @@ export function CreateProjectView() {
                 const isSub = f.folderId.includes('-') && !['raw', 'revised', 'final', 'desain', 'lainnya'].includes(f.folderId)
                 
                 if (isSub) {
-                  // Check if this is an output-type subfolder (pattern: raw-role-idx-output-outputIdx)
+                  // Check if this is a direct output subfolder for stage 1 workers (pattern: raw-output-userId-idx)
+                  // This is the new flattened structure where output folders are direct children of RAW
+                  const directOutputMatch = f.folderId.match(/^(raw|revised|final|desain|lainnya)-output-(.+)-(\d+)$/)
+                  if (directOutputMatch) {
+                    const parentType = directOutputMatch[1]
+                    const outputUserId = directOutputMatch[2]
+                    const matchedUser = users.find(u => u.id === outputUserId)
+                    
+                    return {
+                      folderId: f.folderId,
+                      name: f.name,
+                      desc: `Output - ${matchedUser?.name || outputUserId}`,
+                      color: 'text-stone-400',
+                      bg: 'bg-stone-50/50',
+                      border: 'border-stone-100',
+                      link: f.webViewLink,
+                      assignedRoles: matchedUser ? [matchedUser.role] : assignedToFolder,
+                      assignedUsers: matchedUser ? [{
+                        userId: matchedUser.id,
+                        userName: matchedUser.name,
+                        download: true,
+                        upload: true
+                      }] : [],
+                      parentFolderId: parentType
+                    }
+                  }
+                  
+                  // Check if this is a nested output-type subfolder (pattern: raw-role-idx-output-outputIdx)
                   const isOutputSub = f.folderId.includes('-output-')
                   
                   if (isOutputSub) {
@@ -701,7 +728,8 @@ export function CreateProjectView() {
     }
 
     // Helper to generate user subfolders ONLY for users with UL checked AND role in folderRoles
-    // Also creates output-type subfolders inside each user's folder (for RAW folder, based on workerOutputs)
+    // For stage 1 workers in RAW with output assignments: skip user subfolder, create output subfolders directly
+    // For other cases: create user subfolder, then output subfolders inside (for RAW folder, based on workerOutputs)
     const generateSubfoldersForUpload = (parentFolderId: string) => {
       const folderAccess = folderUserAccess[parentFolderId] || {}
       const allowedRoles = folderRoles[parentFolderId] || []
@@ -721,6 +749,7 @@ export function CreateProjectView() {
 
         const task = tasksData.find(t => t.assignedTo === userId)
         const roleName = task?.role || assignedUser.role
+        const userStage = task?.stage || 1
         
         const nameParts = assignedUser.name.split(' ')
         const userCode = nameParts.length >= 2 
@@ -729,6 +758,49 @@ export function CreateProjectView() {
       
         const subfolderName = `${userCode}_${assignedUser.name.replace(/\s+/g, '_')}_${roleName.replace(/\s*&\s*/g, '_')}`
         const userSubfolderId = `${parentFolderId}-${roleName.toLowerCase().replace(/\s*&\s*/g, '-')}-${idx}`
+
+        // Special case: Stage 1 workers in RAW folder with output assignments
+        // Skip creating the user-named subfolder and create output subfolders directly under RAW
+        // This avoids redundant upload destinations (the user folder AND the output folders)
+        const isStage1WithOutputs = userStage === 1
+          && parentFolderId === 'raw'
+          && workerOutputs[userId]
+          && workerOutputs[userId].length > 0
+
+        if (isStage1WithOutputs) {
+          // Create output subfolders directly under RAW (no intermediate user folder)
+          const userOutputs = workerOutputs[userId]
+          let outputIdx = 0
+          for (const outputType of userOutputs) {
+            const outputName = outputType === 'Lainnya' && workerCustomOutput[userId]
+              ? workerCustomOutput[userId]
+              : outputType
+            // Name format: AF_Ahmad_Fauzi_Reporter - Teks
+            const directOutputName = `${userCode}_${assignedUser.name.replace(/\s+/g, '_')}_${roleName.replace(/\s*&\s*/g, '_')} - ${outputName}`
+            // Flat folderId pattern: raw-output-userId-idx (direct child of RAW, no parent user subfolder)
+            const directOutputId = `${parentFolderId}-output-${userId}-${outputIdx}`
+            folders.push({
+              folderId: directOutputId,
+              name: directOutputName,
+              desc: `Output ${outputName} - ${assignedUser.name}`,
+              color: 'text-stone-400',
+              bg: 'bg-stone-50/50',
+              border: 'border-stone-100',
+              link: `https://drive.google.com/drive/folders/mock-${directOutputId}-${Date.now()}`,
+              assignedRoles: [roleName],
+              assignedUsers: [{
+                userId: assignedUser.id,
+                userName: assignedUser.name,
+                download: true,
+                upload: true
+              }],
+              parentFolderId: parentFolderId // Direct child of RAW, not of a user subfolder
+            })
+            outputIdx++
+          }
+          idx++
+          continue // Skip creating the user-named subfolder
+        }
         
         folders.push({
           folderId: userSubfolderId,
@@ -749,6 +821,7 @@ export function CreateProjectView() {
         })
 
         // For RAW folder: create output-type subfolders inside user's folder based on workerOutputs
+        // (only for non-stage-1 workers, since stage 1 with outputs was handled above)
         if (parentFolderId === 'raw' && workerOutputs[userId] && workerOutputs[userId].length > 0) {
           const userOutputs = workerOutputs[userId]
           let outputIdx = 0
