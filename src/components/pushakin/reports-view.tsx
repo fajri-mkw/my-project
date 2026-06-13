@@ -16,7 +16,9 @@ import {
   Loader2,
   Users,
   ExternalLink,
-  Globe
+  Globe,
+  CalendarDays,
+  X
 } from 'lucide-react'
 import { useState, useRef } from 'react'
 import jsPDF from 'jspdf'
@@ -60,6 +62,8 @@ const isPublisherRole = (role: string) => {
 export function ReportsView() {
   const { projects, users, selectedProjectId, setSelectedProjectId, suratList } = useAppStore()
   const [selectedUserId, setSelectedUserId] = useState<string>('all')
+  const [dateFrom, setDateFrom] = useState<string>('')
+  const [dateTo, setDateTo] = useState<string>('')
   const [isGeneratingPDF, setIsGeneratingPDF] = useState(false)
   const [isExportingExcel, setIsExportingExcel] = useState(false)
   const printRef = useRef<HTMLDivElement>(null)
@@ -96,14 +100,33 @@ export function ReportsView() {
     return { manager, docs: [...suratDocs, ...docs] }
   }
 
-  // Filter completed projects based on selected user (includes Manager via managerId)
+  // Filter completed projects based on selected user and date range
   const completedProjects = projects.filter(p => p.currentStage === 6)
-  const filteredProjects = selectedUserId === 'all' 
-    ? completedProjects 
-    : completedProjects.filter(p => {
-        // Match as task assignee OR as project manager
-        return p.tasks.some(t => t.assignedTo === selectedUserId) || p.managerId === selectedUserId
-      })
+  
+  const filteredProjects = completedProjects.filter(p => {
+    // User filter
+    if (selectedUserId !== 'all') {
+      const isUserMatch = p.tasks.some(t => t.assignedTo === selectedUserId) || p.managerId === selectedUserId
+      if (!isUserMatch) return false
+    }
+    // Date range filter (based on createdAt)
+    if (dateFrom) {
+      const projectDate = new Date(p.createdAt)
+      const from = new Date(dateFrom)
+      from.setHours(0, 0, 0, 0)
+      if (projectDate < from) return false
+    }
+    if (dateTo) {
+      const projectDate = new Date(p.createdAt)
+      const to = new Date(dateTo)
+      to.setHours(23, 59, 59, 999)
+      if (projectDate > to) return false
+    }
+    return true
+  })
+
+  const hasDateFilter = dateFrom || dateTo
+  const clearDateFilter = () => { setDateFrom(''); setDateTo('') }
 
   const formatDateTime = (dateString: string) => {
     if (!dateString) return '-'
@@ -1231,63 +1254,122 @@ export function ReportsView() {
       {/* Filter Section */}
       <Card>
         <CardContent className="p-6">
-          <div className="flex flex-wrap items-center gap-4">
-            <div className="flex items-center gap-2">
-              <Users className="w-5 h-5 text-stone-500" />
-              <span className="text-sm font-medium text-stone-700">Filter berdasarkan User:</span>
+          <div className="flex flex-col gap-4">
+            {/* Row 1: User filter + Date range filter */}
+            <div className="flex flex-wrap items-center gap-4">
+              <div className="flex items-center gap-2">
+                <Users className="w-5 h-5 text-stone-500" />
+                <span className="text-sm font-medium text-stone-700">User:</span>
+              </div>
+              <Select value={selectedUserId} onValueChange={setSelectedUserId}>
+                <SelectTrigger className="w-56">
+                  <SelectValue placeholder="Pilih user..." />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Semua User</SelectItem>
+                  {users.map(user => (
+                    <SelectItem key={user.id} value={user.id}>
+                      {user.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+
+              <div className="w-px h-8 bg-stone-200 hidden sm:block" />
+
+              <div className="flex items-center gap-2">
+                <CalendarDays className="w-5 h-5 text-stone-500" />
+                <span className="text-sm font-medium text-stone-700">Rentang Waktu:</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <input
+                  type="date"
+                  value={dateFrom}
+                  onChange={e => setDateFrom(e.target.value)}
+                  className="h-9 rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                  placeholder="Dari"
+                />
+                <span className="text-sm text-stone-400">—</span>
+                <input
+                  type="date"
+                  value={dateTo}
+                  onChange={e => setDateTo(e.target.value)}
+                  className="h-9 rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                  placeholder="Sampai"
+                />
+                {hasDateFilter && (
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-8 w-8 text-stone-400 hover:text-red-500"
+                    onClick={clearDateFilter}
+                    title="Hapus filter tanggal"
+                  >
+                    <X className="w-4 h-4" />
+                  </Button>
+                )}
+              </div>
             </div>
-            <Select value={selectedUserId} onValueChange={setSelectedUserId}>
-              <SelectTrigger className="w-64">
-                <SelectValue placeholder="Pilih user..." />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">Semua User</SelectItem>
-                {users.map(user => (
-                  <SelectItem key={user.id} value={user.id}>
-                    {user.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            
-            <div className="flex-1" />
-            
-            <div className="flex gap-3">
-              <Button
-                variant="outline"
-                onClick={handleExportAllToExcel}
-                disabled={isExportingExcel || filteredProjects.length === 0}
-                className="gap-2 bg-green-50 text-green-700 hover:bg-green-100 border-green-200"
-              >
-                {isExportingExcel ? (
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                ) : (
-                  <FileSpreadsheet className="w-4 h-4" />
+
+            {/* Row 2: Export buttons + filter status */}
+            <div className="flex flex-wrap items-center justify-between gap-4">
+              <div className="flex flex-wrap items-center gap-3">
+                {(selectedUserId !== 'all' || hasDateFilter) && (
+                  <div className="flex flex-wrap items-center gap-2">
+                    {selectedUserId !== 'all' && (
+                      <Badge variant="secondary" className="gap-1.5 px-3 py-1 text-xs font-medium">
+                        <Users className="w-3 h-3" />
+                        {users.find(u => u.id === selectedUserId)?.name}
+                      </Badge>
+                    )}
+                    {dateFrom && (
+                      <Badge variant="secondary" className="gap-1.5 px-3 py-1 text-xs font-medium">
+                        <CalendarDays className="w-3 h-3" />
+                        Dari {new Date(dateFrom).toLocaleDateString('id-ID')}
+                      </Badge>
+                    )}
+                    {dateTo && (
+                      <Badge variant="secondary" className="gap-1.5 px-3 py-1 text-xs font-medium">
+                        <CalendarDays className="w-3 h-3" />
+                        Sampai {new Date(dateTo).toLocaleDateString('id-ID')}
+                      </Badge>
+                    )}
+                    <span className="text-sm text-stone-500">
+                      → <strong>{filteredProjects.length}</strong> proyek ditemukan
+                    </span>
+                  </div>
                 )}
-                <span>{isExportingExcel ? 'Mengekspor...' : 'Export Excel'}</span>
-              </Button>
-              <Button
-                onClick={handleExportAllToPDF}
-                disabled={isGeneratingPDF || filteredProjects.length === 0}
-                className="gap-2 bg-gradient-to-r from-violet-600 to-purple-600 hover:from-violet-700 hover:to-purple-700 shadow-md shadow-violet-500/20"
-              >
-                {isGeneratingPDF ? (
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                ) : (
-                  <Printer className="w-4 h-4" />
-                )}
-                <span>{isGeneratingPDF ? 'Membuat PDF...' : 'Export PDF'}</span>
-              </Button>
+              </div>
+              
+              <div className="flex gap-3">
+                <Button
+                  variant="outline"
+                  onClick={handleExportAllToExcel}
+                  disabled={isExportingExcel || filteredProjects.length === 0}
+                  className="gap-2 bg-green-50 text-green-700 hover:bg-green-100 border-green-200"
+                >
+                  {isExportingExcel ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <FileSpreadsheet className="w-4 h-4" />
+                  )}
+                  <span>{isExportingExcel ? 'Mengekspor...' : 'Export Excel'}</span>
+                </Button>
+                <Button
+                  onClick={handleExportAllToPDF}
+                  disabled={isGeneratingPDF || filteredProjects.length === 0}
+                  className="gap-2 bg-gradient-to-r from-violet-600 to-purple-600 hover:from-violet-700 hover:to-purple-700 shadow-md shadow-violet-500/20"
+                >
+                  {isGeneratingPDF ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <Printer className="w-4 h-4" />
+                  )}
+                  <span>{isGeneratingPDF ? 'Membuat PDF...' : 'Export PDF'}</span>
+                </Button>
+              </div>
             </div>
           </div>
-          
-          {selectedUserId !== 'all' && (
-            <div className="mt-4 pt-4 border-t border-stone-200">
-              <p className="text-sm text-stone-600">
-                Menampilkan <strong>{filteredProjects.length}</strong> proyek yang dikerjakan oleh <strong>{users.find(u => u.id === selectedUserId)?.name}</strong>
-              </p>
-            </div>
-          )}
         </CardContent>
       </Card>
 
