@@ -30,7 +30,8 @@ import {
   Rocket,
   ArrowRight,
   Users,
-  UserCheck
+  UserCheck,
+  CircleCheckBig
 } from 'lucide-react'
 import { useState } from 'react'
 import { cn } from '@/lib/utils'
@@ -54,7 +55,7 @@ function getStageGradient(stage: number) {
 export function DashboardView() {
   const { currentUser, projects, users, setActiveView, setSelectedProjectId, deleteProject, showAlert, showConfirm, suratList, permohonanList } = useAppStore()
   const [viewMode, setViewMode] = useState<'grid' | 'table'>('grid')
-  const [projectFilter, setProjectFilter] = useState<'all' | 'mine'>('all')
+  const [projectFilter, setProjectFilter] = useState<'all' | 'mine' | 'completed'>('all')
   
   const canManageProject = currentUser ? ['Manager', 'Admin'].includes(currentUser.role) : false
   const isManager = currentUser?.role === 'Manager'
@@ -73,12 +74,17 @@ export function DashboardView() {
       ).length
     : 0
 
+  // Compute completed projects count
+  const completedProjectsCount = projects.filter(p => p.currentStage === 6).length
+
   // Filter projects based on selected filter
   const visibleProjects = projectFilter === 'mine' && currentUser
     ? projects.filter(p => 
         p.tasks.some(t => t.assignedTo === currentUser.id) || 
         p.managerId === currentUser.id
       )
+    : projectFilter === 'completed'
+    ? projects.filter(p => p.currentStage === 6)
     : projects
 
   const handleDeleteProject = (projectId: string) => {
@@ -205,16 +211,16 @@ export function DashboardView() {
               variant={projectFilter === 'all' ? 'default' : 'ghost'}
               size="sm"
               onClick={() => setProjectFilter('all')}
-              className={cn("gap-2", projectFilter === 'all' && "bg-gradient-to-r from-slate-700 to-slate-800 hover:from-slate-800 hover:to-slate-900")}
+              className={cn("gap-1.5", projectFilter === 'all' && "bg-gradient-to-r from-slate-700 to-slate-800 hover:from-slate-800 hover:to-slate-900")}
             >
               <Users className="w-4 h-4" />
-              <span className="hidden sm:inline">Semua Proyek</span>
+              <span className="hidden sm:inline">Semua</span>
             </Button>
             <Button
               variant={projectFilter === 'mine' ? 'default' : 'ghost'}
               size="sm"
               onClick={() => setProjectFilter('mine')}
-              className={cn("gap-2", projectFilter === 'mine' && "bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700")}
+              className={cn("gap-1.5", projectFilter === 'mine' && "bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700")}
             >
               <UserCheck className="w-4 h-4" />
               <span className="hidden sm:inline">Tugas Saya</span>
@@ -223,6 +229,21 @@ export function DashboardView() {
                 projectFilter === 'mine' ? "bg-white/25 text-white" : "bg-emerald-100 text-emerald-700"
               )}>
                 {myProjectsCount}
+              </span>
+            </Button>
+            <Button
+              variant={projectFilter === 'completed' ? 'default' : 'ghost'}
+              size="sm"
+              onClick={() => setProjectFilter('completed')}
+              className={cn("gap-1.5", projectFilter === 'completed' && "bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-700 hover:to-emerald-700")}
+            >
+              <CircleCheckBig className="w-4 h-4" />
+              <span className="hidden sm:inline">Selesai</span>
+              <span className={cn(
+                "text-[10px] font-bold px-1.5 py-0.5 rounded-full min-w-[18px] text-center",
+                projectFilter === 'completed' ? "bg-white/25 text-white" : "bg-green-100 text-green-700"
+              )}>
+                {completedProjectsCount}
               </span>
             </Button>
           </div>
@@ -245,16 +266,18 @@ export function DashboardView() {
           <CardContent className="pt-6">
             <FolderKanban className="w-16 h-16 text-slate-300 mx-auto mb-4" />
             <h3 className="text-xl font-semibold text-slate-800 mb-2">
-              {projectFilter === 'mine' ? 'Tidak ada tugas untuk Anda' : 'Belum ada proyek'}
+              {projectFilter === 'mine' ? 'Tidak ada tugas untuk Anda' : projectFilter === 'completed' ? 'Belum ada proyek selesai' : 'Belum ada proyek'}
             </h3>
             <p className="text-slate-500">
               {projectFilter === 'mine'
                 ? 'Saat ini tidak ada proyek yang ditugaskan kepada Anda. Coba lihat semua proyek.'
+                : projectFilter === 'completed'
+                ? 'Belum ada proyek yang telah selesai semua tahapannya.'
                 : canManageProject
                   ? 'Mulai dengan membuat proyek perencanaan baru.'
                   : 'Belum ada tugas yang ditugaskan kepada Anda.'}
             </p>
-            {projectFilter === 'mine' && (
+            {(projectFilter === 'mine' || projectFilter === 'completed') && (
               <Button
                 variant="outline"
                 size="sm"
