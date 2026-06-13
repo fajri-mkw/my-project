@@ -7,7 +7,7 @@ import { Label } from '@/components/ui/label'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { useAppStore, ROLE_DISPLAY_NAMES, Role } from '@/lib/store'
-import { PlayCircle, Mail, Lock, Loader2, Eye, EyeOff, AlertCircle, RefreshCw, Shield, Users, ChevronDown, UserCircle } from 'lucide-react'
+import { PlayCircle, Mail, Lock, Loader2, Eye, EyeOff, AlertCircle, RefreshCw, Users, ChevronDown, UserCircle } from 'lucide-react'
 import { useState, useEffect, useMemo } from 'react'
 
 interface LoginViewProps {
@@ -84,12 +84,6 @@ export function LoginView({ onSeed, isSeeding, seedError }: LoginViewProps) {
       if (user) setEmail(user.email)
     }
   }, [selectedUserId, allUsers, loginMode])
-
-  // Get unique roles from allUsers
-  const availableRoles = useMemo(() => {
-    const roles = [...new Set(allUsers.map(u => u.role))]
-    return roles.sort()
-  }, [allUsers])
 
   // Group users by role category for display
   const groupedUsers = useMemo(() => {
@@ -557,7 +551,7 @@ export function LoginView({ onSeed, isSeeding, seedError }: LoginViewProps) {
                 onClick={() => setLoginMode('quick')}
               >
                 <Users className="w-4 h-4" />
-                Pilih Peran
+                Pilih Akun
               </button>
               <button
                 type="button"
@@ -566,7 +560,7 @@ export function LoginView({ onSeed, isSeeding, seedError }: LoginViewProps) {
                     ? 'bg-gradient-to-r from-violet-600 to-purple-600 text-white shadow-sm' 
                     : 'text-slate-600 hover:bg-slate-100'
                 }`}
-                onClick={() => { setLoginMode('manual'); setSelectedUserId(''); setSelectedRole('all'); }}
+                onClick={() => { setLoginMode('manual'); setSelectedUserId(''); }}
               >
                 <Mail className="w-4 h-4" />
                 Input Email
@@ -575,35 +569,6 @@ export function LoginView({ onSeed, isSeeding, seedError }: LoginViewProps) {
 
             {loginMode === 'quick' ? (
               <>
-                {/* Role Selector */}
-                <div className="space-y-2">
-                  <Label className="flex items-center gap-2">
-                    <Shield className="w-4 h-4 text-violet-500" />
-                    Pilih Peran (Role)
-                  </Label>
-                  <Select value={selectedRole} onValueChange={(v) => { setSelectedRole(v); setSelectedUserId(''); }}>
-                    <SelectTrigger className="w-full">
-                      <SelectValue placeholder="Semua Peran" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="all">Semua Peran</SelectItem>
-                      {Object.entries(ROLE_CATEGORIES).map(([key, cat]) => {
-                        const hasUsersInCat = cat.roles.some(r => availableRoles.includes(r))
-                        if (!hasUsersInCat) return null
-                        return (
-                          <SelectItem key={key} value={`__cat_${key}`}>
-                            <span className="font-semibold">{cat.label}</span>
-                          </SelectItem>
-                        )
-                      }).filter(Boolean).length > 0 && availableRoles.map(role => (
-                        <SelectItem key={role} value={role}>
-                          {ROLE_DISPLAY_NAMES[role as Role] || role}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-
                 {/* User Selector */}
                 <div className="space-y-2">
                   <Label className="flex items-center gap-2">
@@ -612,7 +577,7 @@ export function LoginView({ onSeed, isSeeding, seedError }: LoginViewProps) {
                   </Label>
                   <Select value={selectedUserId} onValueChange={setSelectedUserId}>
                     <SelectTrigger className="w-full">
-                      <SelectValue placeholder={filteredUsers.length === 0 ? 'Tidak ada user untuk peran ini' : 'Pilih nama Anda...'} />
+                      <SelectValue placeholder={allUsers.length === 0 ? 'Tidak ada user' : 'Pilih nama Anda...'} />
                     </SelectTrigger>
                     <SelectContent>
                       {groupedUsers.length === 0 ? (
