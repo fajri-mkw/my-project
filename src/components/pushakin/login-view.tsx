@@ -74,15 +74,8 @@ export function LoginView({ onSeed, isSeeding, seedError }: LoginViewProps) {
   
   // Role-based login
   const [allUsers, setAllUsers] = useState<LoginUser[]>([])
-  const [selectedRole, setSelectedRole] = useState<string>('all')
   const [selectedUserId, setSelectedUserId] = useState<string>('')
   const [loginMode, setLoginMode] = useState<'quick' | 'manual'>('quick')
-
-  // Filter users by selected role
-  const filteredUsers = useMemo(() => {
-    if (selectedRole === 'all') return allUsers
-    return allUsers.filter(u => u.role === selectedRole)
-  }, [allUsers, selectedRole])
 
   // When a user is selected from dropdown, auto-fill email
   useEffect(() => {
@@ -102,19 +95,19 @@ export function LoginView({ onSeed, isSeeding, seedError }: LoginViewProps) {
   const groupedUsers = useMemo(() => {
     const groups: { categoryKey: string; categoryLabel: string; users: LoginUser[] }[] = []
     for (const [key, cat] of Object.entries(ROLE_CATEGORIES)) {
-      const catUsers = filteredUsers.filter(u => cat.roles.includes(u.role))
+      const catUsers = allUsers.filter(u => cat.roles.includes(u.role))
       if (catUsers.length > 0) {
         groups.push({ categoryKey: key, categoryLabel: cat.label, users: catUsers })
       }
     }
     // Add any uncategorized roles
     const allCategorizedRoles = Object.values(ROLE_CATEGORIES).flatMap(c => c.roles)
-    const uncategorized = filteredUsers.filter(u => !allCategorizedRoles.includes(u.role))
+    const uncategorized = allUsers.filter(u => !allCategorizedRoles.includes(u.role))
     if (uncategorized.length > 0) {
       groups.push({ categoryKey: 'other', categoryLabel: 'Lainnya', users: uncategorized })
     }
     return groups
-  }, [filteredUsers])
+  }, [allUsers])
 
   // Load saved credentials on mount
   useEffect(() => {
