@@ -1,7 +1,6 @@
 'use client'
 
 import { Badge } from '@/components/ui/badge'
-import { Progress } from '@/components/ui/progress'
 import { useAppStore, STAGES } from '@/lib/store'
 import { 
   CheckCircle2,
@@ -642,53 +641,98 @@ export function PublicTrackerView({ onBack }: PublicTrackerViewProps) {
                           )}>{percentage}%</div>
                         </div>
 
-                        {/* ── Step Flow ────────────────────────────────── */}
-                        {/* Mobile: 2x2 grid layout for stages */}
-                        <div className="px-2 sm:px-2.5 py-1.5 sm:py-2 border-b border-slate-700/50 shrink-0">
-                          {/* Mobile: 2x2 grid */}
-                          <div className="grid grid-cols-2 gap-1.5 sm:hidden">
+                        {/* ── Unified Pipeline + Workers ────────────────── */}
+                        <div className="flex-1 px-2 sm:px-2.5 py-1.5 sm:py-2 overflow-hidden flex flex-col">
+                          {/* Mobile: vertical stage list with workers */}
+                          <div className="flex flex-col gap-1.5 sm:hidden overflow-y-auto flex-1">
                             {[1, 2, 3, 4, 5].map((stage) => {
                               const colors = getStageColors(stage)
                               const isStageCompleted = stage < project.currentStage
                               const isCurrent = stage === project.currentStage
+                              const isPending = stage > project.currentStage
                               const progress = stageProgress[stage]
                               const stagePercent = progress.total > 0 
                                 ? Math.round((progress.completed / progress.total) * 100) 
                                 : 0
-                              const hasTasks = progress.total > 0
+                              const members = teamByStage[stage]
                               
                               return (
                                 <div 
                                   key={stage}
                                   className={cn(
-                                    "flex items-center gap-2 rounded-lg px-2 py-1.5 border min-h-[40px]",
+                                    "flex items-start gap-2 rounded-lg px-2 py-1.5 border shrink-0",
                                     isStageCompleted ? "bg-green-900/20 border-green-800/50" :
                                     isCurrent ? cn(colors.bg, "/20 border", colors.border, "/40") :
-                                    hasTasks ? "bg-slate-700/20 border-slate-700/50" :
                                     "bg-slate-800/50 border-slate-700/30"
                                   )}
                                 >
+                                  {/* Circle */}
                                   <div className={cn(
-                                    "w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold border shrink-0",
+                                    "w-7 h-7 rounded-full flex items-center justify-center text-[11px] font-bold border shrink-0",
                                     isStageCompleted ? "bg-green-500 border-green-400 text-white" :
                                     isCurrent ? cn(colors.bg, "border-white/40 text-white shadow-md") :
-                                    !hasTasks ? "bg-slate-800 border-slate-700 text-slate-600" :
-                                    "bg-slate-700 border-slate-600 text-slate-400"
+                                    "bg-slate-800 border-slate-700 text-slate-500"
                                   )}>
-                                    {isStageCompleted ? <CheckCircle2 className="w-3.5 h-3.5" /> : stage}
+                                    {isStageCompleted ? <CheckCircle2 className="w-4 h-4" /> : stage}
                                   </div>
-                                  <div className="min-w-0 flex-1">
-                                    <div className={cn(
-                                      "text-[11px] font-semibold truncate leading-tight",
-                                      isStageCompleted ? "text-green-400" : isCurrent ? "text-white" : "text-slate-500"
-                                    )}>
-                                      {STAGES[stage]}
+                                  {/* Stage Info + Workers */}
+                                  <div className="flex-1 min-w-0">
+                                    <div className="flex items-center justify-between">
+                                      <span className={cn(
+                                        "text-[11px] font-semibold truncate",
+                                        isStageCompleted ? "text-green-400" : isCurrent ? "text-white" : "text-slate-500"
+                                      )}>
+                                        {STAGES[stage]}
+                                      </span>
+                                      <span className={cn(
+                                        "text-[10px] font-bold ml-1 shrink-0",
+                                        isStageCompleted ? "text-green-400" : isCurrent ? "text-white" : "text-slate-600"
+                                      )}>
+                                        {stagePercent}%
+                                      </span>
                                     </div>
-                                    <div className={cn(
-                                      "text-xs font-bold leading-tight",
-                                      isStageCompleted ? "text-green-400" : isCurrent ? "text-white" : "text-slate-600"
-                                    )}>
-                                      {hasTasks ? `${stagePercent}%` : '-'}
+                                    {/* Workers */}
+                                    <div className="mt-1 space-y-0.5">
+                                      {members.length === 0 ? (
+                                        <div className="text-[10px] text-slate-600 py-0.5">—</div>
+                                      ) : (
+                                        members.slice(0, 3).map((member, midx) => {
+                                          const isTaskCompleted = member.status === 'completed'
+                                          return (
+                                            <div key={midx} className="flex items-center gap-1.5 min-h-[22px]">
+                                              {/* Mini Avatar */}
+                                              {member.avatar ? (
+                                                <img 
+                                                  src={member.avatar} 
+                                                  alt={member.name}
+                                                  className="w-4 h-4 rounded-full object-cover border border-white/20 shrink-0" 
+                                                />
+                                              ) : (
+                                                <div className={cn(
+                                                  "w-4 h-4 rounded-full flex items-center justify-center text-[7px] font-bold text-white shrink-0",
+                                                  isTaskCompleted ? "bg-green-500" : isPending ? "bg-slate-700" : colors.bg
+                                                )}>
+                                                  {member.name.charAt(0)}
+                                                </div>
+                                              )}
+                                              <span className={cn(
+                                                "text-[10px] truncate flex-1",
+                                                isTaskCompleted ? "text-green-300" : isPending ? "text-slate-500" : "text-slate-300"
+                                              )}>
+                                                {member.name.split(' ').slice(0, 2).join(' ')}
+                                              </span>
+                                              {isTaskCompleted ? (
+                                                <CheckCircle2 className="w-3 h-3 text-green-400 shrink-0" />
+                                              ) : !isPending ? (
+                                                <Clock className="w-3 h-3 text-amber-400 shrink-0" />
+                                              ) : null}
+                                            </div>
+                                          )
+                                        })
+                                      )}
+                                      {members.length > 3 && (
+                                        <div className="text-[9px] text-slate-500 text-center">+{members.length - 3} lainnya</div>
+                                      )}
                                     </div>
                                   </div>
                                 </div>
@@ -696,197 +740,109 @@ export function PublicTrackerView({ onBack }: PublicTrackerViewProps) {
                             })}
                           </div>
 
-                          {/* Desktop/Tablet: horizontal flow */}
-                          <div className="hidden sm:flex items-center justify-between gap-0">
+                          {/* Desktop/Tablet: horizontal pipeline with workers below each stage */}
+                          <div className="hidden sm:flex items-start justify-between gap-0 flex-1 min-h-0">
                             {[1, 2, 3, 4, 5].map((stage, idx) => {
                               const colors = getStageColors(stage)
                               const isStageCompleted = stage < project.currentStage
                               const isCurrent = stage === project.currentStage
+                              const isPending = stage > project.currentStage
                               const progress = stageProgress[stage]
                               const stagePercent = progress.total > 0 
                                 ? Math.round((progress.completed / progress.total) * 100) 
                                 : 0
-                              const hasTasks = progress.total > 0
+                              const members = teamByStage[stage]
                               
                               return (
-                                <div key={stage} className="flex items-center flex-1 min-w-0">
-                                  <div className="flex items-center gap-0.5 flex-1">
+                                <div key={stage} className="flex items-start flex-1 min-w-0">
+                                  {/* Stage Column */}
+                                  <div className="flex flex-col items-center flex-1 min-w-0">
+                                    {/* Circle */}
                                     <div className={cn(
                                       "w-5 h-5 rounded-full flex items-center justify-center text-[9px] font-bold border shrink-0",
                                       isStageCompleted ? "bg-green-500 border-green-400 text-white" :
                                       isCurrent ? cn(colors.bg, "border-white/40 text-white shadow-md") :
-                                      !hasTasks ? "bg-slate-800 border-slate-700 text-slate-600" :
-                                      "bg-slate-700 border-slate-600 text-slate-400"
+                                      "bg-slate-800 border-slate-700 text-slate-500"
                                     )}>
                                       {isStageCompleted ? <CheckCircle2 className="w-3 h-3" /> : stage}
                                     </div>
-                                    <div className="min-w-0 flex-1">
+                                    {/* Stage Label */}
+                                    <div className="mt-0.5 text-center">
                                       <div className={cn(
-                                        "text-[8px] lg:text-[9px] font-semibold truncate leading-tight",
+                                        "text-[7px] lg:text-[8px] font-semibold leading-tight truncate max-w-[60px] lg:max-w-[80px]",
                                         isStageCompleted ? "text-green-400" : isCurrent ? "text-white" : "text-slate-500"
                                       )}>
                                         {STAGES[stage]}
                                       </div>
                                       <div className={cn(
-                                        "text-[9px] font-bold leading-tight",
+                                        "text-[8px] lg:text-[9px] font-bold leading-tight",
                                         isStageCompleted ? "text-green-400" : isCurrent ? "text-white" : "text-slate-600"
                                       )}>
-                                        {hasTasks ? `${stagePercent}%` : '-'}
+                                        {stagePercent}%
                                       </div>
                                     </div>
-                                  </div>
-                                  
-                                  {idx < 3 && (
-                                    <div className={cn(
-                                      "h-[2px] mx-0.5 rounded-full shrink-0",
-                                      isStageCompleted ? "bg-green-500 w-2" : "bg-slate-700 w-2"
-                                    )}></div>
-                                  )}
-                                </div>
-                              )
-                            })}
-                          </div>
-                        </div>
-
-                        {/* ── Team Section ────────────────────────────── */}
-                        <div className="flex-1 px-2 sm:px-2.5 py-1 sm:py-1.5 overflow-hidden">
-                          {/* Mobile: simple list (single column) */}
-                          <div className="flex flex-col gap-1 sm:hidden h-full overflow-y-auto">
-                            {[1, 2, 3, 4, 5].map((stage) => {
-                              const members = teamByStage[stage]
-                              const progress = stageProgress[stage]
-                              const isStageCompleted = stage < project.currentStage
-                              const isCurrent = stage === project.currentStage
-                              const hasTasks = progress.total > 0
-                              
-                              return (
-                                <div 
-                                  key={stage}
-                                  className={cn(
-                                    "rounded-lg px-2 py-1.5 flex flex-col min-h-0 border shrink-0",
-                                    isStageCompleted ? "bg-green-900/20 border-green-800/50" :
-                                    isCurrent ? cn(getStageColors(stage).bg, "/20 border", getStageColors(stage).border, "/40") :
-                                    hasTasks ? "bg-slate-700/20 border-slate-700/50" :
-                                    "bg-transparent border-transparent"
-                                  )}
-                                >
-                                  <div className="flex items-center justify-between mb-1">
-                                    <span className={cn(
-                                      "text-[11px] font-bold uppercase tracking-wider",
-                                      isStageCompleted ? "text-green-400" : isCurrent ? "text-white" : "text-slate-500"
-                                    )}>
-                                      {STAGES[stage]}
-                                    </span>
-                                    {hasTasks && (
-                                      <span className={cn(
-                                        "text-[10px] font-bold",
-                                        isStageCompleted ? "text-green-400" : isCurrent ? "text-white" : "text-slate-500"
-                                      )}>
-                                        {progress.completed}/{progress.total}
-                                      </span>
-                                    )}
-                                  </div>
-                                  {members.length === 0 ? (
-                                    <div className="text-[10px] text-slate-600 py-0.5">Belum ada tim</div>
-                                  ) : (
-                                    <div className="space-y-1">
-                                      {members.slice(0, 4).map((member, idx) => {
-                                        const isTaskCompleted = member.status === 'completed'
-                                        return (
-                                          <div key={idx} className="flex items-center gap-1.5 min-h-[28px]">
-                                            <div className={cn(
-                                              "w-5 h-5 rounded-full flex items-center justify-center text-[9px] font-bold text-white shrink-0",
-                                              isTaskCompleted ? "bg-green-500" : "bg-slate-600"
-                                            )}>
-                                              {member.name.charAt(0)}
-                                            </div>
-                                            <span className={cn(
-                                              "text-[11px] truncate flex-1",
-                                              isTaskCompleted ? "text-green-300" : "text-slate-300"
-                                            )}>
-                                              {member.name.split(' ').slice(0, 2).join(' ')}
-                                            </span>
-                                            {isTaskCompleted ? (
-                                              <CheckCircle2 className="w-3.5 h-3.5 text-green-400 shrink-0" />
-                                            ) : (
-                                              <Clock className="w-3.5 h-3.5 text-slate-500 shrink-0" />
-                                            )}
-                                          </div>
-                                        )
-                                      })}
-                                      {members.length > 4 && (
-                                        <div className="text-[10px] text-slate-500 text-center py-0.5">+{members.length - 4} lainnya</div>
-                                      )}
-                                    </div>
-                                  )}
-                                  {hasTasks && (
-                                    <Progress 
-                                      value={progress.total > 0 ? Math.round((progress.completed / progress.total) * 100) : 0} 
-                                      className="h-1 mt-1.5 bg-slate-700 [&>div]:bg-white/70 shrink-0" 
-                                    />
-                                  )}
-                                </div>
-                              )
-                            })}
-                          </div>
-
-                          {/* Desktop/Tablet: 2x2 grid */}
-                          <div className="hidden sm:grid grid-cols-2 gap-x-2 gap-y-0.5 h-full">
-                            {[1, 2, 3, 4, 5].map((stage) => {
-                              const members = teamByStage[stage]
-                              const progress = stageProgress[stage]
-                              const isStageCompleted = stage < project.currentStage
-                              const isCurrent = stage === project.currentStage
-                              const hasTasks = progress.total > 0
-                              
-                              return (
-                                <div 
-                                  key={stage}
-                                  className={cn(
-                                    "rounded px-1 py-0.5 flex flex-col min-h-0 border",
-                                    isStageCompleted ? "bg-green-900/20 border-green-800/50" :
-                                    isCurrent ? cn(getStageColors(stage).bg, "/20 border", getStageColors(stage).border, "/40") :
-                                    hasTasks ? "bg-slate-700/20 border-slate-700/50" :
-                                    "bg-transparent border-transparent"
-                                  )}
-                                >
-                                  <div className="flex-1 overflow-hidden">
-                                    {members.length === 0 ? (
-                                      <div className="text-[8px] text-slate-600 text-center">-</div>
-                                    ) : (
-                                      <div className="space-y-px">
-                                        {members.slice(0, 3).map((member, idx) => {
+                                    
+                                    {/* Workers Aligned Below Stage */}
+                                    <div className="mt-1 w-full space-y-px overflow-hidden">
+                                      {members.length === 0 ? (
+                                        <div className="text-[7px] text-slate-600 text-center py-0.5">—</div>
+                                      ) : (
+                                        members.slice(0, 3).map((member, midx) => {
                                           const isTaskCompleted = member.status === 'completed'
                                           return (
-                                            <div key={idx} className="flex items-center gap-0.5 leading-tight">
-                                              <div className={cn(
-                                                "w-3.5 h-3.5 rounded-full flex items-center justify-center text-[7px] font-bold text-white shrink-0",
-                                                isTaskCompleted ? "bg-green-500" : "bg-slate-600"
+                                            <div 
+                                              key={midx}
+                                              className={cn(
+                                                "flex items-center gap-0.5 px-1 py-px rounded leading-tight",
+                                                isTaskCompleted ? "bg-green-900/30" :
+                                                isPending ? "bg-slate-800/50" :
+                                                "bg-slate-700/30"
+                                              )}
+                                            >
+                                              {/* Mini Avatar */}
+                                              {member.avatar ? (
+                                                <img 
+                                                  src={member.avatar} 
+                                                  alt={member.name}
+                                                  className="w-3 h-3 rounded-full object-cover border border-white/20 shrink-0" 
+                                                />
+                                              ) : (
+                                                <div className={cn(
+                                                  "w-3 h-3 rounded-full flex items-center justify-center text-[6px] font-bold text-white shrink-0",
+                                                  isTaskCompleted ? "bg-green-500" : isPending ? "bg-slate-700" : colors.bg
+                                                )}>
+                                                  {member.name.charAt(0)}
+                                                </div>
+                                              )}
+                                              <span className={cn(
+                                                "text-[7px] lg:text-[8px] truncate flex-1",
+                                                isTaskCompleted ? "text-green-300" : isPending ? "text-slate-500" : "text-slate-300"
                                               )}>
-                                                {member.name.charAt(0)}
-                                              </div>
-                                              <span className="text-[8px] text-slate-300 truncate flex-1">
                                                 {member.name.split(' ').slice(0, 2).join(' ')}
                                               </span>
                                               {isTaskCompleted ? (
                                                 <CheckCircle2 className="w-2.5 h-2.5 text-green-400 shrink-0" />
-                                              ) : (
-                                                <Clock className="w-2.5 h-2.5 text-slate-500 shrink-0" />
-                                              )}
+                                              ) : !isPending ? (
+                                                <Clock className="w-2.5 h-2.5 text-amber-400 shrink-0" />
+                                              ) : null}
                                             </div>
                                           )
-                                        })}
-                                        {members.length > 3 && (
-                                          <div className="text-[7px] text-slate-500 text-center">+{members.length - 3} lainnya</div>
-                                        )}
-                                      </div>
-                                    )}
+                                        })
+                                      )}
+                                      {members.length > 3 && (
+                                        <div className="text-[6px] text-slate-500 text-center">+{members.length - 3}</div>
+                                      )}
+                                    </div>
                                   </div>
-                                  {hasTasks && (
-                                    <Progress 
-                                      value={progress.total > 0 ? Math.round((progress.completed / progress.total) * 100) : 0} 
-                                      className="h-[3px] mt-0.5 bg-slate-700 [&>div]:bg-white/70 shrink-0" 
-                                    />
+                                  
+                                  {/* Connector Line */}
+                                  {idx < 4 && (
+                                    <div className={cn(
+                                      "flex-1 h-[2px] mt-2.5 mx-0.5 rounded-full shrink-0",
+                                      isStageCompleted ? "bg-green-500" :
+                                      isCurrent ? "bg-slate-600" :
+                                      "bg-slate-700"
+                                    )}></div>
                                   )}
                                 </div>
                               )
