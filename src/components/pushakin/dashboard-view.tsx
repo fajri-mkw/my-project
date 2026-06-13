@@ -28,7 +28,9 @@ import {
   AlertTriangle,
   Zap,
   Rocket,
-  ArrowRight
+  ArrowRight,
+  Users,
+  UserCheck
 } from 'lucide-react'
 import { useState } from 'react'
 import { cn } from '@/lib/utils'
@@ -52,6 +54,7 @@ function getStageGradient(stage: number) {
 export function DashboardView() {
   const { currentUser, projects, users, setActiveView, setSelectedProjectId, deleteProject, showAlert, showConfirm, suratList, permohonanList } = useAppStore()
   const [viewMode, setViewMode] = useState<'grid' | 'table'>('grid')
+  const [projectFilter, setProjectFilter] = useState<'all' | 'mine'>('all')
   
   const canManageProject = currentUser ? ['Manager', 'Admin'].includes(currentUser.role) : false
   const isManager = currentUser?.role === 'Manager'
@@ -62,8 +65,21 @@ export function DashboardView() {
       + permohonanList.filter(p => p.status === 'forwarded' && p.managerId === currentUser.id).length
     : 0
   
-  // All users see the same real-time project data
-  const visibleProjects = projects
+  // Compute "my projects" count for the filter badge
+  const myProjectsCount = currentUser
+    ? projects.filter(p => 
+        p.tasks.some(t => t.assignedTo === currentUser.id) || 
+        p.managerId === currentUser.id
+      ).length
+    : 0
+
+  // Filter projects based on selected filter
+  const visibleProjects = projectFilter === 'mine' && currentUser
+    ? projects.filter(p => 
+        p.tasks.some(t => t.assignedTo === currentUser.id) || 
+        p.managerId === currentUser.id
+      )
+    : projects
 
   const handleDeleteProject = (projectId: string) => {
     showConfirm(
@@ -160,25 +176,56 @@ export function DashboardView() {
 
       {/* Header */}
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-        <div className="flex items-center gap-2 bg-white p-1 rounded-xl border border-slate-200 shadow-sm">
-          <Button
-            variant={viewMode === 'grid' ? 'default' : 'ghost'}
-            size="sm"
-            onClick={() => setViewMode('grid')}
-            className={cn("gap-2", viewMode === 'grid' && "bg-gradient-to-r from-violet-600 to-purple-600 hover:from-violet-700 hover:to-purple-700")}
-          >
-            <LayoutGrid className="w-4 h-4" />
-            <span className="hidden sm:inline">Alur Kerja</span>
-          </Button>
-          <Button
-            variant={viewMode === 'table' ? 'default' : 'ghost'}
-            size="sm"
-            onClick={() => setViewMode('table')}
-            className={cn("gap-2", viewMode === 'table' && "bg-gradient-to-r from-violet-600 to-purple-600 hover:from-violet-700 hover:to-purple-700")}
-          >
-            <List className="w-4 h-4" />
-            <span className="hidden sm:inline">Tabel</span>
-          </Button>
+        <div className="flex items-center gap-2 flex-wrap">
+          {/* View Mode Toggle */}
+          <div className="flex items-center gap-0.5 bg-white p-1 rounded-xl border border-slate-200 shadow-sm">
+            <Button
+              variant={viewMode === 'grid' ? 'default' : 'ghost'}
+              size="sm"
+              onClick={() => setViewMode('grid')}
+              className={cn("gap-2", viewMode === 'grid' && "bg-gradient-to-r from-violet-600 to-purple-600 hover:from-violet-700 hover:to-purple-700")}
+            >
+              <LayoutGrid className="w-4 h-4" />
+              <span className="hidden sm:inline">Alur Kerja</span>
+            </Button>
+            <Button
+              variant={viewMode === 'table' ? 'default' : 'ghost'}
+              size="sm"
+              onClick={() => setViewMode('table')}
+              className={cn("gap-2", viewMode === 'table' && "bg-gradient-to-r from-violet-600 to-purple-600 hover:from-violet-700 hover:to-purple-700")}
+            >
+              <List className="w-4 h-4" />
+              <span className="hidden sm:inline">Tabel</span>
+            </Button>
+          </div>
+
+          {/* Project Filter Toggle */}
+          <div className="flex items-center gap-0.5 bg-white p-1 rounded-xl border border-slate-200 shadow-sm">
+            <Button
+              variant={projectFilter === 'all' ? 'default' : 'ghost'}
+              size="sm"
+              onClick={() => setProjectFilter('all')}
+              className={cn("gap-2", projectFilter === 'all' && "bg-gradient-to-r from-slate-700 to-slate-800 hover:from-slate-800 hover:to-slate-900")}
+            >
+              <Users className="w-4 h-4" />
+              <span className="hidden sm:inline">Semua Proyek</span>
+            </Button>
+            <Button
+              variant={projectFilter === 'mine' ? 'default' : 'ghost'}
+              size="sm"
+              onClick={() => setProjectFilter('mine')}
+              className={cn("gap-2", projectFilter === 'mine' && "bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700")}
+            >
+              <UserCheck className="w-4 h-4" />
+              <span className="hidden sm:inline">Tugas Saya</span>
+              <span className={cn(
+                "text-[10px] font-bold px-1.5 py-0.5 rounded-full min-w-[18px] text-center",
+                projectFilter === 'mine' ? "bg-white/25 text-white" : "bg-emerald-100 text-emerald-700"
+              )}>
+                {myProjectsCount}
+              </span>
+            </Button>
+          </div>
         </div>
 
         {canManageProject && (
@@ -197,12 +244,27 @@ export function DashboardView() {
         <Card className="p-12 text-center">
           <CardContent className="pt-6">
             <FolderKanban className="w-16 h-16 text-slate-300 mx-auto mb-4" />
-            <h3 className="text-xl font-semibold text-slate-800 mb-2">Belum ada proyek</h3>
+            <h3 className="text-xl font-semibold text-slate-800 mb-2">
+              {projectFilter === 'mine' ? 'Tidak ada tugas untuk Anda' : 'Belum ada proyek'}
+            </h3>
             <p className="text-slate-500">
-              {canManageProject
-                ? 'Mulai dengan membuat proyek perencanaan baru.'
-                : 'Belum ada tugas yang ditugaskan kepada Anda.'}
+              {projectFilter === 'mine'
+                ? 'Saat ini tidak ada proyek yang ditugaskan kepada Anda. Coba lihat semua proyek.'
+                : canManageProject
+                  ? 'Mulai dengan membuat proyek perencanaan baru.'
+                  : 'Belum ada tugas yang ditugaskan kepada Anda.'}
             </p>
+            {projectFilter === 'mine' && (
+              <Button
+                variant="outline"
+                size="sm"
+                className="mt-4 gap-2"
+                onClick={() => setProjectFilter('all')}
+              >
+                <Users className="w-4 h-4" />
+                Lihat Semua Proyek
+              </Button>
+            )}
           </CardContent>
         </Card>
       ) : viewMode === 'grid' ? (
