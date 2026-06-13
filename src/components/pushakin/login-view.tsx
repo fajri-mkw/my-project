@@ -5,9 +5,10 @@ import { Card, CardContent, CardHeader } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Checkbox } from '@/components/ui/checkbox'
-import { useAppStore } from '@/lib/store'
-import { PlayCircle, Mail, Lock, Loader2, Eye, EyeOff, AlertCircle, RefreshCw } from 'lucide-react'
-import { useState, useEffect } from 'react'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { useAppStore, ROLE_DISPLAY_NAMES, Role } from '@/lib/store'
+import { PlayCircle, Mail, Lock, Loader2, Eye, EyeOff, AlertCircle, RefreshCw, Shield, Users, ChevronDown, UserCircle } from 'lucide-react'
+import { useState, useEffect, useMemo } from 'react'
 
 interface LoginViewProps {
   onSeed: () => Promise<void>
@@ -16,6 +17,42 @@ interface LoginViewProps {
 }
 
 const REMEMBER_ME_KEY = 'pushakin_remembered_credentials'
+
+interface LoginUser {
+  id: string
+  name: string
+  email: string
+  role: string
+  avatar?: string
+}
+
+// Role categories for grouping in the selector
+const ROLE_CATEGORIES: Record<string, { label: string; roles: string[] }> = {
+  'manajemen': {
+    label: 'Manajemen',
+    roles: ['Admin', 'Administrator', 'Manager']
+  },
+  'produksi': {
+    label: 'Produksi',
+    roles: ['Reporter', 'ContentCreator', 'PhotographerVideographerAudio', 'GraphicDesigner']
+  },
+  'pasca-produksi': {
+    label: 'Pasca Produksi',
+    roles: ['EditorVideo', 'EditorWebArticle', 'EditorFoto', 'EditorTemplateSosialMedia']
+  },
+  'siaran': {
+    label: 'Siaran & Podcast',
+    roles: ['StreamingOperator', 'PodcastOperator']
+  },
+  'review': {
+    label: 'Review',
+    roles: ['Reviewer']
+  },
+  'publikasi': {
+    label: 'Publikasi',
+    roles: ['PublisherWeb', 'PublisherSocialMedia']
+  }
+}
 
 export function LoginView({ onSeed, isSeeding, seedError }: LoginViewProps) {
   const setCurrentUser = useAppStore((state) => state.setCurrentUser)
@@ -34,6 +71,50 @@ export function LoginView({ onSeed, isSeeding, seedError }: LoginViewProps) {
   const [confirmPassword, setConfirmPassword] = useState('')
   const [loggedInUser, setLoggedInUser] = useState<{id: string, name: string} | null>(null)
   const [rememberMe, setRememberMe] = useState(false)
+  
+  // Role-based login
+  const [allUsers, setAllUsers] = useState<LoginUser[]>([])
+  const [selectedRole, setSelectedRole] = useState<string>('all')
+  const [selectedUserId, setSelectedUserId] = useState<string>('')
+  const [loginMode, setLoginMode] = useState<'quick' | 'manual'>('quick')
+
+  // Filter users by selected role
+  const filteredUsers = useMemo(() => {
+    if (selectedRole === 'all') return allUsers
+    return allUsers.filter(u => u.role === selectedRole)
+  }, [allUsers, selectedRole])
+
+  // When a user is selected from dropdown, auto-fill email
+  useEffect(() => {
+    if (selectedUserId && loginMode === 'quick') {
+      const user = allUsers.find(u => u.id === selectedUserId)
+      if (user) setEmail(user.email)
+    }
+  }, [selectedUserId, allUsers, loginMode])
+
+  // Get unique roles from allUsers
+  const availableRoles = useMemo(() => {
+    const roles = [...new Set(allUsers.map(u => u.role))]
+    return roles.sort()
+  }, [allUsers])
+
+  // Group users by role category for display
+  const groupedUsers = useMemo(() => {
+    const groups: { categoryKey: string; categoryLabel: string; users: LoginUser[] }[] = []
+    for (const [key, cat] of Object.entries(ROLE_CATEGORIES)) {
+      const catUsers = filteredUsers.filter(u => cat.roles.includes(u.role))
+      if (catUsers.length > 0) {
+        groups.push({ categoryKey: key, categoryLabel: cat.label, users: catUsers })
+      }
+    }
+    // Add any uncategorized roles
+    const allCategorizedRoles = Object.values(ROLE_CATEGORIES).flatMap(c => c.roles)
+    const uncategorized = filteredUsers.filter(u => !allCategorizedRoles.includes(u.role))
+    if (uncategorized.length > 0) {
+      groups.push({ categoryKey: 'other', categoryLabel: 'Lainnya', users: uncategorized })
+    }
+    return groups
+  }, [filteredUsers])
 
   // Load saved credentials on mount
   useEffect(() => {
@@ -54,7 +135,6 @@ export function LoginView({ onSeed, isSeeding, seedError }: LoginViewProps) {
   useEffect(() => {
     const checkServer = async () => {
       try {
-        // First check if server is running
         const healthRes = await fetch('/api/health')
         if (!healthRes.ok) {
           setServerStatus('error')
@@ -74,9 +154,8 @@ export function LoginView({ onSeed, isSeeding, seedError }: LoginViewProps) {
 
         setServerStatus('ok')
 
-        // Then check users — with timeout for slow connections
         const controller = new AbortController()
-        const timeoutId = setTimeout(() => controller.abort(), 30000) // 30s timeout
+        const timeoutId = setTimeout(() => controller.abort(), 30000)
         
         try {
           const usersRes = await fetch('/api/users', { signal: controller.signal })
@@ -106,6 +185,14 @@ export function LoginView({ onSeed, isSeeding, seedError }: LoginViewProps) {
             if (Array.isArray(users)) {
               setHasUsers(users.length > 0)
               setDbError(null)
+              // Store users for role-based login
+              setAllUsers(users.map((u: any) => ({
+                id: u.id,
+                name: u.name,
+                email: u.email,
+                role: u.role,
+                avatar: u.avatar
+              })))
             } else if (users.error) {
               setDbError(users.error)
               setHasUsers(false)
@@ -234,7 +321,6 @@ export function LoginView({ onSeed, isSeeding, seedError }: LoginViewProps) {
         body: JSON.stringify({ email, password })
       })
 
-      // Check content type first
       const contentType = response.headers.get('content-type')
       if (!contentType || !contentType.includes('application/json')) {
         setError('Server error. Silakan hubungi administrator.')
@@ -250,7 +336,6 @@ export function LoginView({ onSeed, isSeeding, seedError }: LoginViewProps) {
         return
       }
 
-      // Handle remember me
       if (rememberMe) {
         localStorage.setItem(REMEMBER_ME_KEY, JSON.stringify({ email, password }))
       } else {
@@ -340,6 +425,21 @@ export function LoginView({ onSeed, isSeeding, seedError }: LoginViewProps) {
     } finally {
       setIsLoading(false)
     }
+  }
+
+  const getRoleBadgeColor = (role: string) => {
+    const cat = Object.entries(ROLE_CATEGORIES).find(([, v]) => v.roles.includes(role))
+    const key = cat ? cat[0] : 'other'
+    const colors: Record<string, string> = {
+      'manajemen': 'bg-violet-100 text-violet-700 border-violet-200',
+      'produksi': 'bg-blue-100 text-blue-700 border-blue-200',
+      'pasca-produksi': 'bg-orange-100 text-orange-700 border-orange-200',
+      'siaran': 'bg-pink-100 text-pink-700 border-pink-200',
+      'review': 'bg-amber-100 text-amber-700 border-amber-200',
+      'publikasi': 'bg-green-100 text-green-700 border-green-200',
+      'other': 'bg-slate-100 text-slate-700 border-slate-200'
+    }
+    return colors[key] || colors.other
   }
 
   // Change password form
@@ -452,44 +552,186 @@ export function LoginView({ onSeed, isSeeding, seedError }: LoginViewProps) {
               </div>
             )}
 
-            <div className="space-y-2">
-              <Label htmlFor="email">Email</Label>
-              <div className="relative">
-                <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-                <Input
-                  id="email"
-                  type="email"
-                  placeholder="contoh@pushakin.local"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  className="pl-10"
-                  required
-                />
-              </div>
+            {/* Login Mode Toggle */}
+            <div className="flex rounded-xl border border-slate-200 overflow-hidden bg-slate-50">
+              <button
+                type="button"
+                className={`flex-1 flex items-center justify-center gap-2 py-2.5 px-3 text-sm font-medium transition-all ${
+                  loginMode === 'quick' 
+                    ? 'bg-gradient-to-r from-violet-600 to-purple-600 text-white shadow-sm' 
+                    : 'text-slate-600 hover:bg-slate-100'
+                }`}
+                onClick={() => setLoginMode('quick')}
+              >
+                <Users className="w-4 h-4" />
+                Pilih Peran
+              </button>
+              <button
+                type="button"
+                className={`flex-1 flex items-center justify-center gap-2 py-2.5 px-3 text-sm font-medium transition-all ${
+                  loginMode === 'manual' 
+                    ? 'bg-gradient-to-r from-violet-600 to-purple-600 text-white shadow-sm' 
+                    : 'text-slate-600 hover:bg-slate-100'
+                }`}
+                onClick={() => { setLoginMode('manual'); setSelectedUserId(''); setSelectedRole('all'); }}
+              >
+                <Mail className="w-4 h-4" />
+                Input Email
+              </button>
             </div>
 
-            <div className="space-y-2">
-              <Label htmlFor="password">Password</Label>
-              <div className="relative">
-                <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-                <Input
-                  id="password"
-                  type={showPassword ? "text" : "password"}
-                  placeholder="Masukkan password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  className="pl-10 pr-10"
-                  required
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowPassword(!showPassword)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
-                >
-                  {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                </button>
-              </div>
-            </div>
+            {loginMode === 'quick' ? (
+              <>
+                {/* Role Selector */}
+                <div className="space-y-2">
+                  <Label className="flex items-center gap-2">
+                    <Shield className="w-4 h-4 text-violet-500" />
+                    Pilih Peran (Role)
+                  </Label>
+                  <Select value={selectedRole} onValueChange={(v) => { setSelectedRole(v); setSelectedUserId(''); }}>
+                    <SelectTrigger className="w-full">
+                      <SelectValue placeholder="Semua Peran" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">Semua Peran</SelectItem>
+                      {Object.entries(ROLE_CATEGORIES).map(([key, cat]) => {
+                        const hasUsersInCat = cat.roles.some(r => availableRoles.includes(r))
+                        if (!hasUsersInCat) return null
+                        return (
+                          <SelectItem key={key} value={`__cat_${key}`}>
+                            <span className="font-semibold">{cat.label}</span>
+                          </SelectItem>
+                        )
+                      }).filter(Boolean).length > 0 && availableRoles.map(role => (
+                        <SelectItem key={role} value={role}>
+                          {ROLE_DISPLAY_NAMES[role as Role] || role}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                {/* User Selector */}
+                <div className="space-y-2">
+                  <Label className="flex items-center gap-2">
+                    <UserCircle className="w-4 h-4 text-violet-500" />
+                    Pilih Akun
+                  </Label>
+                  <Select value={selectedUserId} onValueChange={setSelectedUserId}>
+                    <SelectTrigger className="w-full">
+                      <SelectValue placeholder={filteredUsers.length === 0 ? 'Tidak ada user untuk peran ini' : 'Pilih nama Anda...'} />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {groupedUsers.length === 0 ? (
+                        <SelectItem value="__none" disabled>Tidak ada user</SelectItem>
+                      ) : (
+                        groupedUsers.map(group => [
+                          <SelectItem key={`__label_${group.categoryKey}`} value={`__label_${group.categoryKey}`} disabled className="font-bold text-xs uppercase tracking-wider text-slate-400">
+                            ── {group.categoryLabel} ──
+                          </SelectItem>,
+                          ...group.users.map(user => (
+                            <SelectItem key={user.id} value={user.id}>
+                              <div className="flex items-center gap-2">
+                                <span className="font-medium">{user.name}</span>
+                                <span className={`text-[10px] px-1.5 py-0.5 rounded-full border ${getRoleBadgeColor(user.role)}`}>
+                                  {ROLE_DISPLAY_NAMES[user.role as Role] || user.role}
+                                </span>
+                              </div>
+                            </SelectItem>
+                          ))
+                        ])
+                      )}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                {/* Show selected user info */}
+                {selectedUserId && (
+                  <div className="bg-violet-50 border border-violet-200 rounded-lg p-3 flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-full bg-gradient-to-br from-violet-500 to-purple-600 flex items-center justify-center text-white font-bold text-sm shrink-0">
+                      {allUsers.find(u => u.id === selectedUserId)?.name?.charAt(0).toUpperCase() || '?'}
+                    </div>
+                    <div className="min-w-0">
+                      <p className="font-semibold text-stone-800 text-sm truncate">
+                        {allUsers.find(u => u.id === selectedUserId)?.name}
+                      </p>
+                      <p className="text-xs text-stone-500 truncate">
+                        {allUsers.find(u => u.id === selectedUserId)?.email}
+                      </p>
+                    </div>
+                    <span className={`ml-auto text-[10px] px-2 py-1 rounded-full border font-semibold shrink-0 ${getRoleBadgeColor(allUsers.find(u => u.id === selectedUserId)?.role || '')}`}>
+                      {ROLE_DISPLAY_NAMES[allUsers.find(u => u.id === selectedUserId)?.role as Role] || ''}
+                    </span>
+                  </div>
+                )}
+
+                {/* Password (for quick mode) */}
+                <div className="space-y-2">
+                  <Label htmlFor="password-quick">Password</Label>
+                  <div className="relative">
+                    <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                    <Input
+                      id="password-quick"
+                      type={showPassword ? "text" : "password"}
+                      placeholder="Masukkan password"
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                      className="pl-10 pr-10"
+                      required
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowPassword(!showPassword)}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                    >
+                      {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                    </button>
+                  </div>
+                </div>
+              </>
+            ) : (
+              <>
+                {/* Manual email input */}
+                <div className="space-y-2">
+                  <Label htmlFor="email">Email</Label>
+                  <div className="relative">
+                    <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                    <Input
+                      id="email"
+                      type="email"
+                      placeholder="contoh@pushakin.local"
+                      value={email}
+                      onChange={(e) => setEmail(e.target.value)}
+                      className="pl-10"
+                      required
+                    />
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="password-manual">Password</Label>
+                  <div className="relative">
+                    <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                    <Input
+                      id="password-manual"
+                      type={showPassword ? "text" : "password"}
+                      placeholder="Masukkan password"
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                      className="pl-10 pr-10"
+                      required
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowPassword(!showPassword)}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                    >
+                      {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                    </button>
+                  </div>
+                </div>
+              </>
+            )}
 
             <div className="flex items-center space-x-2">
               <Checkbox 
@@ -507,7 +749,7 @@ export function LoginView({ onSeed, isSeeding, seedError }: LoginViewProps) {
 
             <Button
               type="submit"
-              disabled={isLoading}
+              disabled={isLoading || (loginMode === 'quick' && !selectedUserId)}
               className="w-full bg-gradient-to-r from-violet-600 to-purple-600 hover:from-violet-700 hover:to-purple-700 shadow-md shadow-violet-500/20"
               size="lg"
             >
