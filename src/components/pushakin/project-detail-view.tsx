@@ -271,6 +271,7 @@ export function ProjectDetailView() {
 
   const handleTaskComplete = async (taskId: string, taskData: { link?: string; publishLinks?: PublishLink[] }) => {
     try {
+      const isSuperAdmin = currentUser?.role === 'Admin' || (isImpersonating && originalUser?.role === 'Admin')
       const response = await fetch('/api/tasks', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
@@ -278,7 +279,8 @@ export function ProjectDetailView() {
           projectId: project.id,
           taskId,
           taskData,
-          isRevision: revisionTaskId === taskId
+          isRevision: revisionTaskId === taskId,
+          isAdminOverride: isSuperAdmin
         })
       })
       
@@ -326,7 +328,9 @@ export function ProjectDetailView() {
           }
         }
       } else {
-        showAlert('Gagal menyelesaikan tugas')
+        const errorData = await response.json().catch(() => ({}))
+        const errorMsg = errorData.error || 'Gagal menyelesaikan tugas'
+        showAlert(`Gagal menyelesaikan tugas: ${errorMsg}`)
       }
     } catch {
       showAlert('Terjadi kesalahan')
@@ -1338,13 +1342,15 @@ export function ProjectDetailView() {
           const Icon = config ? ICON_MAP[config.icon] : AlertCircle
           
           const isAssignedToMe = task.assignedTo === currentUser?.id
+          // Super Admin (Admin role): can act on ANY task regardless of stage
+          const isSuperAdmin = currentUser?.role === 'Admin'
           const canActOnTask = project.isFastProduction 
             ? (isAssignedToMe || canManageProject) 
-            : isCurrentStage && (isAssignedToMe || canManageProject)
-          // Super Admin / Manager: can act as "my active task" on any pending task in current stage (override mode)
+            : (isCurrentStage || isSuperAdmin) && (isAssignedToMe || canManageProject)
+          // Super Admin / Manager: can act as "my active task" on any pending task (override mode)
           const isMyActiveTask = project.isFastProduction 
             ? (isAssignedToMe || canManageProject) && task.status === 'pending'
-            : isCurrentStage && (isAssignedToMe || canManageProject) && task.status === 'pending'
+            : (isCurrentStage || isSuperAdmin) && (isAssignedToMe || canManageProject) && task.status === 'pending'
 
           return (
             <TaskCard
@@ -1874,10 +1880,10 @@ function TaskCard({
                   <span>Dilewati (Fast Track) — tugas otomatis selesai</span>
                 </div>
               )}
-              {canManageProject && !isAssignedToMe && isCurrentStage && task.status === 'pending' && (
+              {canManageProject && !isAssignedToMe && task.status === 'pending' && (
                 <div className="flex items-center gap-1 text-[10px] text-red-500 mt-1.5 font-bold uppercase tracking-wider bg-red-50 px-2 py-0.5 rounded-md">
                   <ShieldAlert className="w-3 h-3" />
-                  <span>Mode Override {getRoleDisplayName(currentUser?.role || '')}</span>
+                  <span>Mode Override {getRoleDisplayName(currentUser?.role || '')}{!isCurrentStage ? ' (Bypass Tahap)' : ''}</span>
                 </div>
               )}
             </div>

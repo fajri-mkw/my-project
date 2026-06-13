@@ -88,7 +88,7 @@ export async function PUT(request: NextRequest) {
     
     // Handle task completion
     // Support for revision: if isRevision is true, allow re-completing a completed task
-    const { isRevision } = body
+    const { isRevision, isAdminOverride } = body
     
     // For Fast Production: allow completing tasks at any stage
     const existingTask = await db.task.findUnique({ where: { id: taskId } })
@@ -98,9 +98,14 @@ export async function PUT(request: NextRequest) {
     
     const proj = await db.project.findUnique({ where: { id: projectId } })
     
+    // Check if requesting user is Super Admin
+    const requestUserRole = request.headers.get('X-User-Role')
+    const isSuperAdmin = requestUserRole === 'Admin'
+    
     // For Fast Production projects: allow completing any task regardless of stage
     // For normal/Fast Track: only allow completing tasks in current stage
-    if (!proj?.isFastProduction && existingTask.stage !== proj?.currentStage && !isRevision) {
+    // Super Admin override: bypass stage gate entirely
+    if (!proj?.isFastProduction && existingTask.stage !== proj?.currentStage && !isRevision && !isSuperAdmin) {
       return NextResponse.json({ error: 'Task not in current stage' }, { status: 400 })
     }
     
