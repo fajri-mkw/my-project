@@ -226,7 +226,7 @@ export async function PUT(request: NextRequest) {
       })
       
       // Create notifications for next stage tasks
-      const nextStageTasks = projectTasks.filter(t => t.stage === nextStage)
+      const nextStageTasks = projectTasks.filter(t => t.stage === nextStage && t.status === 'pending')
       for (const nextTask of nextStageTasks) {
         await db.notification.create({
           data: {
@@ -237,6 +237,30 @@ export async function PUT(request: NextRequest) {
             read: false
           }
         })
+      }
+
+      // Create Surat Tugas for next stage tasks (so they appear in inbox)
+      for (const nextTask of nextStageTasks) {
+        try {
+          const existingSurat = await db.suratTugas.findFirst({
+            where: { projectId, userId: nextTask.assignedTo, role: nextTask.role }
+          })
+          if (!existingSurat) {
+            await db.suratTugas.create({
+              data: {
+                nomorSurat: `ST/AUTO/${nextStage}/${Date.now()}`,
+                projectId,
+                userId: nextTask.assignedTo,
+                role: nextTask.role,
+                stage: nextTask.stage,
+                status: 'active',
+                read: false
+              }
+            })
+          }
+        } catch (suratErr) {
+          console.error('Failed to create surat tugas on stage advance:', suratErr)
+        }
       }
 
       // Send WA/Email for stage advance
@@ -289,7 +313,13 @@ export async function PUT(request: NextRequest) {
         status: task.status,
         data: JSON.parse(task.data || '{}')
       },
-      newStage: nextStage
+      newStage: nextStage,
+      stageAdvanced: allCurrentDone,
+      nextStageTasks: allCurrentDone ? nextStageTasks.map(t => ({
+        assignedTo: t.assignedTo,
+        role: t.role,
+        stage: t.stage
+      })) : []
     })
   } catch (error) {
     console.error('Update task error:', error)

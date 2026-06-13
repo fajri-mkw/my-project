@@ -611,21 +611,27 @@ export function CreateProjectView() {
         const project = await response.json()
         addProject(project)
         
-        // Add in-app notifications for stage 1 tasks
-        project.tasks.filter((t: { stage: number }) => t.stage === 1).forEach((t: { assignedTo: string }) => {
-          addNotification({
-            id: Date.now().toString() + Math.random(),
-            userId: t.assignedTo,
-            message: `Tugas baru dialokasikan untuk proyek ${title}`,
-            projectId: project.id,
-            targetView: 'project_detail',
-            read: false,
-            createdAt: new Date()
+        // Note: Server already creates DB notifications for active stage tasks (stage 1 or stage 5 for FastTrack).
+        // We only need to sync them to the Zustand store from the server response.
+        const activeStage = isFastTrack ? 5 : 1
+        project.tasks
+          .filter((t: { stage: number; status: string }) => t.stage === activeStage && t.status === 'pending')
+          .forEach((t: { assignedTo: string }) => {
+            addNotification({
+              id: `server-${project.id}-${t.assignedTo}-${activeStage}`,
+              userId: t.assignedTo,
+              message: `Tugas baru dialokasikan untuk proyek ${title}`,
+              projectId: project.id,
+              targetView: 'project_detail',
+              read: false,
+              createdAt: new Date()
+            })
           })
-        })
 
-        // Create task assignment for all assigned users
-        for (const t of project.tasks) {
+        // Create Surat Tugas only for tasks that are NOT auto-completed (i.e., pending tasks).
+        // FastTrack auto-completes stages 1-4, so skip those.
+        const tasksNeedingSurat = project.tasks.filter((t: { status: string }) => t.status !== 'completed')
+        for (const t of tasksNeedingSurat) {
           try {
             const suratResponse = await fetch('/api/surat-tugas', {
               method: 'POST',
@@ -641,7 +647,6 @@ export function CreateProjectView() {
             if (suratResponse.ok) {
               const suratData = await suratResponse.json()
               addSuratTugas(suratData)
-              console.log(`[SURAT TUGAS] Created for user ${t.assignedTo}, role: ${t.role}`)
             }
           } catch (suratError) {
             console.error(`[SURAT TUGAS] Failed to create for ${t.assignedTo}:`, suratError)

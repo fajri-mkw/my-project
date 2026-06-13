@@ -12,7 +12,7 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { useAppStore, getRoleDisplayName } from '@/lib/store'
-import { Bell, LogOut, ShieldAlert, Menu } from 'lucide-react'
+import { Bell, LogOut, ShieldAlert, Menu, Inbox } from 'lucide-react'
 import { useMemo } from 'react'
 
 interface TopbarProps {
@@ -20,7 +20,7 @@ interface TopbarProps {
 }
 
 export function Topbar({ onToggleSidebar }: TopbarProps) {
-  const { activeView, currentUser, notifications, markNotifRead, setSelectedProjectId, setActiveView, isImpersonating, originalUser, stopImpersonate } = useAppStore()
+  const { activeView, currentUser, notifications, suratTugas, markNotifRead, setSelectedProjectId, setActiveView, isImpersonating, originalUser, stopImpersonate } = useAppStore()
 
   const myNotifications = useMemo(() => 
     notifications.filter(n => n.userId === currentUser?.id),
@@ -30,6 +30,15 @@ export function Topbar({ onToggleSidebar }: TopbarProps) {
     myNotifications.filter(n => !n.read).length,
     [myNotifications]
   )
+  
+  // Count unread surat tugas for current user
+  const unreadSuratCount = useMemo(() => 
+    suratTugas.filter(s => s.userId === currentUser?.id && !s.read && s.status === 'active').length,
+    [suratTugas, currentUser?.id]
+  )
+  
+  // Total combined unread count for badge
+  const totalUnread = unreadCount + unreadSuratCount
 
   const viewTitles: Record<string, string> = {
     'dashboard': 'Project Dashboard',
@@ -39,7 +48,8 @@ export function Topbar({ onToggleSidebar }: TopbarProps) {
     'reports': 'Rekap Laporan Kegiatan',
     'profile': 'Profil Saya',
     'settings': 'Pengaturan',
-    'project_detail': 'Detail Proyek'
+    'project_detail': 'Detail Proyek',
+    'inbox': 'Kotak Masuk'
   }
 
   const handleNotificationClick = (notif: typeof notifications[0]) => {
@@ -104,12 +114,31 @@ export function Topbar({ onToggleSidebar }: TopbarProps) {
         </div>
 
         <div className="flex items-center gap-2 sm:gap-4 shrink-0">
+          {/* Inbox button with unread surat tugas count */}
+          <Button 
+            variant="outline" 
+            size="icon" 
+            className="relative rounded-full hover:border-orange-300 hover:bg-orange-50"
+            onClick={() => setActiveView('inbox')}
+            title="Inbox — Surat Tugas"
+          >
+            <Inbox className="w-5 h-5 text-slate-600" />
+            {unreadSuratCount > 0 && (
+              <span className="absolute -top-1 -right-1 min-w-[16px] h-4 bg-orange-500 rounded-full border-2 border-white text-[10px] font-bold text-white flex items-center justify-center px-1">
+                {unreadSuratCount > 9 ? '9+' : unreadSuratCount}
+              </span>
+            )}
+          </Button>
+          
+          {/* Notifications bell */}
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button variant="outline" size="icon" className="relative rounded-full hover:border-violet-300 hover:bg-violet-50">
                 <Bell className="w-5 h-5 text-slate-600" />
                 {unreadCount > 0 && (
-                  <span className="absolute top-0 right-0 w-3 h-3 bg-orange-500 rounded-full border-2 border-white animate-pulse" />
+                  <span className="absolute -top-1 -right-1 min-w-[16px] h-4 bg-violet-500 rounded-full border-2 border-white text-[10px] font-bold text-white flex items-center justify-center px-1">
+                    {unreadCount > 9 ? '9+' : unreadCount}
+                  </span>
                 )}
               </Button>
             </DropdownMenuTrigger>
@@ -117,7 +146,7 @@ export function Topbar({ onToggleSidebar }: TopbarProps) {
               <DropdownMenuLabel className="flex items-center justify-between">
                 <span>Notifikasi</span>
                 {unreadCount > 0 && (
-                  <Badge className="bg-orange-100 text-orange-700 text-xs">
+                  <Badge className="bg-violet-100 text-violet-700 text-xs">
                     {unreadCount} Baru
                   </Badge>
                 )}

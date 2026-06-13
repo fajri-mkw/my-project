@@ -182,6 +182,34 @@ export async function POST(request: NextRequest) {
       }
     })
     
+    // Create a notification for the assigned user so they see it in the bell
+    try {
+      const project = await db.project.findUnique({ where: { id: projectId } })
+      if (project) {
+        const existingNotif = await db.notification.findFirst({
+          where: {
+            userId,
+            projectId,
+            message: { contains: `Tugas baru dialokasikan untuk proyek ${project.title}` }
+          }
+        })
+        // Only create notification if one doesn't already exist for this assignment
+        if (!existingNotif) {
+          await db.notification.create({
+            data: {
+              userId,
+              message: `Tugas baru dialokasikan untuk proyek ${project.title}`,
+              projectId,
+              targetView: 'inbox',
+              read: false
+            }
+          })
+        }
+      }
+    } catch (notifErr) {
+      console.error('Failed to create surat tugas notification:', notifErr)
+    }
+    
     return NextResponse.json({
       id: surat.id,
       nomorSurat: surat.nomorSurat,

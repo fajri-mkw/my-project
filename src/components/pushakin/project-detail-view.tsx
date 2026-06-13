@@ -103,7 +103,7 @@ export function ProjectDetailView() {
     completeTask, reviseTask, rejectReview, showAlert, showConfirm,
     updateProject, isEditProjectModalOpen, setIsEditProjectModalOpen,
     editProjectData, setEditProjectData,
-    isImpersonating, originalUser
+    isImpersonating, originalUser, addNotification, addSuratTugas
   } = useAppStore()
 
   const project = projects.find(p => p.id === selectedProjectId)
@@ -283,11 +283,47 @@ export function ProjectDetailView() {
       })
       
       if (response.ok) {
+        const result = await response.json()
         if (revisionTaskId === taskId) {
           reviseTask(project.id, taskId, taskData)
           setRevisionTaskId(null)
         } else {
           completeTask(project.id, taskId, taskData)
+        }
+        
+        // If stage advanced, sync notifications and surat tugas for next stage workers
+        if (result.stageAdvanced && result.nextStageTasks && result.nextStageTasks.length > 0) {
+          const stageName = STAGES[result.newStage as keyof typeof STAGES] || `Tahap ${result.newStage}`
+          for (const nextTask of result.nextStageTasks) {
+            // Add notification to Zustand store (server already created DB record)
+            addNotification({
+              id: `server-${project.id}-${nextTask.assignedTo}-${result.newStage}`,
+              userId: nextTask.assignedTo,
+              message: `Proyek ${project.title} maju ke ${stageName}. Giliran Anda!`,
+              projectId: project.id,
+              targetView: 'project_detail',
+              read: false,
+              createdAt: new Date()
+            })
+            
+            // Add surat tugas to Zustand store (server already created DB record)
+            addSuratTugas({
+              id: `surat-${project.id}-${nextTask.assignedTo}-${result.newStage}`,
+              nomorSurat: `ST/AUTO/${result.newStage}/${Date.now()}`,
+              projectId: project.id,
+              userId: nextTask.assignedTo,
+              role: nextTask.role,
+              stage: nextTask.stage,
+              status: 'active',
+              read: false,
+              createdAt: new Date().toISOString(),
+              project: {
+                id: project.id,
+                title: project.title,
+                manager: users.find(u => u.id === project.managerId) || null
+              }
+            })
+          }
         }
       } else {
         showAlert('Gagal menyelesaikan tugas')
