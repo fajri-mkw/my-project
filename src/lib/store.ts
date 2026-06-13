@@ -1,4 +1,5 @@
 import { create } from 'zustand'
+import { persist } from 'zustand/middleware'
 
 // Types — uses DB values, NOT display names
 export type Role = 
@@ -395,7 +396,7 @@ interface AppState {
   
   // Impersonation
   isImpersonating: boolean
-  
+
   // Actions - Users
   setUsers: (users: User[]) => void
   setCurrentUser: (user: User | null) => void
@@ -467,7 +468,9 @@ interface AppState {
   getUnreadSuratCount: () => number
 }
 
-export const useAppStore = create<AppState>((set, get) => ({
+export const useAppStore = create<AppState>()(
+  persist(
+    (set, get) => ({
   // Initial State
   users: [],
   currentUser: null,
@@ -698,4 +701,16 @@ export const useAppStore = create<AppState>((set, get) => ({
     const state = get()
     return state.currentUser ? state.suratTugas.filter(s => s.userId === state.currentUser!.id && !s.read).length : 0
   }
-}))
+  }),
+  {
+    name: 'pushakin-auth-storage',
+    partialize: (state) => ({
+      currentUser: state.currentUser,
+      originalUser: state.originalUser,
+      isImpersonating: state.isImpersonating,
+      activeView: state.activeView,
+      selectedProjectId: state.selectedProjectId,
+    }),
+  }
+)
+)

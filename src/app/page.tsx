@@ -192,6 +192,7 @@ function AppContent() {
   const isPublicView = searchParams.get('public') === 'tracker'
 
   const [isLoading, setIsLoading] = useState(true)
+  const [isHydrating, setIsHydrating] = useState(true)
   const [isSeeding, setIsSeeding] = useState(false)
   const [seedError, setSeedError] = useState<string | undefined>()
   const [users, setUsersState] = useState<User[]>([])
@@ -222,6 +223,23 @@ function AppContent() {
     return () => {
       window.fetch = originalFetch
     }
+  }, [])
+
+  // Wait for Zustand persist hydration before rendering
+  // This prevents flash of login page when auth state is being restored from localStorage
+  useEffect(() => {
+    const checkHydrated = () => {
+      if (useAppStore.persist.hasHydrated()) {
+        setIsHydrating(false)
+      }
+    }
+    // Check immediately (might already be hydrated)
+    checkHydrated()
+    // Also listen for hydration completion
+    const unsub = useAppStore.persist.onFinishHydration(() => {
+      setIsHydrating(false)
+    })
+    return unsub
   }, [])
 
   // Always clear stale adminMaintenanceAccess on app load (security)
@@ -413,8 +431,8 @@ function AppContent() {
     return <PublicTrackerView onBack={handleBackFromPublic} />
   }
 
-  // Still loading
-  if (isLoading || maintenanceData === null) {
+  // Still loading (data fetch or hydration)
+  if (isLoading || maintenanceData === null || isHydrating) {
     return <LoadingSpinner />
   }
 

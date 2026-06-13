@@ -102,7 +102,8 @@ export function ProjectDetailView() {
     setActiveView, setSelectedProjectId, deleteProject,
     completeTask, reviseTask, rejectReview, showAlert, showConfirm,
     updateProject, isEditProjectModalOpen, setIsEditProjectModalOpen,
-    editProjectData, setEditProjectData
+    editProjectData, setEditProjectData,
+    isImpersonating, originalUser
   } = useAppStore()
 
   const project = projects.find(p => p.id === selectedProjectId)
@@ -150,7 +151,12 @@ export function ProjectDetailView() {
 
   const isManagerOrAdmin = currentUser ? ['Manager', 'Admin'].includes(currentUser.role) : false
   const isAdministratorOrAdmin = currentUser ? ['Administrator', 'Admin'].includes(currentUser.role) : false
-  const canManageProject = isManagerOrAdmin
+  // Super Admin retains full power even when impersonating a worker
+  const isAdminImpersonating = isImpersonating && originalUser?.role === 'Admin'
+  const canManageProject = isManagerOrAdmin || isAdminImpersonating
+  // Also grant admin-level access when Super Admin is impersonating
+  const effectiveIsManagerOrAdmin = isManagerOrAdmin || isAdminImpersonating
+  const effectiveIsAdministratorOrAdmin = isAdministratorOrAdmin || isAdminImpersonating
 
   const formatDateTime = (dateString: string) => {
     if (!dateString) return '-'
@@ -448,7 +454,7 @@ export function ProjectDetailView() {
   }
 
   const visibleTasks = project.tasks.filter(t => 
-    isManagerOrAdmin ? true : t.assignedTo === currentUser?.id
+    effectiveIsManagerOrAdmin ? true : t.assignedTo === currentUser?.id
   )
 
   // Add/Remove publish link handlers
@@ -1172,7 +1178,7 @@ export function ProjectDetailView() {
       </Card>
 
       {/* Dokumen Pendukung — hanya Administrator & Super Admin */}
-      {isAdministratorOrAdmin && (
+      {effectiveIsAdministratorOrAdmin && (
         <Card className="overflow-hidden border-stone-200">
           {/* Header — visible to all */}
           {project.documents && project.documents.length > 0 && (
@@ -1206,7 +1212,7 @@ export function ProjectDetailView() {
 
           <CardContent className="p-4">
             {/* Upload area — Administrator & Super Admin only */}
-            {isAdministratorOrAdmin && (
+            {effectiveIsAdministratorOrAdmin && (
               <div className="mb-4">
                 <label className="flex flex-col items-center justify-center w-full h-24 border-2 border-dashed border-emerald-200 rounded-xl cursor-pointer hover:bg-emerald-50/50 hover:border-emerald-400 transition-all group">
                   <input
@@ -1257,7 +1263,7 @@ export function ProjectDetailView() {
                       </a>
                     )}
                     {/* Delete button — Administrator & Super Admin only */}
-                    {isAdministratorOrAdmin && (
+                    {effectiveIsAdministratorOrAdmin && (
                       <button
                         type="button"
                         onClick={() => handleDeleteDocument(doc.id)}
@@ -1270,7 +1276,7 @@ export function ProjectDetailView() {
                   </div>
                 ))}
               </div>
-            ) : isAdministratorOrAdmin ? null : (
+            ) : effectiveIsAdministratorOrAdmin ? null : (
               <p className="text-sm text-stone-400 italic text-center py-4">Belum ada dokumen pendukung.</p>
             )}
 
@@ -1288,7 +1294,7 @@ export function ProjectDetailView() {
       {/* Tasks */}
       <div className="space-y-4">
         <h3 className="text-lg font-semibold text-stone-800 px-2">
-          {isManagerOrAdmin ? 'Semua Tugas Proyek' : 'Tugas Anda'}
+          {effectiveIsManagerOrAdmin ? 'Semua Tugas Proyek' : 'Tugas Anda'}
         </h3>
         {visibleTasks.map(task => {
           const isCurrentStage = project.isFastProduction ? true : task.stage === project.currentStage
