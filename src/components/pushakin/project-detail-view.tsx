@@ -1299,9 +1299,10 @@ export function ProjectDetailView() {
           const canActOnTask = project.isFastProduction 
             ? (isAssignedToMe || canManageProject) 
             : isCurrentStage && (isAssignedToMe || canManageProject)
+          // Super Admin / Manager: can act as "my active task" on any pending task in current stage (override mode)
           const isMyActiveTask = project.isFastProduction 
-            ? isAssignedToMe && task.status === 'pending'
-            : isCurrentStage && isAssignedToMe && task.status === 'pending'
+            ? (isAssignedToMe || canManageProject) && task.status === 'pending'
+            : isCurrentStage && (isAssignedToMe || canManageProject) && task.status === 'pending'
 
           return (
             <TaskCard
@@ -1667,24 +1668,39 @@ function TaskCard({
   const needsLink = ['paste_streaming', 'paste_youtube', 'download_link'].includes(config.type)
   const isReview = config.type === 'review'
   const isPublisherTask = config.type === 'download_link'
-  const showDownloadSection = ['download_upload', 'download_link', 'review', 'paste_streaming', 'paste_youtube'].includes(config.type)
-  const showUploadSection = ['upload', 'download_upload', 'review'].includes(config.type)
+  // Super Admin / Manager: show both download AND upload sections for full override access
+  const showDownloadSection = canManageProject || ['download_upload', 'download_link', 'review', 'paste_streaming', 'paste_youtube'].includes(config.type)
+  const showUploadSection = canManageProject || ['upload', 'download_upload', 'review'].includes(config.type)
   
   // Akses folder sepenuhnya dikontrol oleh centang DL/UL dari Manager
   // Manager centang DL → user bisa download (buka) folder tersebut
   // Manager centang UL → user bisa upload ke folder tersebut
   // Tidak ada hardcode tahap — semua bergantung pada checkbox manager
+  //
+  // SUPER ADMIN (canManageProject): Override semua batasan — akses penuh ke semua folder
 
-  // Download: HANYA tampilkan PARENT FOLDER yang manager centang DL untuk user ini
-  // Tidak ada fallback — checkbox DL adalah satu-satunya penentu akses
+  // Shared helper: apakah folder ini adalah subfolder (bukan parent folder utama)
+  const isSub = (f: DriveFolder) => {
+    if (f.parentFolderId) return true
+    if (['raw', 'revised', 'final', 'desain', 'lainnya'].includes(f.folderId)) return false
+    if (f.folderId.includes('-') && ['raw', 'revised', 'final', 'desain', 'lainnya'].some(b => f.folderId.startsWith(b + '-'))) return true
+    if (/^[A-Z]{2}_/.test(f.name)) return true
+    return false
+  }
+
+  // Shared helper: apakah folder ini adalah direct output subfolder (pattern: raw-output-userId-idx)
+  const isDirectOutput = (f: DriveFolder) => {
+    return /^(raw|revised|final|desain|lainnya)-output-(.+)-(\d+)$/.test(f.folderId)
+  }
+
+  // Download: tampilkan PARENT FOLDER yang manager centang DL untuk user ini
+  // Super Admin / Manager: akses penuh ke semua parent folder (override)
   const getDownloadFolders = () => {
     const myId = currentUser?.id || ''
 
-    const isSub = (f: DriveFolder) => {
-      if (f.parentFolderId) return true
-      if (['raw', 'revised', 'final', 'desain', 'lainnya'].includes(f.folderId)) return false
-      if (f.folderId.includes('-') && ['raw', 'revised', 'final', 'desain', 'lainnya'].some(b => f.folderId.startsWith(b + '-'))) return true
-      return false
+    // Super Admin / Manager: akses penuh ke semua parent folder
+    if (canManageProject) {
+      return visibleFolders.filter(f => !isSub(f))
     }
 
     return visibleFolders.filter(f => {
@@ -1696,27 +1712,19 @@ function TaskCard({
 
   // Upload: tampilkan SUBFOLDER user sendiri (jika ada), atau PARENT FOLDER yang manager centang UL
   // For stage 1 workers: direct output subfolders (raw-output-userId-idx) are shown instead of user-named subfolders
+  // Super Admin / Manager: akses penuh ke semua folder (subfolder + parent)
   const getUploadFolders = () => {
     const myUserId = currentUser?.id || ''
-    const myRole = currentUser?.role || ''
 
-    const isSub = (f: DriveFolder) => {
-      if (f.parentFolderId) return true
-      if (['raw', 'revised', 'final', 'desain', 'lainnya'].includes(f.folderId)) return false
-      if (f.folderId.includes('-') && ['raw', 'revised', 'final', 'desain', 'lainnya'].some(b => f.folderId.startsWith(b + '-'))) return true
-      if (/^[A-Z]{2}_/.test(f.name)) return true
-      return false
+    // Super Admin / Manager: akses penuh ke semua folder
+    if (canManageProject) {
+      // Prioritaskan subfolder jika ada, jika tidak tampilkan parent folder
+      const subfolders = visibleFolders.filter(f => isSub(f) || isDirectOutput(f))
+      if (subfolders.length > 0) return subfolders
+      return visibleFolders // fallback: semua folder
     }
 
-    const isDirectOutput = (f: DriveFolder) => {
-      // Match direct output subfolder pattern: raw-output-userId-idx
-      return /^(raw|revised|final|desain|lainnya)-output-(.+)-(\d+)$/.test(f.folderId)
-    }
-
-    const getParentType = (f: DriveFolder) => {
-      if (f.parentFolderId) return f.parentFolderId
-      return ['raw', 'revised', 'final', 'desain', 'lainnya'].find(b => f.folderId.startsWith(b + '-')) || ''
-    }
+    // === Logika normal untuk worker ===
 
     // 1. Cari subfolder milik user sendiri (berdasarkan task assignment)
     const mySubfolders = visibleFolders.filter(f => {
@@ -1934,7 +1942,9 @@ function TaskCard({
                       <h5 className="text-sm font-bold text-stone-800">Unduh Berkas (Download)</h5>
                     </div>
                     <p className="text-xs text-stone-600 mb-4 leading-relaxed">
-                      Akses folder di bawah ini untuk mengambil/mengunduh berkas yang tersedia untuk Anda sesuai izin dari Manager.
+                      {canManageProject && !isAssignedToMe
+                        ? "Mode Override: Anda memiliki akses penuh ke semua folder di tahapan ini."
+                        : "Akses folder di bawah ini untuk mengambil/mengunduh berkas yang tersedia untuk Anda sesuai izin dari Manager."}
                     </p>
                     <div className="flex flex-wrap gap-3">
                       {getDownloadFolders().length === 0 ? (
@@ -1968,9 +1978,11 @@ function TaskCard({
                       <h5 className="text-sm font-bold text-stone-800">Unggah Hasil Kerja</h5>
                     </div>
                     <p className="text-xs text-stone-600 mb-4 leading-relaxed">
-                      {isReview
-                        ? "Jika ada revisi yang Anda lakukan sendiri, silakan unggah file langsung dari komputer Anda."
-                        : "Unggah hasil pekerjaan Anda langsung dari komputer. File akan otomatis tersimpan di Google Drive."}
+                      {canManageProject && !isAssignedToMe
+                        ? "Mode Override: Anda dapat mengunggah file ke folder mana pun di tahapan ini."
+                        : isReview
+                          ? "Jika ada revisi yang Anda lakukan sendiri, silakan unggah file langsung dari komputer Anda."
+                          : "Unggah hasil pekerjaan Anda langsung dari komputer. File akan otomatis tersimpan di Google Drive."}
                     </p>
                     
                     {getUploadFolders().length === 0 ? (
