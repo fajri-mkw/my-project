@@ -270,6 +270,62 @@ export async function PUT(request: NextRequest) {
   if (maintenanceBlock) return maintenanceBlock
   try {
     const body = await request.json()
+    
+    // Force complete: Super Admin only
+    if (body.action === 'force-complete') {
+      const requestUserRole = request.headers.get('X-User-Role')
+      if (requestUserRole !== 'Admin') {
+        return NextResponse.json({ error: 'Only Super Admin can force-complete projects' }, { status: 403 })
+      }
+      
+      const { id } = body
+      if (!id) {
+        return NextResponse.json({ error: 'Project ID required' }, { status: 400 })
+      }
+      
+      const project = await db.project.findUnique({
+        where: { id },
+        include: { tasks: true }
+      })
+      
+      if (!project) {
+        return NextResponse.json({ error: 'Project not found' }, { status: 404 })
+      }
+      
+      // Complete all pending tasks
+      await Promise.all(
+        project.tasks
+          .filter(t => t.status !== 'completed')
+          .map(t => db.task.update({
+            where: { id: t.id },
+            data: { 
+              status: 'completed', 
+              data: JSON.stringify({ forceCompleted: true, completedBy: 'Super Admin' })
+            }
+          }))
+      )
+      
+      // Set project to stage 6 (completed)
+      await db.project.update({
+        where: { id },
+        data: { currentStage: 6 }
+      })
+      
+      // Notify the manager
+      await db.notification.create({
+        data: {
+          userId: project.managerId,
+          message: `Proyek "${project.title}" telah dipaksa selesai (Force Complete) oleh Super Admin.`,
+          projectId: id,
+          targetView: 'project_detail',
+          read: false
+        }
+      })
+      
+      return NextResponse.json({ success: true, action: 'force-complete', newStage: 6 })
+    }
+    
+    // Normal update
     const { id, ...data } = body
     
     const project = await db.project.update({

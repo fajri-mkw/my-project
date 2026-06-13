@@ -443,8 +443,7 @@ export function ProjectDetailView() {
   }
 
   const visibleFolders = project.driveFolders.filter(folder => {
-    // For managers/admins, show all folders
-    if (canManageProject) return true
+    // All users (including Super Admin): only show folders assigned by Manager
     const myId = currentUser?.id || ''
     const myRole = currentUser?.role || ''
     // Detect subfolders (parentFolderId or folderId pattern)
@@ -1724,8 +1723,7 @@ function TaskCard({
   // Manager centang DL → user bisa download (buka) folder tersebut
   // Manager centang UL → user bisa upload ke folder tersebut
   // Tidak ada hardcode tahap — semua bergantung pada checkbox manager
-  //
-  // SUPER ADMIN (canManageProject): Override semua batasan — akses penuh ke semua folder
+  // Super Admin: folder access mengikuti aturan yang sama, tidak ada override
 
   // Shared helper: apakah folder ini adalah subfolder (bukan parent folder utama)
   const isSub = (f: DriveFolder) => {
@@ -1742,14 +1740,9 @@ function TaskCard({
   }
 
   // Download: tampilkan PARENT FOLDER yang manager centang DL untuk user ini
-  // Super Admin / Manager: akses penuh ke semua parent folder (override)
+  // Semua user termasuk Super Admin mengikuti aturan yang sama
   const getDownloadFolders = () => {
     const myId = currentUser?.id || ''
-
-    // Super Admin / Manager: akses penuh ke semua parent folder
-    if (canManageProject) {
-      return visibleFolders.filter(f => !isSub(f))
-    }
 
     return visibleFolders.filter(f => {
       if (isSub(f)) return false // Download = parent folder saja
@@ -1760,19 +1753,11 @@ function TaskCard({
 
   // Upload: tampilkan SUBFOLDER user sendiri (jika ada), atau PARENT FOLDER yang manager centang UL
   // For stage 1 workers: direct output subfolders (raw-output-userId-idx) are shown instead of user-named subfolders
-  // Super Admin / Manager: akses penuh ke semua folder (subfolder + parent)
+  // Semua user termasuk Super Admin mengikuti aturan yang sama
   const getUploadFolders = () => {
     const myUserId = currentUser?.id || ''
 
-    // Super Admin / Manager: akses penuh ke semua folder
-    if (canManageProject) {
-      // Prioritaskan subfolder jika ada, jika tidak tampilkan parent folder
-      const subfolders = visibleFolders.filter(f => isSub(f) || isDirectOutput(f))
-      if (subfolders.length > 0) return subfolders
-      return visibleFolders // fallback: semua folder
-    }
-
-    // === Logika normal untuk worker ===
+    // === Logika normal untuk semua user ===
 
     // 1. Cari subfolder milik user sendiri (berdasarkan task assignment)
     const mySubfolders = visibleFolders.filter(f => {
@@ -1990,9 +1975,7 @@ function TaskCard({
                       <h5 className="text-sm font-bold text-stone-800">Unduh Berkas (Download)</h5>
                     </div>
                     <p className="text-xs text-stone-600 mb-4 leading-relaxed">
-                      {canManageProject && !isAssignedToMe
-                        ? "Mode Override: Anda memiliki akses penuh ke semua folder di tahapan ini."
-                        : "Akses folder di bawah ini untuk mengambil/mengunduh berkas yang tersedia untuk Anda sesuai izin dari Manager."}
+                      {"Akses folder di bawah ini untuk mengambil/mengunduh berkas yang tersedia untuk Anda sesuai izin dari Manager."}
                     </p>
                     <div className="flex flex-wrap gap-3">
                       {getDownloadFolders().length === 0 ? (
@@ -2026,11 +2009,9 @@ function TaskCard({
                       <h5 className="text-sm font-bold text-stone-800">Unggah Hasil Kerja</h5>
                     </div>
                     <p className="text-xs text-stone-600 mb-4 leading-relaxed">
-                      {canManageProject && !isAssignedToMe
-                        ? "Mode Override: Anda dapat mengunggah file ke folder mana pun di tahapan ini."
-                        : isReview
-                          ? "Jika ada revisi yang Anda lakukan sendiri, silakan unggah file langsung dari komputer Anda."
-                          : "Unggah hasil pekerjaan Anda langsung dari komputer. File akan otomatis tersimpan di Google Drive."}
+                      {isReview
+                        ? "Jika ada revisi yang Anda lakukan sendiri, silakan unggah file langsung dari komputer Anda."
+                        : "Unggah hasil pekerjaan Anda langsung dari komputer. File akan otomatis tersimpan di Google Drive."}
                     </p>
                     
                     {getUploadFolders().length === 0 ? (

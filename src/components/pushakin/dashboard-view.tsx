@@ -53,11 +53,12 @@ function getStageGradient(stage: number) {
 }
 
 export function DashboardView() {
-  const { currentUser, projects, users, setActiveView, setSelectedProjectId, deleteProject, showAlert, showConfirm, suratList, permohonanList } = useAppStore()
+  const { currentUser, projects, users, setActiveView, setSelectedProjectId, deleteProject, forceCompleteProject, showAlert, showConfirm, suratList, permohonanList } = useAppStore()
   const [viewMode, setViewMode] = useState<'grid' | 'table'>('grid')
   const [projectFilter, setProjectFilter] = useState<'all' | 'mine' | 'completed'>('all')
   
   const canManageProject = currentUser ? ['Manager', 'Admin'].includes(currentUser.role) : false
+  const isSuperAdmin = currentUser?.role === 'Admin'
   const isManager = currentUser?.role === 'Manager'
 
   // Count pending forwarded permohonan/surat for Manager
@@ -96,6 +97,30 @@ export function DashboardView() {
           deleteProject(projectId)
         } catch {
           showAlert('Gagal menghapus proyek')
+        }
+      }
+    )
+  }
+
+  const handleForceComplete = (projectId: string, projectTitle: string) => {
+    showConfirm(
+      `Peringatan: Paksa selesaikan proyek "${projectTitle}"? Semua tugas akan ditandai selesai dan proyek berpindah ke tahap Selesai. Aksi ini tidak dapat dibatalkan.`,
+      async () => {
+        try {
+          const response = await fetch('/api/projects', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ id: projectId, action: 'force-complete' })
+          })
+          if (response.ok) {
+            forceCompleteProject(projectId)
+            showAlert('Proyek berhasil dipaksa selesai (Force Complete)')
+          } else {
+            const errorData = await response.json().catch(() => ({}))
+            showAlert(`Gagal: ${errorData.error || 'Terjadi kesalahan'}`)
+          }
+        } catch {
+          showAlert('Gagal memaksa selesaikan proyek')
         }
       }
     )
@@ -302,14 +327,27 @@ export function DashboardView() {
                 onClick={() => { setSelectedProjectId(project.id); setActiveView('project_detail'); }}
               >
                 {canManageProject && (
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="absolute top-3 right-3 bg-white/80 backdrop-blur-sm text-slate-400 hover:text-red-600 hover:bg-red-50 opacity-0 group-hover:opacity-100 transition-all z-10 h-7 w-7"
-                    onClick={(e) => { e.stopPropagation(); handleDeleteProject(project.id); }}
-                  >
-                    <Trash2 className="w-3.5 h-3.5" />
-                  </Button>
+                  <div className="absolute top-3 right-3 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-all z-10">
+                    {isSuperAdmin && project.currentStage !== 6 && (
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="bg-white/80 backdrop-blur-sm text-emerald-500 hover:text-emerald-700 hover:bg-emerald-50 h-7 w-7"
+                        title="Paksa Selesaikan (Super Admin)"
+                        onClick={(e) => { e.stopPropagation(); handleForceComplete(project.id, project.title); }}
+                      >
+                        <CheckCircle2 className="w-3.5 h-3.5" />
+                      </Button>
+                    )}
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="bg-white/80 backdrop-blur-sm text-slate-400 hover:text-red-600 hover:bg-red-50 h-7 w-7"
+                      onClick={(e) => { e.stopPropagation(); handleDeleteProject(project.id); }}
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </Button>
+                  </div>
                 )}
                 
                 <CardContent className="p-0">
@@ -583,14 +621,27 @@ export function DashboardView() {
                     })}
                     {canManageProject && (
                       <TableCell className="text-right">
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="text-slate-400 hover:text-red-600 hover:bg-red-50 opacity-0 group-hover:opacity-100 h-7 w-7"
-                          onClick={(e) => { e.stopPropagation(); handleDeleteProject(project.id); }}
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </Button>
+                        <div className="flex items-center justify-end gap-1">
+                          {isSuperAdmin && project.currentStage !== 6 && (
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="text-emerald-500 hover:text-emerald-700 hover:bg-emerald-50 opacity-0 group-hover:opacity-100 h-7 w-7"
+                              title="Paksa Selesaikan (Super Admin)"
+                              onClick={(e) => { e.stopPropagation(); handleForceComplete(project.id, project.title); }}
+                            >
+                              <CheckCircle2 className="w-3.5 h-3.5" />
+                            </Button>
+                          )}
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="text-slate-400 hover:text-red-600 hover:bg-red-50 opacity-0 group-hover:opacity-100 h-7 w-7"
+                            onClick={(e) => { e.stopPropagation(); handleDeleteProject(project.id); }}
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </Button>
+                        </div>
                       </TableCell>
                     )}
                   </TableRow>

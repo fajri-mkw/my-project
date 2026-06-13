@@ -411,6 +411,7 @@ interface AppState {
   addProject: (project: Project) => void
   updateProject: (project: Project) => void
   deleteProject: (projectId: string) => void
+  forceCompleteProject: (projectId: string) => void
   
   // Actions - Tasks
   completeTask: (projectId: string, taskId: string, taskData: TaskData) => void
@@ -536,6 +537,18 @@ export const useAppStore = create<AppState>()(
       selectedProjectId: newSelectedId,
       activeView: newActiveView
     }
+  }),
+  forceCompleteProject: (projectId) => set((state) => {
+    const updatedProjects = state.projects.map(p => {
+      if (p.id !== projectId) return p
+      const updatedTasks = p.tasks.map(t => ({
+        ...t,
+        status: 'completed' as const,
+        data: t.data || { forceCompleted: true }
+      }))
+      return { ...p, tasks: updatedTasks, currentStage: 6 }
+    })
+    return { projects: updatedProjects }
   }),
   
   // Task Actions
