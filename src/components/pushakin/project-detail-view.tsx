@@ -59,9 +59,11 @@ import {
   SkipForward,
   Rocket,
   RotateCcw,
-  PenTool
+  PenTool,
+  Copy,
+  Check
 } from 'lucide-react'
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useCallback } from 'react'
 import { cn } from '@/lib/utils'
 import type { Task, DriveFolder } from '@/lib/store'
 
@@ -158,11 +160,80 @@ export function ProjectDetailView() {
   const effectiveIsManagerOrAdmin = isManagerOrAdmin || isAdminImpersonating
   const effectiveIsAdministratorOrAdmin = isAdministratorOrAdmin || isAdminImpersonating
 
+  const [copiedInfo, setCopiedInfo] = useState(false)
+
   const formatDateTime = (dateString: string) => {
     if (!dateString) return '-'
     const d = new Date(dateString)
     return d.toLocaleString('id-ID', { dateStyle: 'medium', timeStyle: 'short' })
   }
+
+  const handleCopyProjectInfo = useCallback(() => {
+    const workerOutputsMap: Record<string, string[]> = project.workerOutputs || {}
+    const workerCustomMap: Record<string, string> = project.workerCustomOutput || {}
+
+    const stageLabels: Record<number, string> = {
+      1: 'Tahap 1 — Produksi',
+      2: 'Tahap 2 — Pasca Produksi',
+      3: 'Tahap 3 — Finalisasi',
+      4: 'Tahap 4 — Review',
+      5: 'Tahap 5 — Publikasi',
+    }
+
+    let workerText = ''
+    for (const stage of [1, 2, 3, 4, 5]) {
+      const stageTasks = project.tasks.filter(t => t.stage === stage)
+      if (stageTasks.length === 0) continue
+      workerText += `\n📋 ${stageLabels[stage]}\n`
+      stageTasks.forEach(t => {
+        const userName = getUserDetails(t.assignedTo).name || 'Unknown'
+        const outputs = workerOutputsMap[t.assignedTo || ''] || []
+        const customOutput = workerCustomMap[t.assignedTo || ''] || ''
+        const outputStr = outputs.length > 0
+          ? outputs.map(o => o === 'Lainnya' && customOutput ? `Lainnya (${customOutput})` : o).join(', ')
+          : '-'
+        workerText += `  • ${userName} (${getRoleDisplayName(t.role)}): ${outputStr}\n`
+      })
+    }
+
+    const activityTypes = (project.activityTypes || []).map(k =>
+      k === 'Lainnya' && project.customActivity ? `Lainnya (${project.customActivity})` : k
+    ).join(', ')
+
+    const outputNeeds = (project.outputNeeds || []).map(o =>
+      o === 'Lainnya' && project.customOutput ? `Lainnya (${project.customOutput})` : o
+    ).join(', ')
+
+    const text = `📌 *${project.title}*
+
+📍 Tempat/Lokasi: ${project.location || '-'}
+🕒 Pelaksanaan: ${formatDateTime(project.executionTime)}
+👤 PIC: ${project.picName || '-'}
+📱 WhatsApp PIC: ${project.picWhatsApp || '-'}
+🎯 Tahap: ${STAGES[project.currentStage] || '-'}${project.currentStage === 6 ? ' ✅' : ''}
+
+📝 Jenis Kegiatan: ${activityTypes || '-'}
+📦 Kebutuhan Output: ${outputNeeds || '-'}
+
+📋 Detail & Instruksi:
+${project.description || '-'}
+${workerText}\n—
+Pushakin Flows — Sistem Manajemen Produksi`
+
+    navigator.clipboard.writeText(text).then(() => {
+      setCopiedInfo(true)
+      setTimeout(() => setCopiedInfo(false), 2000)
+    }).catch(() => {
+      const textarea = document.createElement('textarea')
+      textarea.value = text
+      document.body.appendChild(textarea)
+      textarea.select()
+      document.execCommand('copy')
+      document.body.removeChild(textarea)
+      setCopiedInfo(true)
+      setTimeout(() => setCopiedInfo(false), 2000)
+    })
+  }, [project, formatDateTime])
 
   const getUserDetails = (userId: string | null) => {
     const user = users.find(u => u.id === userId)
@@ -1009,6 +1080,24 @@ export function ProjectDetailView() {
           <h3 className="text-sm font-bold text-stone-800 mb-4 flex items-center gap-2">
             <Folder className="w-4 h-4 text-stone-500" />
             <span>Detail Informasi Proyek</span>
+            <button
+              type="button"
+              onClick={handleCopyProjectInfo}
+              className="ml-auto flex items-center gap-1.5 text-[11px] font-medium px-2.5 py-1 rounded-lg border border-stone-200 bg-white hover:bg-stone-50 text-stone-600 hover:text-stone-800 transition-all active:scale-95"
+              title="Salin info proyek untuk dibagikan"
+            >
+              {copiedInfo ? (
+                <>
+                  <Check className="w-3.5 h-3.5 text-green-600" />
+                  <span className="text-green-600">Tersalin!</span>
+                </>
+              ) : (
+                <>
+                  <Copy className="w-3.5 h-3.5" />
+                  <span>Salin Info</span>
+                </>
+              )}
+            </button>
           </h3>
           <div className="flex flex-wrap gap-4 text-sm bg-white p-4 rounded-xl border border-stone-100 mb-6">
             <div className="flex flex-col min-w-[120px] max-w-[200px]">
