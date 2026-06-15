@@ -31,9 +31,11 @@ import {
   ArrowRight,
   Users,
   UserCheck,
-  CircleCheckBig
+  CircleCheckBig,
+  CircleDot,
+  Filter
 } from 'lucide-react'
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 import { cn } from '@/lib/utils'
 
 // Stage gradient colors - Purple, Blue, Orange theme
@@ -56,6 +58,7 @@ export function DashboardView() {
   const { currentUser, projects, users, setActiveView, setSelectedProjectId, deleteProject, forceCompleteProject, showAlert, showConfirm, suratList, permohonanList } = useAppStore()
   const [viewMode, setViewMode] = useState<'grid' | 'table'>('grid')
   const [projectFilter, setProjectFilter] = useState<'all' | 'mine' | 'completed'>('all')
+  const [taskStatusFilter, setTaskStatusFilter] = useState<'all' | 'pending' | 'completed'>('all')
   
   const canManageProject = currentUser ? ['Manager', 'Admin'].includes(currentUser.role) : false
   const isSuperAdmin = currentUser?.role === 'Admin'
@@ -78,15 +81,48 @@ export function DashboardView() {
   // Compute completed projects count
   const completedProjectsCount = projects.filter(p => p.currentStage === 6).length
 
+  // Compute my pending/completed task counts for the task status filter
+  const myPendingCount = useMemo(() => {
+    if (!currentUser) return 0
+    return projects.filter(p => 
+      p.tasks.some(t => t.assignedTo === currentUser.id && t.status !== 'completed')
+    ).length
+  }, [currentUser, projects])
+
+  const myCompletedCount = useMemo(() => {
+    if (!currentUser) return 0
+    return projects.filter(p => 
+      p.tasks.some(t => t.assignedTo === currentUser.id && t.status === 'completed') &&
+      !p.tasks.some(t => t.assignedTo === currentUser.id && t.status !== 'completed')
+    ).length
+  }, [currentUser, projects])
+
   // Filter projects based on selected filter
-  const visibleProjects = projectFilter === 'mine' && currentUser
-    ? projects.filter(p => 
+  const visibleProjects = useMemo(() => {
+    let filtered: typeof projects
+    if (projectFilter === 'mine' && currentUser) {
+      filtered = projects.filter(p => 
         p.tasks.some(t => t.assignedTo === currentUser.id) || 
         p.managerId === currentUser.id
       )
-    : projectFilter === 'completed'
-    ? projects.filter(p => p.currentStage === 6)
-    : projects
+      // Apply task status sub-filter when in "mine" mode
+      if (taskStatusFilter === 'pending') {
+        filtered = filtered.filter(p => 
+          p.tasks.some(t => t.assignedTo === currentUser.id && t.status !== 'completed')
+        )
+      } else if (taskStatusFilter === 'completed') {
+        filtered = filtered.filter(p => 
+          p.tasks.some(t => t.assignedTo === currentUser.id && t.status === 'completed') &&
+          !p.tasks.some(t => t.assignedTo === currentUser.id && t.status !== 'completed')
+        )
+      }
+    } else if (projectFilter === 'completed') {
+      filtered = projects.filter(p => p.currentStage === 6)
+    } else {
+      filtered = projects
+    }
+    return filtered
+  }, [projectFilter, taskStatusFilter, currentUser, projects])
 
   const handleDeleteProject = (projectId: string) => {
     showConfirm(
@@ -235,7 +271,7 @@ export function DashboardView() {
             <Button
               variant={projectFilter === 'all' ? 'default' : 'ghost'}
               size="sm"
-              onClick={() => setProjectFilter('all')}
+              onClick={() => { setProjectFilter('all'); setTaskStatusFilter('all'); }}
               className={cn("gap-1.5", projectFilter === 'all' && "bg-gradient-to-r from-slate-700 to-slate-800 hover:from-slate-800 hover:to-slate-900")}
             >
               <Users className="w-4 h-4" />
@@ -244,7 +280,7 @@ export function DashboardView() {
             <Button
               variant={projectFilter === 'mine' ? 'default' : 'ghost'}
               size="sm"
-              onClick={() => setProjectFilter('mine')}
+              onClick={() => { setProjectFilter('mine'); }}
               className={cn("gap-1.5", projectFilter === 'mine' && "bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700")}
             >
               <UserCheck className="w-4 h-4" />
@@ -259,7 +295,7 @@ export function DashboardView() {
             <Button
               variant={projectFilter === 'completed' ? 'default' : 'ghost'}
               size="sm"
-              onClick={() => setProjectFilter('completed')}
+              onClick={() => { setProjectFilter('completed'); setTaskStatusFilter('all'); }}
               className={cn("gap-1.5", projectFilter === 'completed' && "bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-700 hover:to-emerald-700")}
             >
               <CircleCheckBig className="w-4 h-4" />
@@ -272,6 +308,57 @@ export function DashboardView() {
               </span>
             </Button>
           </div>
+
+          {/* Task Status Sub-Filter — only visible when "Tugas Saya" is selected */}
+          {projectFilter === 'mine' && (
+            <div className="flex items-center gap-0.5 bg-white p-1 rounded-xl border border-slate-200 shadow-sm">
+              <Button
+                variant={taskStatusFilter === 'all' ? 'default' : 'ghost'}
+                size="sm"
+                onClick={() => setTaskStatusFilter('all')}
+                className={cn("gap-1.5 text-xs", taskStatusFilter === 'all' && "bg-gradient-to-r from-slate-600 to-slate-700 hover:from-slate-700 hover:to-slate-800")}
+              >
+                <Filter className="w-3.5 h-3.5" />
+                <span className="hidden sm:inline">Semua</span>
+                <span className={cn(
+                  "text-[10px] font-bold px-1.5 py-0.5 rounded-full min-w-[18px] text-center",
+                  taskStatusFilter === 'all' ? "bg-white/25 text-white" : "bg-slate-100 text-slate-600"
+                )}>
+                  {myProjectsCount}
+                </span>
+              </Button>
+              <Button
+                variant={taskStatusFilter === 'pending' ? 'default' : 'ghost'}
+                size="sm"
+                onClick={() => setTaskStatusFilter('pending')}
+                className={cn("gap-1.5 text-xs", taskStatusFilter === 'pending' && "bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600")}
+              >
+                <Clock className="w-3.5 h-3.5" />
+                <span className="hidden sm:inline">Belum</span>
+                <span className={cn(
+                  "text-[10px] font-bold px-1.5 py-0.5 rounded-full min-w-[18px] text-center",
+                  taskStatusFilter === 'pending' ? "bg-white/25 text-white" : "bg-amber-100 text-amber-700"
+                )}>
+                  {myPendingCount}
+                </span>
+              </Button>
+              <Button
+                variant={taskStatusFilter === 'completed' ? 'default' : 'ghost'}
+                size="sm"
+                onClick={() => setTaskStatusFilter('completed')}
+                className={cn("gap-1.5 text-xs", taskStatusFilter === 'completed' && "bg-gradient-to-r from-green-500 to-emerald-500 hover:from-green-600 hover:to-emerald-600")}
+              >
+                <CheckCircle2 className="w-3.5 h-3.5" />
+                <span className="hidden sm:inline">Selesai</span>
+                <span className={cn(
+                  "text-[10px] font-bold px-1.5 py-0.5 rounded-full min-w-[18px] text-center",
+                  taskStatusFilter === 'completed' ? "bg-white/25 text-white" : "bg-green-100 text-green-700"
+                )}>
+                  {myCompletedCount}
+                </span>
+              </Button>
+            </div>
+          )}
         </div>
 
         {canManageProject && (
@@ -291,10 +378,22 @@ export function DashboardView() {
           <CardContent className="pt-6">
             <FolderKanban className="w-16 h-16 text-slate-300 mx-auto mb-4" />
             <h3 className="text-xl font-semibold text-slate-800 mb-2">
-              {projectFilter === 'mine' ? 'Tidak ada tugas untuk Anda' : projectFilter === 'completed' ? 'Belum ada proyek selesai' : 'Belum ada proyek'}
+              {projectFilter === 'mine' && taskStatusFilter === 'pending'
+                ? 'Tidak ada tugas yang belum dikerjakan'
+                : projectFilter === 'mine' && taskStatusFilter === 'completed'
+                ? 'Tidak ada tugas yang sudah selesai'
+                : projectFilter === 'mine'
+                ? 'Tidak ada tugas untuk Anda'
+                : projectFilter === 'completed'
+                ? 'Belum ada proyek selesai'
+                : 'Belum ada proyek'}
             </h3>
             <p className="text-slate-500">
-              {projectFilter === 'mine'
+              {projectFilter === 'mine' && taskStatusFilter === 'pending'
+                ? 'Semua tugas Anda sudah selesai dikerjakan. Bagus!'
+                : projectFilter === 'mine' && taskStatusFilter === 'completed'
+                ? 'Belum ada tugas yang selesai Anda kerjakan.'
+                : projectFilter === 'mine'
                 ? 'Saat ini tidak ada proyek yang ditugaskan kepada Anda. Coba lihat semua proyek.'
                 : projectFilter === 'completed'
                 ? 'Belum ada proyek yang telah selesai semua tahapannya.'
@@ -302,12 +401,23 @@ export function DashboardView() {
                   ? 'Mulai dengan membuat proyek perencanaan baru.'
                   : 'Belum ada tugas yang ditugaskan kepada Anda.'}
             </p>
-            {(projectFilter === 'mine' || projectFilter === 'completed') && (
+            {projectFilter === 'mine' && taskStatusFilter !== 'all' && (
               <Button
                 variant="outline"
                 size="sm"
                 className="mt-4 gap-2"
-                onClick={() => setProjectFilter('all')}
+                onClick={() => setTaskStatusFilter('all')}
+              >
+                <Filter className="w-4 h-4" />
+                Lihat Semua Tugas Saya
+              </Button>
+            )}
+            {(projectFilter === 'mine' && taskStatusFilter === 'all' || projectFilter === 'completed') && (
+              <Button
+                variant="outline"
+                size="sm"
+                className="mt-4 gap-2"
+                onClick={() => { setProjectFilter('all'); setTaskStatusFilter('all'); }}
               >
                 <Users className="w-4 h-4" />
                 Lihat Semua Proyek
