@@ -106,7 +106,14 @@ export async function PUT(request: NextRequest) {
     // For normal/Fast Track: only allow completing tasks in current stage
     // Super Admin override: bypass stage gate entirely
     if (!proj?.isFastProduction && existingTask.stage !== proj?.currentStage && !isRevision && !isSuperAdmin) {
-      return NextResponse.json({ error: 'Task not in current stage' }, { status: 400 })
+      const stageNames: Record<number, string> = {
+        0: 'Perencanaan', 1: 'Produksi', 2: 'Pasca Produksi', 3: 'Finalisasi', 4: 'Review', 5: 'Publikasi', 6: 'Selesai'
+      }
+      const taskStageName = stageNames[existingTask.stage] || ''
+      const projStageName = proj?.currentStage !== undefined ? (stageNames[proj.currentStage] || '') : ''
+      return NextResponse.json({ 
+        error: `Tugas berada di Tahap ${existingTask.stage} (${taskStageName}), tetapi proyek saat ini di Tahap ${proj?.currentStage ?? '?'} (${projStageName}). Tunggu hingga proyek mencapai tahap Anda.` 
+      }, { status: 400 })
     }
     
     const revisionCount = (existingTask.revisionCount || 0) + (isRevision ? 1 : 0)
@@ -151,6 +158,10 @@ export async function PUT(request: NextRequest) {
         }
       }
       
+      // Return full project tasks data for store sync
+      const updatedProjectTasks = await db.task.findMany({ where: { projectId } })
+      const updatedProject = await db.project.findUnique({ where: { id: projectId } })
+      
       return NextResponse.json({
         success: true,
         task: {
@@ -159,7 +170,20 @@ export async function PUT(request: NextRequest) {
           data: JSON.parse(task.data || '{}'),
           revisionCount: task.revisionCount || 0
         },
-        newStage: project.currentStage
+        newStage: updatedProject!.currentStage,
+        // Send full project state for store sync
+        projectState: {
+          currentStage: updatedProject!.currentStage,
+          tasks: updatedProjectTasks.map(t => ({
+            id: t.id,
+            role: t.role,
+            stage: t.stage,
+            status: t.status,
+            assignedTo: t.assignedTo,
+            data: t.data ? JSON.parse(t.data) : {},
+            revisionCount: t.revisionCount || 0
+          }))
+        }
       })
     }
     
@@ -167,6 +191,9 @@ export async function PUT(request: NextRequest) {
     const allCurrentDone = currentStageTasks.length > 0 && currentStageTasks.every(t => t.status === 'completed')
     
     let nextStage = task.project.currentStage
+    let stageAdvanced = false
+    let autoApprovedTasks: string[] = []
+    let fastTrackedTasks: string[] = []
     
     if (allCurrentDone) {
       nextStage = task.project.currentStage + 1
@@ -175,14 +202,14 @@ export async function PUT(request: NextRequest) {
       if (project?.isFastTrack && nextStage < 5) {
         nextStage = 5
         // Auto-complete all tasks in skipped stages
+        const skippedTasks = projectTasks.filter(t => t.stage >= 1 && t.stage <= 4 && t.status === 'pending')
         await Promise.all(
-          projectTasks
-            .filter(t => t.stage >= 1 && t.stage <= 4 && t.status === 'pending')
-            .map(t => db.task.update({
-              where: { id: t.id },
-              data: { status: 'completed', data: JSON.stringify({ fastTracked: true }) }
-            }))
+          skippedTasks.map(t => db.task.update({
+            where: { id: t.id },
+            data: { status: 'completed', data: JSON.stringify({ fastTracked: true }) }
+          }))
         )
+        fastTrackedTasks = skippedTasks.map(t => t.id)
       }
       
       // Auto-approve: If advancing to stage 4 (Review), check if reviewer has auto-approve enabled
@@ -204,6 +231,7 @@ export async function PUT(request: NextRequest) {
                 data: { status: 'completed', data: JSON.stringify({ autoApproved: true }) }
               }))
             )
+            autoApprovedTasks = reviewerTasks.map(t => t.id)
             
             // Skip to stage 5
             nextStage = 5
@@ -224,15 +252,41 @@ export async function PUT(request: NextRequest) {
         }
       }
       
+      // FIX: Skip empty stages — advance to the next stage that actually has pending tasks
+      // This prevents projects from getting stuck at stages with no workers
+      const freshTasks = await db.task.findMany({ where: { projectId } })
+      while (nextStage <= 5) {
+        const nextStageTasks = freshTasks.filter(t => t.stage === nextStage && t.status === 'pending')
+        if (nextStageTasks.length > 0) {
+          break // Found a stage with pending tasks
+        }
+        // Check if this stage has completed tasks (already done) — skip it
+        const nextStageCompleted = freshTasks.filter(t => t.stage === nextStage && t.status === 'completed')
+        if (nextStageCompleted.length > 0) {
+          // All tasks at this stage are already completed, skip to next
+          nextStage++
+          continue
+        }
+        // No tasks at this stage at all — skip to next
+        nextStage++
+      }
+      
+      // If we've passed stage 5 with all tasks done, mark as completed
+      if (nextStage > 5) {
+        nextStage = 6
+      }
+      
+      stageAdvanced = true
+      
       // Update project stage
       await db.project.update({
         where: { id: projectId },
         data: { currentStage: nextStage }
       })
       
-      // Create notifications for next stage tasks
-      const nextStageTasks = projectTasks.filter(t => t.stage === nextStage && t.status === 'pending')
-      for (const nextTask of nextStageTasks) {
+      // Create notifications for next stage tasks (at the final nextStage, not intermediate)
+      const nextStagePendingTasks = freshTasks.filter(t => t.stage === nextStage && t.status === 'pending')
+      for (const nextTask of nextStagePendingTasks) {
         await db.notification.create({
           data: {
             userId: nextTask.assignedTo,
@@ -245,7 +299,7 @@ export async function PUT(request: NextRequest) {
       }
 
       // Create Surat Tugas for next stage tasks (so they appear in inbox)
-      for (const nextTask of nextStageTasks) {
+      for (const nextTask of nextStagePendingTasks) {
         try {
           const existingSurat = await db.suratTugas.findFirst({
             where: { projectId, userId: nextTask.assignedTo, role: nextTask.role }
@@ -272,8 +326,8 @@ export async function PUT(request: NextRequest) {
       try {
         const settings = await db.settings.findFirst({ where: { id: 'main' } })
         const notifEnabled = settings?.notifWaEnabled || settings?.notifEmailEnabled
-        if (notifEnabled && nextStageTasks.length > 0) {
-          const nextStageUserIds = [...new Set(nextStageTasks.map(t => t.assignedTo))]
+        if (notifEnabled && nextStagePendingTasks.length > 0) {
+          const nextStageUserIds = [...new Set(nextStagePendingTasks.map(t => t.assignedTo))]
           const users = await db.user.findMany({ where: { id: { in: nextStageUserIds } } })
           for (const user of users) {
             await sendStageAdvanceNotification(user, {
@@ -311,20 +365,38 @@ export async function PUT(request: NextRequest) {
       }
     }
     
+    // Return full project state for store sync to prevent desync
+    const finalProjectTasks = await db.task.findMany({ where: { projectId } })
+    const finalProject = await db.project.findUnique({ where: { id: projectId } })
+    
     return NextResponse.json({
       success: true,
       task: {
         id: task.id,
         status: task.status,
-        data: JSON.parse(task.data || '{}')
+        data: JSON.parse(task.data || '{}'),
+        revisionCount: task.revisionCount || 0
       },
-      newStage: nextStage,
-      stageAdvanced: allCurrentDone,
-      nextStageTasks: allCurrentDone ? nextStageTasks.map(t => ({
+      newStage: finalProject!.currentStage,
+      stageAdvanced,
+      nextStageTasks: stageAdvanced ? finalProjectTasks.filter(t => t.stage === finalProject!.currentStage && t.status === 'pending').map(t => ({
         assignedTo: t.assignedTo,
         role: t.role,
         stage: t.stage
-      })) : []
+      })) : [],
+      // Send full project state for store sync
+      projectState: {
+        currentStage: finalProject!.currentStage,
+        tasks: finalProjectTasks.map(t => ({
+          id: t.id,
+          role: t.role,
+          stage: t.stage,
+          status: t.status,
+          assignedTo: t.assignedTo,
+          data: t.data ? JSON.parse(t.data) : {},
+          revisionCount: t.revisionCount || 0
+        }))
+      }
     })
   } catch (error) {
     console.error('Update task error:', error)

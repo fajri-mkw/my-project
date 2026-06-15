@@ -414,7 +414,7 @@ interface AppState {
   forceCompleteProject: (projectId: string) => void
   
   // Actions - Tasks
-  completeTask: (projectId: string, taskId: string, taskData: TaskData) => void
+  completeTask: (projectId: string, taskId: string, taskData: TaskData, projectState?: { currentStage: number; tasks: any[] }) => void
   reviseTask: (projectId: string, taskId: string, taskData: TaskData) => void
   rejectReview: (projectId: string) => void
   
@@ -552,10 +552,25 @@ export const useAppStore = create<AppState>()(
   }),
   
   // Task Actions
-  completeTask: (projectId, taskId, taskData) => set((state) => {
+  completeTask: (projectId, taskId, taskData, projectState) => set((state) => {
     const updatedProjects = state.projects.map(p => {
       if (p.id !== projectId) return p
       
+      // If API provided authoritative project state, use it to prevent desync
+      if (projectState) {
+        const updatedTasks = p.tasks.map(t => {
+          // Use API's task data as source of truth
+          const apiTask = projectState.tasks.find((at: any) => at.id === t.id)
+          if (apiTask) {
+            return { ...t, status: apiTask.status, data: apiTask.data, revisionCount: apiTask.revisionCount }
+          }
+          // For tasks not in API response, keep as-is but update the completed one
+          return t.id === taskId ? { ...t, status: 'completed' as const, data: taskData } : t
+        })
+        return { ...p, tasks: updatedTasks, currentStage: projectState.currentStage }
+      }
+      
+      // Fallback: calculate locally (used when API doesn't return projectState)
       let updatedTasks = p.tasks.map(t => 
         t.id === taskId ? { ...t, status: 'completed' as const, data: taskData } : t
       )
@@ -578,7 +593,7 @@ export const useAppStore = create<AppState>()(
       let nextStage = p.currentStage
       if (allCurrentDone) {
         nextStage = p.currentStage + 1
-        // Fast Track: skip stages 1-3, jump directly to stage 4 (Publikasi)
+        // Fast Track: skip stages 1-3, jump directly to stage 5 (Publikasi)
         if (p.isFastTrack && nextStage < 5) {
           nextStage = 5
           // Auto-complete all tasks in skipped stages
@@ -589,6 +604,21 @@ export const useAppStore = create<AppState>()(
             return t
           })
         }
+        
+        // Skip empty stages — advance to the next stage that has pending tasks
+        while (nextStage <= 5) {
+          const nextStageTasks = updatedTasks.filter(t => t.stage === nextStage)
+          const pendingAtStage = nextStageTasks.filter(t => t.status === 'pending')
+          if (pendingAtStage.length > 0) break
+          // If all tasks at this stage are completed or there are none, skip
+          if (nextStageTasks.length > 0 && nextStageTasks.every(t => t.status === 'completed')) {
+            nextStage++
+            continue
+          }
+          // No tasks at this stage at all — skip
+          nextStage++
+        }
+        if (nextStage > 5) nextStage = 6
       }
       
       return { ...p, tasks: updatedTasks, currentStage: nextStage }

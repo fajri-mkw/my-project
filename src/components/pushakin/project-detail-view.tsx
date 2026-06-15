@@ -357,11 +357,14 @@ Pushakin Flows — Sistem Manajemen Produksi`
       
       if (response.ok) {
         const result = await response.json()
+        // Use API's authoritative projectState to sync store — prevents desync
+        const projectState = result.projectState || undefined
+        
         if (revisionTaskId === taskId) {
           reviseTask(project.id, taskId, taskData)
           setRevisionTaskId(null)
         } else {
-          completeTask(project.id, taskId, taskData)
+          completeTask(project.id, taskId, taskData, projectState)
         }
         
         // If stage advanced, sync notifications and surat tugas for next stage workers
