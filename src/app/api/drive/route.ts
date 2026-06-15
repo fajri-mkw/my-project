@@ -252,51 +252,7 @@ function generateUserCode(userName: string): string {
     : userName.substring(0, 2).toUpperCase()
 }
 
-// Create output-type subfolders directly under a parent folder (for stage 1 workers with output assignments in RAW)
-// This avoids the redundant user-named intermediate folder
-async function createDirectOutputSubfolders(
-  drive: ReturnType<typeof google.drive>,
-  parentFolderId: string,
-  parentFolderType: string,
-  userCode: string,
-  userName: string,
-  userRole: string,
-  userId: string,
-  outputTypes: string[],
-  customOutput: string | undefined,
-  sharedDriveId: string,
-  createdFolders: CreatedFolder[]
-): Promise<void> {
-  const roleSuffix = userRole.replace(/\s*&\s*/g, '_')
-  for (let i = 0; i < outputTypes.length; i++) {
-    const outputType = outputTypes[i]
-    const outputName = outputType === 'Lainnya' && customOutput
-      ? customOutput
-      : outputType
-    
-    // Name format: AF_Ahmad_Fauzi_Reporter - Teks
-    const folderName = `${userCode}_${userName.replace(/\s+/g, '_')}_${roleSuffix} - ${outputName}`
-    
-    const outputSubfolder = await createFolder(
-      drive,
-      folderName,
-      parentFolderId,
-      sharedDriveId
-    )
-    
-    // Use a flat folderId pattern: raw-output-userId-idx (direct child of RAW, no parent user subfolder)
-    const directOutputId = `${parentFolderType}-output-${userId}-${i}`
-    
-    createdFolders.push({
-      ...outputSubfolder,
-      folderId: directOutputId
-    })
-    
-    console.log(`[DRIVE] Created direct output subfolder "${folderName}" directly inside ${parentFolderType} for ${userName} (stage 1)`)
-  }
-}
-
-// Create output-type subfolders inside a user's subfolder (for non-stage-1 workers or folders other than RAW)
+// Create output-type subfolders inside a user's subfolder
 async function createOutputSubfolders(
   drive: ReturnType<typeof google.drive>,
   parentFolderId: string,
@@ -331,7 +287,8 @@ async function createOutputSubfolders(
 }
 
 // Create user subfolders inside a parent folder
-// For stage 1 workers in RAW with output assignments: skip user subfolder, create output subfolders directly
+// Always creates: Parent > AM_Ahmad_Reporter/ > Foto/, Video/, etc.
+// Structure applies to ALL stages (including Fast Track)
 async function createUserSubfolders(
   drive: ReturnType<typeof google.drive>,
   parentFolderId: string,
@@ -346,34 +303,7 @@ async function createUserSubfolders(
     const userCode = generateUserCode(user.userName)
     const subfolderName = `${userCode}_${user.userName.replace(/\s+/g, '_')}_${user.role.replace(/\s*&\s*/g, '_')}`
     
-    // Special case: Stage 1 workers in RAW folder with output assignments
-    // Skip creating the user-named subfolder and create output subfolders directly under RAW
-    // This avoids redundant upload destinations (the user folder AND the output folders)
-    const isStage1WithOutputs = user.stage === 1 
-      && parentFolderType === 'raw' 
-      && workerOutputs 
-      && workerOutputs[user.userId] 
-      && workerOutputs[user.userId].length > 0
-    
-    if (isStage1WithOutputs) {
-      // Create output subfolders directly under RAW parent (no intermediate user folder)
-      await createDirectOutputSubfolders(
-        drive,
-        parentFolderId,
-        parentFolderType,
-        userCode,
-        user.userName,
-        user.role,
-        user.userId,
-        workerOutputs[user.userId],
-        workerCustomOutput?.[user.userId],
-        sharedDriveId,
-        createdFolders
-      )
-      console.log(`[DRIVE] Skipped user subfolder for stage 1 worker ${user.userName} in RAW — output subfolders created directly`)
-      continue
-    }
-    
+    // Always create user-named subfolder first
     const userSubfolder = await createFolder(
       drive,
       subfolderName,
@@ -390,8 +320,9 @@ async function createUserSubfolders(
     
     console.log(`[DRIVE] Created user subfolder "${subfolderName}" inside ${parentFolderType} for ${user.userName} (${user.role})`)
 
-    // For RAW folder: create output-type subfolders inside user's folder
-    if (parentFolderType === 'raw' && workerOutputs && workerOutputs[user.userId] && workerOutputs[user.userId].length > 0) {
+    // Create output-type subfolders inside user's folder when workerOutputs are defined
+    // This applies to ALL stages (including Fast Track)
+    if (workerOutputs && workerOutputs[user.userId] && workerOutputs[user.userId].length > 0) {
       await createOutputSubfolders(
         drive,
         userSubfolder.id,

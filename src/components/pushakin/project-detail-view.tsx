@@ -1853,9 +1853,17 @@ function TaskCard({
     return false
   }
 
-  // Shared helper: apakah folder ini adalah direct output subfolder (pattern: raw-output-userId-idx)
-  const isDirectOutput = (f: DriveFolder) => {
-    return /^(raw|revised|final|desain|lainnya)-output-(.+)-(\d+)$/.test(f.folderId)
+  // Shared helper: check if folder is a user-named subfolder (contains a user assignment)
+  const isUserSubfolder = (f: DriveFolder) => {
+    if (!f.parentFolderId) return false
+    // User subfolders have a parentFolderId that matches a top-level folder (raw, revised, etc.)
+    // and their folderId does NOT contain '-output-'
+    return !f.folderId.includes('-output-')
+  }
+
+  // Shared helper: check if folder is an output-type subfolder inside a user subfolder
+  const isOutputSubfolder = (f: DriveFolder) => {
+    return f.parentFolderId && f.folderId.includes('-output-')
   }
 
   // Download: tampilkan PARENT FOLDER yang manager centang DL untuk user ini
@@ -1870,48 +1878,37 @@ function TaskCard({
     })
   }
 
-  // Upload: tampilkan SUBFOLDER user sendiri (jika ada), atau PARENT FOLDER yang manager centang UL
-  // For stage 1 workers: direct output subfolders (raw-output-userId-idx) are shown instead of user-named subfolders
+  // Upload: tampilkan OUTPUT SUBFOLDERS milik user (Foto/, Video/, dll.)
+  // Jika tidak ada output subfolder, tampilkan user subfolder
+  // Jika tidak ada user subfolder, fallback ke parent folder yang manager centang UL
   // Semua user termasuk Super Admin mengikuti aturan yang sama
   const getUploadFolders = () => {
     const myUserId = currentUser?.id || ''
 
-    // === Logika normal untuk semua user ===
-
-    // 1. Cari subfolder milik user sendiri (berdasarkan task assignment)
-    const mySubfolders = visibleFolders.filter(f => {
-      if (!isSub(f)) return false
-      // Match by assignedUsers userId
+    // 1. Cari output subfolders (Foto/, Video/, dll.) milik user ini
+    const myOutputSubs = visibleFolders.filter(f => {
+      if (!isOutputSubfolder(f)) return false
+      // Match by assignedUsers userId with upload
       if (f.assignedUsers?.some((au: any) => au.userId === myUserId && au.upload)) return true
-      // Match by task.assignedTo embedded in folderId
-      if (task.assignedTo && f.folderId.endsWith('-' + task.assignedTo)) return true
       return false
     })
 
-    // 2. Cari direct output subfolders untuk stage 1 workers (pattern: raw-output-userId-idx)
-    const myDirectOutputs = visibleFolders.filter(f => {
-      if (!isDirectOutput(f)) return false
-      // Match by assignedUsers userId
-      if (f.assignedUsers?.some((au: any) => au.userId === myUserId && au.upload)) return true
-      // Match by userId in folderId pattern
-      const match = f.folderId.match(/^(raw|revised|final|desain|lainnya)-output-(.+)-(\d+)$/)
-      if (match && match[2] === myUserId) return true
-      return false
-    })
-
-    // If we have direct output subfolders (stage 1 workers), use those as upload destinations
-    // Do NOT include user-named subfolders to avoid redundancy
-    if (myDirectOutputs.length > 0) {
-      return myDirectOutputs
+    // If we have output subfolders, use those as upload destinations
+    // This ensures workers upload to the correct output-type folder
+    if (myOutputSubs.length > 0) {
+      return myOutputSubs
     }
 
+    // 2. Cari user-named subfolder milik user ini (fallback jika tidak ada output subfolders)
+    const mySubfolders = visibleFolders.filter(f => {
+      if (!isUserSubfolder(f)) return false
+      // Match by assignedUsers userId with upload
+      if (f.assignedUsers?.some((au: any) => au.userId === myUserId && au.upload)) return true
+      return false
+    })
+
     if (mySubfolders.length > 0) {
-      // Also include output-type subfolders nested inside user's subfolders
-      const outputSubs = visibleFolders.filter(f => {
-        if (!f.parentFolderId || !f.folderId.includes('-output-')) return false
-        return mySubfolders.some(sf => f.parentFolderId === sf.folderId)
-      })
-      return [...mySubfolders, ...outputSubs]
+      return mySubfolders
     }
 
     // 3. Fallback: HANYA parent folder yang manager centang UL untuk user ini
