@@ -136,14 +136,27 @@ export async function POST(request: NextRequest) {
         isFastProduction: isFastProduction || false,
         managerId,
         tasks: {
-          create: tasks.map((t: { role: string; stage: number; assignedTo: string }) => ({
-            role: t.role,
-            stage: t.stage,
-            status: isFastTrack && t.stage < 5 ? 'completed' : 'pending', // Fast Track: auto-complete stages 1-4
-            assignedTo: t.assignedTo,
-            data: isFastTrack && t.stage < 5 ? JSON.stringify({ fastTracked: true }) : '{}',
-            revisionCount: 0
-          }))
+          create: tasks.map((t: { role: string; stage: number; assignedTo: string }) => {
+            let status: 'pending' | 'completed' = 'pending'
+            let data = '{}'
+            if (isFastTrack && t.stage < 5) {
+              // Fast Track: auto-complete stages 1-4
+              status = 'completed'
+              data = JSON.stringify({ fastTracked: true })
+            } else if (isFastProduction && t.stage === 4) {
+              // Fast Production: auto-approve reviewer tasks (stage 4)
+              status = 'completed'
+              data = JSON.stringify({ autoApproved: true })
+            }
+            return {
+              role: t.role,
+              stage: t.stage,
+              status,
+              assignedTo: t.assignedTo,
+              data,
+              revisionCount: 0
+            }
+          })
         },
         driveFolders: {
           create: driveFolders.map((f: { folderId: string; name: string; desc: string; color: string; bg: string; border: string; link: string; assignedRoles: string[]; assignedUsers?: any[]; parentFolderId?: string }) => ({
@@ -179,6 +192,35 @@ export async function POST(request: NextRequest) {
           read: false
         }
       })
+    }
+
+    // Fast Production: notify auto-approved reviewers
+    if (isFastProduction) {
+      const autoApprovedTasks = project.tasks.filter(t => t.stage === 4 && t.status === 'completed')
+      for (const task of autoApprovedTasks) {
+        await db.notification.create({
+          data: {
+            userId: task.assignedTo,
+            message: `Proyek "${title}" menggunakan mode Fast Production. Tahap review telah di-auto-approve otomatis.`,
+            projectId: project.id,
+            targetView: 'project_detail',
+            read: false
+          }
+        })
+      }
+      // Fast Production: notify all active (pending) tasks across all stages
+      const allPendingTasks = project.tasks.filter(t => t.status === 'pending')
+      for (const task of allPendingTasks) {
+        await db.notification.create({
+          data: {
+            userId: task.assignedTo,
+            message: `Tugas baru dialokasikan untuk proyek ${title} (Fast Production)`,
+            projectId: project.id,
+            targetView: 'project_detail',
+            read: false
+          }
+        })
+      }
     }
 
     // Send WhatsApp/Email notifications only for active stage users (not fast-tracked/skipped)

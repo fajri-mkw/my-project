@@ -26,7 +26,8 @@ import {
   Zap,
   AlertTriangle,
   SkipForward,
-  ClipboardList
+  ClipboardList,
+  CheckCircle2
 } from 'lucide-react'
 import { useState, useEffect } from 'react'
 import { cn } from '@/lib/utils'
@@ -1121,12 +1122,19 @@ export function CreateProjectView() {
                   <Rocket className="h-3.5 w-3.5 shrink-0" />
                   <span>Produksi tidak berurutan — semua petugas bisa bekerja dan mengunggah laporan secara fleksibel tanpa menunggu tahap sebelumnya. Petugas dapat melakukan revisi.</span>
                 </div>
+                <div className="flex items-center gap-2 text-xs text-teal-700">
+                  <CheckCircle2 className="h-3.5 w-3.5 shrink-0" />
+                  <span>Reviewer otomatis di-approve (Auto-Approve) — tahap review dilewati otomatis untuk mempercepat alur produksi paralel.</span>
+                </div>
                 <div className="flex flex-wrap gap-1.5 mt-1">
-                  {[1, 2, 3, 4, 5].map(stage => (
+                  {[1, 2, 3, 5].map(stage => (
                     <Badge key={stage} variant="outline" className="bg-teal-50 text-teal-600 border-teal-200 text-[10px]">
                       {STAGES[stage]}
                     </Badge>
                   ))}
+                  <Badge variant="outline" className="bg-teal-50 text-teal-600 border-teal-200 text-[10px] line-through opacity-50">
+                    {STAGES[4]}
+                  </Badge>
                 </div>
               </div>
             )}

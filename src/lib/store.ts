@@ -577,6 +577,14 @@ export const useAppStore = create<AppState>()(
       
       // For Fast Production: no stage gating, all tasks can be done in parallel
       if (p.isFastProduction) {
+        // Auto-approve: mark any pending reviewer tasks (stage 4) as completed
+        updatedTasks = updatedTasks.map(t => {
+          if (t.stage === 4 && t.status === 'pending') {
+            return { ...t, status: 'completed' as const, data: { autoApproved: true } }
+          }
+          return t
+        })
+        
         const allDone = updatedTasks.every(t => t.status === 'completed')
         if (allDone) {
           return { ...p, tasks: updatedTasks, currentStage: 6 }

@@ -695,43 +695,50 @@ Pushakin Flows — Sistem Manajemen Produksi`
                 const isCurrent = stageNum === project.currentStage
                 const isFastTracked = project.isFastTrack && stageNum >= 1 && stageNum <= 4
                 const isFastProduction = project.isFastProduction && stageNum >= 1 && stageNum <= 5
+                // Fast Production: stage 4 (Review) is auto-approved
+                const isFPAutoApproved = project.isFastProduction && stageNum === 4
                 
-                // Fast Production: stages 1-5 are all "active" (teal), stage 6 is pending until all done
-                const isFPActive = isFastProduction && !isCompleted
+                // Fast Production: stages 1-5 are all "active" (teal), stage 4 is auto-approved, stage 6 is pending until all done
+                const isFPActive = isFastProduction && !isCompleted && !isFPAutoApproved
                 
                 return (
                   <div key={stageNum} className="relative z-10 flex flex-col items-center">
                     <div className={cn(
                       "w-8 h-8 rounded-full flex items-center justify-center font-bold text-sm border-4 transition-all",
-                      isFastProduction && isCompleted
-                        ? "bg-teal-600 border-teal-600 text-white"
-                        : isFPActive
-                          ? "bg-white border-teal-500 text-teal-600 shadow-md ring-4 ring-teal-50"
-                          : isFastTracked && isCompleted
-                            ? "bg-purple-500 border-purple-500 text-white"
-                            : isCompleted 
-                              ? "bg-indigo-600 border-indigo-600 text-white" 
-                              : isCurrent 
-                                ? "bg-white border-indigo-500 text-indigo-600 shadow-md ring-4 ring-indigo-50" 
-                                : "bg-stone-50 border-stone-200 text-stone-400"
+                      isFPAutoApproved
+                        ? "bg-emerald-500 border-emerald-500 text-white"
+                        : isFastProduction && isCompleted
+                          ? "bg-teal-600 border-teal-600 text-white"
+                          : isFPActive
+                            ? "bg-white border-teal-500 text-teal-600 shadow-md ring-4 ring-teal-50"
+                            : isFastTracked && isCompleted
+                              ? "bg-purple-500 border-purple-500 text-white"
+                              : isCompleted 
+                                ? "bg-indigo-600 border-indigo-600 text-white" 
+                                : isCurrent 
+                                  ? "bg-white border-indigo-500 text-indigo-600 shadow-md ring-4 ring-indigo-50" 
+                                  : "bg-stone-50 border-stone-200 text-stone-400"
                     )}>
-                      {isFastProduction && isCompleted ? <CheckCircle2 className="w-4 h-4" /> : isFastTracked && isCompleted ? <SkipForward className="w-4 h-4" /> : isCompleted ? <CheckCircle2 className="w-4 h-4" /> : stageNum}
+                      {isFPAutoApproved ? <CheckCircle2 className="w-4 h-4" /> : isFastProduction && isCompleted ? <CheckCircle2 className="w-4 h-4" /> : isFastTracked && isCompleted ? <SkipForward className="w-4 h-4" /> : isCompleted ? <CheckCircle2 className="w-4 h-4" /> : stageNum}
                     </div>
                     <span className={cn(
                       "absolute top-10 text-[10px] font-bold uppercase tracking-wider w-24 text-center",
-                      isFastProduction && isCompleted 
-                        ? "text-teal-700" 
-                        : isFPActive 
-                          ? "text-teal-600" 
-                          : isFastTracked && isCompleted 
-                            ? "text-purple-600" 
-                            : isCurrent 
-                              ? "text-indigo-700" 
-                              : isCompleted 
-                                ? "text-stone-700" 
-                                : "text-stone-400"
+                      isFPAutoApproved
+                        ? "text-emerald-700"
+                        : isFastProduction && isCompleted 
+                          ? "text-teal-700" 
+                          : isFPActive 
+                            ? "text-teal-600" 
+                            : isFastTracked && isCompleted 
+                              ? "text-purple-600" 
+                              : isCurrent 
+                                ? "text-indigo-700" 
+                                : isCompleted 
+                                  ? "text-stone-700" 
+                                  : "text-stone-400"
                     )}>
                       {STAGES[stageNum]}
+                      {isFPAutoApproved && <span className="block text-emerald-400 text-[8px]">auto-approve</span>}
                       {isFastProduction && isFPActive && <span className="block text-teal-400 text-[8px]">aktif</span>}
                       {isFastTracked && isCompleted && <span className="block text-purple-400 text-[8px]">skipped</span>}
                     </span>
@@ -759,22 +766,26 @@ Pushakin Flows — Sistem Manajemen Produksi`
                 const stageTasks = project.tasks.filter(t => t.stage === stageNum)
                 const isCompleted = stageNum < project.currentStage
                 const isCurrent = stageNum === project.currentStage
-                const isFPActive = project.isFastProduction && stageNum >= 1 && stageNum <= 5 && !isCompleted
+                const isFPAutoApproved = project.isFastProduction && stageNum === 4
+                const isFPActive = project.isFastProduction && stageNum >= 1 && stageNum <= 5 && !isCompleted && !isFPAutoApproved
                 
                 return (
                   <div key={stageNum} className="flex flex-col gap-2">
                     {/* Stage header */}
                     <div className={cn(
                       "text-center text-[10px] font-bold uppercase tracking-wider pb-2 border-b",
-                      isFPActive
-                        ? "text-teal-600 border-teal-200"
-                        : isCompleted
-                          ? "text-stone-500 border-stone-200"
-                          : isCurrent
-                            ? "text-indigo-600 border-indigo-200"
-                            : "text-stone-300 border-stone-100"
+                      isFPAutoApproved
+                        ? "text-emerald-600 border-emerald-200"
+                        : isFPActive
+                          ? "text-teal-600 border-teal-200"
+                          : isCompleted
+                            ? "text-stone-500 border-stone-200"
+                            : isCurrent
+                              ? "text-indigo-600 border-indigo-200"
+                              : "text-stone-300 border-stone-100"
                     )}>
                       {STAGES[stageNum]}
+                      {isFPAutoApproved && <span className="block text-emerald-400 text-[8px]">auto-approve</span>}
                     </div>
                     {/* Team members in this stage */}
                     {stageTasks.length === 0 ? (
@@ -853,7 +864,8 @@ Pushakin Flows — Sistem Manajemen Produksi`
                 const stageTasks = project.tasks.filter(t => t.stage === stageNum)
                 const isCompleted = stageNum < project.currentStage
                 const isCurrent = stageNum === project.currentStage
-                const isFPActive = project.isFastProduction && stageNum >= 1 && stageNum <= 5 && !isCompleted
+                const isFPAutoApproved = project.isFastProduction && stageNum === 4
+                const isFPActive = project.isFastProduction && stageNum >= 1 && stageNum <= 5 && !isCompleted && !isFPAutoApproved
                 
                 if (stageTasks.length === 0) return null
                 
@@ -861,27 +873,32 @@ Pushakin Flows — Sistem Manajemen Produksi`
                   <div key={stageNum}>
                     <div className={cn(
                       "text-[10px] font-bold uppercase tracking-wider mb-2 flex items-center gap-1.5",
-                      isFPActive
-                        ? "text-teal-600"
-                        : isCompleted
-                          ? "text-stone-500"
-                          : isCurrent
-                            ? "text-indigo-600"
-                            : "text-stone-300"
+                      isFPAutoApproved
+                        ? "text-emerald-600"
+                        : isFPActive
+                          ? "text-teal-600"
+                          : isCompleted
+                            ? "text-stone-500"
+                            : isCurrent
+                              ? "text-indigo-600"
+                              : "text-stone-300"
                     )}>
                       <span className={cn(
                         "w-5 h-5 rounded-full flex items-center justify-center text-[9px] font-bold",
-                        isFPActive
-                          ? "bg-teal-500 text-white"
-                          : isCompleted
-                            ? "bg-indigo-600 text-white"
-                            : isCurrent
-                              ? "bg-white border-2 border-indigo-500 text-indigo-600"
-                              : "bg-stone-100 text-stone-400"
+                        isFPAutoApproved
+                          ? "bg-emerald-500 text-white"
+                          : isFPActive
+                            ? "bg-teal-500 text-white"
+                            : isCompleted
+                              ? "bg-indigo-600 text-white"
+                              : isCurrent
+                                ? "bg-white border-2 border-indigo-500 text-indigo-600"
+                                : "bg-stone-100 text-stone-400"
                       )}>
-                        {isCompleted && !isFPActive ? '✓' : stageNum}
+                        {isFPAutoApproved ? '✓' : isCompleted && !isFPActive ? '✓' : stageNum}
                       </span>
                       {STAGES[stageNum]}
+                      {isFPAutoApproved && <span className="text-emerald-400 text-[8px] ml-1">auto-approve</span>}
                     </div>
                     <div className="space-y-2 ml-6">
                       {stageTasks.map(task => {
@@ -1971,6 +1988,11 @@ function TaskCard({
                     <SkipForward className="h-2.5 w-2.5 mr-0.5" />FAST TRACK
                   </Badge>
                 )}
+                {task.data?.autoApproved && (
+                  <Badge className="bg-teal-100 text-teal-600 border-teal-200 text-[9px] px-1.5 py-0">
+                    <CheckCircle2 className="h-2.5 w-2.5 mr-0.5" />AUTO-APPROVE
+                  </Badge>
+                )}
               </h4>
               <div className="text-xs font-medium text-stone-500 mt-0.5">
                 Tahap {task.stage}: {STAGES[task.stage]}
@@ -1979,6 +2001,12 @@ function TaskCard({
                 <div className="flex items-center gap-1 text-[10px] text-purple-500 mt-1">
                   <Zap className="h-3 w-3" />
                   <span>Dilewati (Fast Track) — tugas otomatis selesai</span>
+                </div>
+              )}
+              {task.data?.autoApproved && (
+                <div className="flex items-center gap-1 text-[10px] text-teal-500 mt-1">
+                  <CheckCircle2 className="h-3 w-3" />
+                  <span>Auto-Approve — review otomatis disetujui (Fast Production)</span>
                 </div>
               )}
               {canManageProject && !isAssignedToMe && task.status === 'pending' && (

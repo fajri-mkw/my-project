@@ -138,6 +138,42 @@ export async function PUT(request: NextRequest) {
     
     // For Fast Production: check if ALL tasks across ALL stages are done
     if (project?.isFastProduction) {
+      // Auto-approve: If there are pending reviewer tasks (stage 4), auto-complete them
+      // This handles cases where reviewer tasks weren't auto-approved at creation
+      const pendingReviewerTasks = projectTasks.filter(t => t.stage === 4 && t.status === 'pending')
+      if (pendingReviewerTasks.length > 0) {
+        const reviewerIds = [...new Set(pendingReviewerTasks.map(t => t.assignedTo))]
+        const reviewers = await db.user.findMany({
+          where: { id: { in: reviewerIds } }
+        })
+        
+        // Auto-approve ALL reviewer tasks in Fast Production mode
+        await Promise.all(
+          pendingReviewerTasks.map(t => db.task.update({
+            where: { id: t.id },
+            data: { status: 'completed', data: JSON.stringify({ autoApproved: true }) }
+          }))
+        )
+        
+        // Notify reviewers about auto-approve
+        for (const reviewer of reviewers) {
+          await db.notification.create({
+            data: {
+              userId: reviewer.id,
+              message: `Proyek "${task.project.title}" menggunakan mode Fast Production. Tahap review telah di-auto-approve otomatis.`,
+              projectId: projectId,
+              targetView: 'project_detail',
+              read: false
+            }
+          })
+        }
+        
+        // Refresh task list after auto-approve
+        const refreshedTasks = await db.task.findMany({ where: { projectId } })
+        projectTasks.length = 0
+        projectTasks.push(...refreshedTasks)
+      }
+      
       const allDone = projectTasks.every(t => t.status === 'completed')
       if (allDone) {
         await db.project.update({
@@ -145,7 +181,7 @@ export async function PUT(request: NextRequest) {
           data: { currentStage: 6 }
         })
       } else {
-        // Update currentStage to the lowest stage with pending tasks
+        // Update currentStage to the lowest stage with pending tasks (excluding completed stage 4)
         const pendingStages = projectTasks.filter(t => t.status === 'pending').map(t => t.stage)
         if (pendingStages.length > 0) {
           const minPending = Math.min(...pendingStages)
