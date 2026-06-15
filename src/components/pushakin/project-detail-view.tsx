@@ -1637,15 +1637,16 @@ Pushakin Flows — Sistem Manajemen Produksi`
 
       {/* Edit Drive Modal */}
       <Dialog open={isEditDriveOpen} onOpenChange={setIsEditDriveOpen}>
-        <DialogContent className="max-w-2xl mx-4 sm:mx-0">
-          <DialogHeader>
-            <DialogTitle>Manajemen Workspace Drive</DialogTitle>
-            <DialogDescription>
+        <DialogContent className="max-w-2xl w-[calc(100%-1rem)] sm:w-full h-[90dvh] flex flex-col overflow-hidden p-0 gap-0">
+          <DialogHeader className="px-4 sm:px-6 pt-5 sm:pt-6 pb-3 flex-shrink-0">
+            <DialogTitle className="text-base sm:text-lg">Manajemen Workspace Drive</DialogTitle>
+            <DialogDescription className="text-xs sm:text-sm">
               Kelola tautan folder dan akses upload/download per petugas untuk proyek ini.
             </DialogDescription>
           </DialogHeader>
-          <form onSubmit={handleSaveDriveLinks} className="space-y-5">
-            <ScrollArea className="max-h-[65vh]">
+          <form onSubmit={handleSaveDriveLinks} className="flex flex-col flex-1 min-h-0">
+            <ScrollArea className="flex-1 min-h-0 px-4 sm:px-6">
+              <div className="pb-4">
               {project.driveFolders.length === 0 ? (
                 <div className="py-8 text-center">
                   <Folder className="w-10 h-10 text-amber-300 mx-auto mb-3" />
@@ -1669,26 +1670,26 @@ Pushakin Flows — Sistem Manajemen Produksi`
                 })
 
                 return (
-                  <div key={folder.id} className="mb-5 p-4 rounded-xl border border-stone-100 bg-stone-50/40">
+                  <div key={folder.id} className="mb-4 p-3 sm:p-4 rounded-xl border border-stone-100 bg-stone-50/40">
                     {/* Folder header */}
                     <div className="flex items-center gap-2 mb-3">
                       <div className={cn("p-1.5 rounded-lg", folder.bg || 'bg-stone-100', folder.color || 'text-stone-600')}>
-                        <Folder className="w-4 h-4" />
+                        <Folder className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
                       </div>
-                      <span className="font-bold text-sm text-stone-800">{folder.name}</span>
+                      <span className="font-bold text-xs sm:text-sm text-stone-800 truncate" title={folder.name}>{folder.name}</span>
                     </div>
 
                     <Tabs defaultValue="link" className="w-full">
-                      <TabsList className="mb-3 h-8">
-                        <TabsTrigger value="link" className="text-xs gap-1 px-3 h-7">
+                      <TabsList className="mb-2 h-8">
+                        <TabsTrigger value="link" className="text-[10px] sm:text-xs gap-1 px-2 sm:px-3 h-7">
                           <LinkIcon className="w-3 h-3" />
                           Link Folder
                         </TabsTrigger>
-                        <TabsTrigger value="access" className="text-xs gap-1 px-3 h-7">
+                        <TabsTrigger value="access" className="text-[10px] sm:text-xs gap-1 px-2 sm:px-3 h-7">
                           <Users className="w-3 h-3" />
-                          Akses Petugas
+                          Akses
                           {hasUsersWithAccess && (
-                            <span className="ml-1 bg-emerald-500 text-white text-[9px] font-bold rounded-full w-4 h-4 inline-flex items-center justify-center">
+                            <span className="ml-0.5 bg-emerald-500 text-white text-[9px] font-bold rounded-full w-4 h-4 inline-flex items-center justify-center">
                               {teamMembers.filter(t => {
                                 const acc = folderAccess.find(u => u.userId === t.assignedTo)
                                 return acc && (acc.download || acc.upload)
@@ -1699,19 +1700,19 @@ Pushakin Flows — Sistem Manajemen Produksi`
                       </TabsList>
 
                       {/* Tab: Link Folder */}
-                      <TabsContent value="link">
+                      <TabsContent value="link" className="mt-0">
                         <Input
                           required
                           type="url"
                           value={driveForm[folder.id] || ''}
                           onChange={e => setDriveForm({...driveForm, [folder.id]: e.target.value})}
-                          className={cn(folder.bg?.replace('50', '50/30'))}
+                          className={cn("text-xs sm:text-sm", folder.bg?.replace('50', '50/30'))}
                           placeholder="https://drive.google.com/drive/folders/..."
                         />
                       </TabsContent>
 
                       {/* Tab: Akses Petugas */}
-                      <TabsContent value="access">
+                      <TabsContent value="access" className="mt-0">
                         {teamMembers.length === 0 ? (
                           <p className="text-xs text-stone-400 italic py-3 text-center">
                             Belum ada petugas yang ditugaskan pada proyek ini
@@ -1719,12 +1720,12 @@ Pushakin Flows — Sistem Manajemen Produksi`
                         ) : (
                           <div className="space-y-0">
                             {/* Table header */}
-                            <div className="grid grid-cols-[1fr_48px_48px] gap-2 px-3 py-1.5 text-[10px] font-bold text-stone-400 uppercase tracking-wider border-b border-stone-100">
+                            <div className="grid grid-cols-[1fr_40px_40px] sm:grid-cols-[1fr_48px_48px] gap-1 sm:gap-2 px-2 sm:px-3 py-1.5 text-[9px] sm:text-[10px] font-bold text-stone-400 uppercase tracking-wider border-b border-stone-100">
                               <span>Petugas</span>
                               <span className="text-center" title="Download">DL</span>
                               <span className="text-center" title="Upload">UL</span>
                             </div>
-                            <ScrollArea className="max-h-48">
+                            <ScrollArea className="max-h-36 sm:max-h-48">
                               {teamMembers.map(task => {
                                 const userId = task.assignedTo!
                                 const userName = getUserDetails(userId).name
@@ -1736,11 +1737,11 @@ Pushakin Flows — Sistem Manajemen Produksi`
                                   <div
                                     key={userId}
                                     className={cn(
-                                      "grid grid-cols-[1fr_48px_48px] gap-2 px-3 py-2 items-center text-sm border-b border-stone-50 last:border-b-0 hover:bg-white/60 transition-colors",
+                                      "grid grid-cols-[1fr_40px_40px] sm:grid-cols-[1fr_48px_48px] gap-1 sm:gap-2 px-2 sm:px-3 py-1.5 sm:py-2 items-center text-sm border-b border-stone-50 last:border-b-0 hover:bg-white/60 transition-colors",
                                       (dl || ul) && "bg-emerald-50/30"
                                     )}
                                   >
-                                    <span className="truncate text-xs font-medium text-stone-700" title={userName}>
+                                    <span className="truncate text-[11px] sm:text-xs font-medium text-stone-700" title={userName}>
                                       {userName}
                                     </span>
                                     <div className="flex justify-center">
@@ -1762,7 +1763,7 @@ Pushakin Flows — Sistem Manajemen Produksi`
                               })}
                             </ScrollArea>
                             {!hasUsersWithAccess && (
-                              <p className="text-[10px] text-stone-400 italic text-center py-2">
+                              <p className="text-[9px] sm:text-[10px] text-stone-400 italic text-center py-1.5 sm:py-2">
                                 Belum ada petugas ditambahkan — centang DL/UL untuk memberi akses
                               </p>
                             )}
@@ -1775,13 +1776,14 @@ Pushakin Flows — Sistem Manajemen Produksi`
               })}
               </>
               )}
+              </div>
             </ScrollArea>
-            <DialogFooter>
-              <Button type="button" variant="ghost" onClick={() => setIsEditDriveOpen(false)}>
+            <DialogFooter className="flex-shrink-0 px-4 sm:px-6 py-3 sm:py-4 border-t border-stone-100 bg-white gap-2">
+              <Button type="button" variant="ghost" onClick={() => setIsEditDriveOpen(false)} className="text-xs sm:text-sm">
                 Batal
               </Button>
-              <Button type="submit" className="gap-2">
-                <Save className="w-4 h-4" />
+              <Button type="submit" className="gap-2 text-xs sm:text-sm">
+                <Save className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
                 <span>Simpan Perubahan</span>
               </Button>
             </DialogFooter>
