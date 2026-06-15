@@ -953,8 +953,9 @@ Pushakin Flows — Sistem Manajemen Produksi`
             </div>
           </div>
 
-          {/* Drive Folders — only visible to Admin (Super Admin) and Manager */}
-          {canManageProject && visibleFolders.length > 0 && (
+          {/* Drive Folders — always visible to Admin/Manager (even if empty so they can add folders), 
+              visible to workers only if they have assigned folders */}
+          {(canManageProject || visibleFolders.length > 0) && (
             <div className="pt-6 border-t border-stone-100 mt-6">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between mb-4 gap-2">
                 <h3 className="text-xs font-bold text-stone-400 uppercase tracking-wider flex items-center gap-2">
@@ -979,6 +980,19 @@ Pushakin Flows — Sistem Manajemen Produksi`
                   </Button>
                 )}
               </div>
+              {project.driveFolders.length === 0 ? (
+                <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 text-center">
+                  <Folder className="w-8 h-8 text-amber-300 mx-auto mb-2" />
+                  <p className="text-sm font-medium text-amber-700">Belum ada folder workspace</p>
+                  <p className="text-xs text-amber-500 mt-1">Klik <strong>Koreksi Folder</strong> untuk menambahkan folder drive ke proyek ini.</p>
+                </div>
+              ) : visibleFolders.length === 0 ? (
+                <div className="bg-stone-50 border border-stone-200 rounded-xl p-4 text-center">
+                  <Folder className="w-8 h-8 text-stone-300 mx-auto mb-2" />
+                  <p className="text-sm font-medium text-stone-500">Tidak ada folder yang ditugaskan untuk Anda</p>
+                  <p className="text-xs text-stone-400 mt-1">Folder workspace hanya terlihat jika ditugaskan oleh Manajer.</p>
+                </div>
+              ) : (
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                 {parentFolders.map((folder) => {
                   const folderSubfolders = getSubfolders(folder.folderId)
@@ -1072,6 +1086,7 @@ Pushakin Flows — Sistem Manajemen Produksi`
                   )
                 })}
               </div>
+              )}
             </div>
           )}
         </CardContent>
@@ -1631,6 +1646,14 @@ Pushakin Flows — Sistem Manajemen Produksi`
           </DialogHeader>
           <form onSubmit={handleSaveDriveLinks} className="space-y-5">
             <ScrollArea className="max-h-[65vh]">
+              {project.driveFolders.length === 0 ? (
+                <div className="py-8 text-center">
+                  <Folder className="w-10 h-10 text-amber-300 mx-auto mb-3" />
+                  <p className="text-sm font-medium text-stone-600">Proyek ini belum memiliki folder workspace</p>
+                  <p className="text-xs text-stone-400 mt-1">Folder biasanya dibuat otomatis saat pembuatan proyek. Jika folder tidak terbuat, pastikan Google Drive API sudah dikonfigurasi di Pengaturan, atau buat folder secara manual dan tambahkan link-nya.</p>
+                </div>
+              ) : (
+              <>
               {project.driveFolders.map((folder) => {
                 const folderAccess = folderUserAccess[folder.id] || []
                 const teamMembers = Array.from(
@@ -1750,6 +1773,8 @@ Pushakin Flows — Sistem Manajemen Produksi`
                   </div>
                 )
               })}
+              </>
+              )}
             </ScrollArea>
             <DialogFooter>
               <Button type="button" variant="ghost" onClick={() => setIsEditDriveOpen(false)}>
