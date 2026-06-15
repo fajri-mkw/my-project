@@ -57,8 +57,8 @@ function getStageGradient(stage: number) {
 export function DashboardView() {
   const { currentUser, projects, users, setActiveView, setSelectedProjectId, deleteProject, forceCompleteProject, showAlert, showConfirm, suratList, permohonanList } = useAppStore()
   const [viewMode, setViewMode] = useState<'grid' | 'table'>('grid')
-  const [projectFilter, setProjectFilter] = useState<'all' | 'mine' | 'completed'>('all')
-  const [taskStatusFilter, setTaskStatusFilter] = useState<'all' | 'pending' | 'completed'>('all')
+  const [projectFilter, setProjectFilter] = useState<'all' | 'mine' | 'completed'>('mine')
+  const [taskStatusFilter, setTaskStatusFilter] = useState<'all' | 'pending' | 'completed'>('pending')
   
   const canManageProject = currentUser ? ['Manager', 'Admin'].includes(currentUser.role) : false
   const isSuperAdmin = currentUser?.role === 'Admin'
