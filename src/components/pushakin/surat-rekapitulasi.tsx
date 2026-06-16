@@ -26,6 +26,8 @@ import {
   Inbox,
   ClipboardList,
   Calendar,
+  Paperclip,
+  ExternalLink,
 } from 'lucide-react'
 import * as XLSX from 'xlsx'
 import jsPDF from 'jspdf'
@@ -182,6 +184,7 @@ export function SuratRekapitulasi({ suratList, users }: SuratRekapitulasiProps) 
       'Tanggal Surat',
       'Pengirim/Penerima',
       'Perihal',
+      'File Surat',
       'Status',
       'Manager',
     ]
@@ -194,6 +197,9 @@ export function SuratRekapitulasi({ suratList, users }: SuratRekapitulasiProps) 
       s.tanggalSurat ? formatDateShort(s.tanggalSurat) : '-',
       s.jenisSurat === 'Surat Masuk' ? (s.pengirim || '-') : (s.penerima || '-'),
       s.perihal,
+      (s.documents && s.documents.length > 0)
+        ? s.documents.map((d: any) => d.name || d.originalName || 'Dokumen').join('; ')
+        : '-',
       SURAT_STATUS_CONFIG[s.status]?.label || s.status,
       getManagerName(s.managerId),
     ])
@@ -217,12 +223,13 @@ export function SuratRekapitulasi({ suratList, users }: SuratRekapitulasiProps) 
       { wch: 18 },  // Tanggal
       { wch: 30 },  // Pengirim/Penerima
       { wch: 40 },  // Perihal
+      { wch: 30 },  // File Surat
       { wch: 15 },  // Status
       { wch: 20 },  // Manager
     ]
 
     // Merge title row
-    ws['!merges'] = [{ s: { r: 0, c: 0 }, e: { r: 0, c: 8 } }, { s: { r: 1, c: 0 }, e: { r: 1, c: 8 } }]
+    ws['!merges'] = [{ s: { r: 0, c: 0 }, e: { r: 0, c: 9 } }, { s: { r: 1, c: 0 }, e: { r: 1, c: 9 } }]
 
     const wb = XLSX.utils.book_new()
     XLSX.utils.book_append_sheet(wb, ws, 'Rekapitulasi Surat')
@@ -273,6 +280,7 @@ export function SuratRekapitulasi({ suratList, users }: SuratRekapitulasiProps) 
       'Tgl Surat',
       'Pengirim/Penerima',
       'Perihal',
+      'File Surat',
       'Status',
       'Manager',
     ]
@@ -285,6 +293,9 @@ export function SuratRekapitulasi({ suratList, users }: SuratRekapitulasiProps) 
       s.tanggalSurat ? formatDateShort(s.tanggalSurat) : '-',
       s.jenisSurat === 'Surat Masuk' ? (s.pengirim || '-') : (s.penerima || '-'),
       s.perihal.length > 50 ? s.perihal.substring(0, 50) + '...' : s.perihal,
+      (s.documents && s.documents.length > 0)
+        ? s.documents.map((d: any) => d.name || d.originalName || 'Dokumen').join(', ')
+        : '-',
       SURAT_STATUS_CONFIG[s.status]?.label || s.status,
       getManagerName(s.managerId),
     ])
@@ -314,9 +325,10 @@ export function SuratRekapitulasi({ suratList, users }: SuratRekapitulasiProps) 
         3: { cellWidth: 22 },                       // Kategori
         4: { cellWidth: 22 },                       // Tgl Surat
         5: { cellWidth: 40 },                       // Pengirim/Penerima
-        6: { cellWidth: 60 },                       // Perihal
-        7: { cellWidth: 20 },                       // Status
-        8: { cellWidth: 28 },                       // Manager
+        6: { cellWidth: 50 },                       // Perihal
+        7: { cellWidth: 30 },                       // File Surat
+        8: { cellWidth: 20 },                       // Status
+        9: { cellWidth: 28 },                       // Manager
       },
       didDrawPage: (data) => {
         // Footer with page numbers
@@ -561,7 +573,7 @@ export function SuratRekapitulasi({ suratList, users }: SuratRekapitulasiProps) 
             </div>
           ) : (
             <ScrollArea className="max-h-[500px] overflow-y-auto">
-              <div className="min-w-[900px]">
+              <div className="min-w-[1100px]">
                 <table className="w-full text-sm">
                   <thead className="sticky top-0 z-10">
                     <tr className="bg-stone-100 border-b border-stone-200">
@@ -572,6 +584,7 @@ export function SuratRekapitulasi({ suratList, users }: SuratRekapitulasiProps) 
                       <th className="text-left px-4 py-3 text-xs font-semibold text-stone-600 w-32">Tanggal Surat</th>
                       <th className="text-left px-4 py-3 text-xs font-semibold text-stone-600">Pengirim/Penerima</th>
                       <th className="text-left px-4 py-3 text-xs font-semibold text-stone-600">Perihal</th>
+                      <th className="text-left px-4 py-3 text-xs font-semibold text-stone-600">File Surat</th>
                       <th className="text-left px-4 py-3 text-xs font-semibold text-stone-600 w-24">Status</th>
                       <th className="text-left px-4 py-3 text-xs font-semibold text-stone-600 w-32">Manager</th>
                       <th className="text-left px-4 py-3 text-xs font-semibold text-stone-600 w-32">Dibuat</th>
@@ -623,6 +636,27 @@ export function SuratRekapitulasi({ suratList, users }: SuratRekapitulasiProps) 
                             <span className="text-xs text-stone-700 font-medium line-clamp-2" title={s.perihal}>
                               {s.perihal}
                             </span>
+                          </td>
+                          <td className="px-4 py-3">
+                            {s.documents && s.documents.length > 0 ? (
+                              <div className="flex flex-col gap-1">
+                                {s.documents.map((doc: any, docIdx: number) => (
+                                  <a
+                                    key={docIdx}
+                                    href={doc.webViewLink || doc.downloadUrl || '#'}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    className="inline-flex items-center gap-1 text-xs text-emerald-600 hover:text-emerald-800 hover:underline font-medium max-w-[200px]"
+                                    title={doc.name || doc.originalName || 'Dokumen'}
+                                  >
+                                    <Paperclip className="w-3 h-3 shrink-0" />
+                                    <span className="truncate">{doc.name || doc.originalName || `Dokumen ${docIdx + 1}`}</span>
+                                  </a>
+                                ))}
+                              </div>
+                            ) : (
+                              <span className="text-xs text-stone-400 italic">-</span>
+                            )}
                           </td>
                           <td className="px-4 py-3">
                             <Badge variant="outline" className={`text-xs border ${statusBadge.className}`}>
