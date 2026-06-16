@@ -638,21 +638,24 @@ export function SuratRekapitulasi({ suratList, users }: SuratRekapitulasiProps) 
                             </span>
                           </td>
                           <td className="px-4 py-3">
-                            {s.documents && s.documents.length > 0 ? (
+                            {s.documents && Array.isArray(s.documents) && s.documents.filter((doc: any) => doc.webViewLink || doc.driveFileId).length > 0 ? (
                               <div className="flex flex-col gap-1">
-                                {s.documents.map((doc: any, docIdx: number) => (
-                                  <a
-                                    key={docIdx}
-                                    href={doc.webViewLink || doc.downloadUrl || '#'}
-                                    target="_blank"
-                                    rel="noreferrer"
-                                    className="inline-flex items-center gap-1 text-xs text-emerald-600 hover:text-emerald-800 hover:underline font-medium max-w-[200px]"
-                                    title={doc.name || doc.originalName || 'Dokumen'}
-                                  >
-                                    <Paperclip className="w-3 h-3 shrink-0" />
-                                    <span className="truncate">{doc.name || doc.originalName || `Dokumen ${docIdx + 1}`}</span>
-                                  </a>
-                                ))}
+                                {s.documents.filter((doc: any) => doc.webViewLink || doc.driveFileId).map((doc: any, docIdx: number) => {
+                                  const docLink = doc.downloadUrl || doc.webViewLink || `https://drive.google.com/file/d/${doc.driveFileId}/view`
+                                  return (
+                                    <a
+                                      key={docIdx}
+                                      href={docLink}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      className="inline-flex items-center gap-1 text-xs text-emerald-600 hover:text-emerald-800 hover:underline font-medium max-w-[200px]"
+                                      title={doc.name || doc.originalName || 'Dokumen'}
+                                    >
+                                      <Paperclip className="w-3 h-3 shrink-0" />
+                                      <span className="truncate">{doc.name || doc.originalName || `Dokumen ${docIdx + 1}`}</span>
+                                    </a>
+                                  )
+                                })}
                               </div>
                             ) : (
                               <span className="text-xs text-stone-400 italic">-</span>
