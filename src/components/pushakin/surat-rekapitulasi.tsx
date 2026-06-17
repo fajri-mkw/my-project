@@ -638,21 +638,45 @@ export function SuratRekapitulasi({ suratList, users }: SuratRekapitulasiProps) 
                             </span>
                           </td>
                           <td className="px-4 py-3">
-                            {s.documents && Array.isArray(s.documents) && s.documents.filter((doc: any) => doc.webViewLink || doc.driveFileId).length > 0 ? (
+                            {s.documents && Array.isArray(s.documents) && s.documents.length > 0 ? (
                               <div className="flex flex-col gap-1">
-                                {s.documents.filter((doc: any) => doc.webViewLink || doc.driveFileId).map((doc: any, docIdx: number) => {
-                                  const docLink = doc.downloadUrl || doc.webViewLink || `https://drive.google.com/file/d/${doc.driveFileId}/view`
+                                {s.documents.map((doc: any, docIdx: number) => {
+                                  const docName = doc.name || doc.originalName || `Dokumen ${docIdx + 1}`
+                                  // Build a guaranteed-valid, absolute Google Drive VIEW url.
+                                  // Prefer the official webViewLink; fall back to a constructed view
+                                  // url from driveFileId. Only fall back to downloadUrl last (it
+                                  // forces a download rather than opening the viewer).
+                                  const docLink =
+                                    doc.webViewLink ||
+                                    (doc.driveFileId ? `https://drive.google.com/file/d/${doc.driveFileId}/view` : null) ||
+                                    doc.downloadUrl ||
+                                    null
+                                  if (!docLink) {
+                                    // No usable URL — show name as plain text (not a broken link)
+                                    return (
+                                      <span
+                                        key={docIdx}
+                                        className="inline-flex items-center gap-1 text-xs text-stone-400 max-w-[200px]"
+                                        title={`${docName} (tautan tidak tersedia)`}
+                                      >
+                                        <Paperclip className="w-3 h-3 shrink-0" />
+                                        <span className="truncate">{docName}</span>
+                                      </span>
+                                    )
+                                  }
                                   return (
                                     <a
                                       key={docIdx}
                                       href={docLink}
                                       target="_blank"
                                       rel="noopener noreferrer"
-                                      className="inline-flex items-center gap-1 text-xs text-emerald-600 hover:text-emerald-800 hover:underline font-medium max-w-[200px]"
-                                      title={doc.name || doc.originalName || 'Dokumen'}
+                                      draggable={false}
+                                      className="inline-flex items-center gap-1 text-xs text-emerald-600 hover:text-emerald-800 hover:underline font-medium max-w-[220px] cursor-pointer"
+                                      title={`Buka "${docName}" di Google Drive (tab baru)`}
                                     >
                                       <Paperclip className="w-3 h-3 shrink-0" />
-                                      <span className="truncate">{doc.name || doc.originalName || `Dokumen ${docIdx + 1}`}</span>
+                                      <span className="truncate">{docName}</span>
+                                      <ExternalLink className="w-3 h-3 shrink-0 opacity-60" />
                                     </a>
                                   )
                                 })}
