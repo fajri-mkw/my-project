@@ -1735,14 +1735,16 @@ Pushakin Flows — Sistem Manajemen Produksi`
                             Belum ada petugas yang ditugaskan pada proyek ini
                           </p>
                         ) : (
-                          <div className="space-y-0">
+                          <div className="space-y-0 min-w-0">
                             {/* Table header */}
-                            <div className="grid grid-cols-[1fr_40px_40px] sm:grid-cols-[1fr_48px_48px] gap-1 sm:gap-2 px-2 sm:px-3 py-1.5 text-[9px] sm:text-[10px] font-bold text-stone-400 uppercase tracking-wider border-b border-stone-100">
+                            <div className="grid grid-cols-[1fr_36px_36px] sm:grid-cols-[1fr_44px_44px] gap-1 sm:gap-2 px-2 sm:px-3 py-1.5 text-[9px] sm:text-[10px] font-bold text-stone-400 uppercase tracking-wider border-b border-stone-100">
                               <span>Petugas</span>
                               <span className="text-center" title="Download">DL</span>
                               <span className="text-center" title="Upload">UL</span>
                             </div>
-                            <ScrollArea className="max-h-36 sm:max-h-48">
+                            {/* Native scroll container — avoids Radix ScrollArea reserving
+                                scrollbar width which clipped the UL (Upload) checkbox column. */}
+                            <div className="max-h-36 sm:max-h-48 overflow-y-auto overflow-x-hidden pr-1 -mr-1 [scrollbar-width:thin]">
                               {teamMembers.map(task => {
                                 const userId = task.assignedTo!
                                 const userName = getUserDetails(userId).name
@@ -1754,7 +1756,7 @@ Pushakin Flows — Sistem Manajemen Produksi`
                                   <div
                                     key={userId}
                                     className={cn(
-                                      "grid grid-cols-[1fr_40px_40px] sm:grid-cols-[1fr_48px_48px] gap-1 sm:gap-2 px-2 sm:px-3 py-1.5 sm:py-2 items-center text-sm border-b border-stone-50 last:border-b-0 hover:bg-white/60 transition-colors",
+                                      "grid grid-cols-[1fr_36px_36px] sm:grid-cols-[1fr_44px_44px] gap-1 sm:gap-2 px-2 sm:px-3 py-1.5 sm:py-2 items-center text-sm border-b border-stone-50 last:border-b-0 hover:bg-white/60 transition-colors min-w-0",
                                       (dl || ul) && "bg-emerald-50/30"
                                     )}
                                   >
@@ -1778,7 +1780,7 @@ Pushakin Flows — Sistem Manajemen Produksi`
                                   </div>
                                 )
                               })}
-                            </ScrollArea>
+                            </div>
                             {!hasUsersWithAccess && (
                               <p className="text-[9px] sm:text-[10px] text-stone-400 italic text-center py-1.5 sm:py-2">
                                 Belum ada petugas ditambahkan — centang DL/UL untuk memberi akses
