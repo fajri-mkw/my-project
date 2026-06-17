@@ -1654,7 +1654,7 @@ Pushakin Flows — Sistem Manajemen Produksi`
 
       {/* Edit Drive Modal */}
       <Dialog open={isEditDriveOpen} onOpenChange={setIsEditDriveOpen}>
-        <DialogContent className="max-w-2xl w-[calc(100%-1rem)] sm:w-full h-[90dvh] flex flex-col overflow-hidden p-0 gap-0">
+        <DialogContent className="max-w-2xl w-[calc(100%-1rem)] sm:w-full max-h-[90dvh] flex flex-col overflow-hidden p-0 gap-0">
           <DialogHeader className="px-4 sm:px-6 pt-5 sm:pt-6 pb-3 flex-shrink-0">
             <DialogTitle className="text-base sm:text-lg">Manajemen Workspace Drive</DialogTitle>
             <DialogDescription className="text-xs sm:text-sm">
@@ -1662,7 +1662,7 @@ Pushakin Flows — Sistem Manajemen Produksi`
             </DialogDescription>
           </DialogHeader>
           <form onSubmit={handleSaveDriveLinks} className="flex flex-col flex-1 min-h-0">
-            <ScrollArea className="flex-1 min-h-0 px-4 sm:px-6">
+            <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden custom-scrollbar px-4 sm:px-6">
               <div className="pb-4">
               {project.driveFolders.length === 0 ? (
                 <div className="py-8 text-center">
@@ -1744,7 +1744,7 @@ Pushakin Flows — Sistem Manajemen Produksi`
                             </div>
                             {/* Native scroll container — avoids Radix ScrollArea reserving
                                 scrollbar width which clipped the UL (Upload) checkbox column. */}
-                            <div className="max-h-36 sm:max-h-48 overflow-y-auto overflow-x-hidden pr-1 -mr-1 [scrollbar-width:thin]">
+                            <div className="max-h-36 sm:max-h-48 overflow-y-auto overflow-x-hidden pr-1 -mr-1 custom-scrollbar">
                               {teamMembers.map(task => {
                                 const userId = task.assignedTo!
                                 const userName = getUserDetails(userId).name
@@ -1796,7 +1796,7 @@ Pushakin Flows — Sistem Manajemen Produksi`
               </>
               )}
               </div>
-            </ScrollArea>
+            </div>
             <DialogFooter className="flex-shrink-0 px-4 sm:px-6 py-3 sm:py-4 border-t border-stone-100 bg-white gap-2">
               <Button type="button" variant="ghost" onClick={() => setIsEditDriveOpen(false)} className="text-xs sm:text-sm">
                 Batal
