@@ -3,9 +3,9 @@
 import { Button } from '@/components/ui/button'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { useAppStore } from '@/lib/store'
-import { 
-  UserCircle, 
-  Users, 
+import {
+  UserCircle,
+  Users,
   LogOut,
   PlayCircle,
   BarChart2,
@@ -21,6 +21,7 @@ import {
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { getRoleDisplayName } from '@/lib/store'
+import { useRouter } from 'next/navigation'
 
 interface SidebarProps {
   isOpen?: boolean
@@ -28,8 +29,14 @@ interface SidebarProps {
   onClose?: () => void
 }
 
+// Build a shareable URL for a given view (enables right-click "Open in new tab")
+function viewUrl(viewId: string): string {
+  return `/?view=${viewId}`
+}
+
 export function Sidebar({ isOpen = false, onNavigate, onClose }: SidebarProps) {
   const { currentUser, activeView, setActiveView, setCurrentUser, projects, suratTugas, isImpersonating, originalUser, stopImpersonate } = useAppStore()
+  const router = useRouter()
   const completedCount = projects.filter(p => p.currentStage === 6).length
   const unreadSuratCount = currentUser ? suratTugas.filter(s => s.userId === currentUser.id && !s.read).length : 0
 
@@ -57,8 +64,23 @@ export function Sidebar({ isOpen = false, onNavigate, onClose }: SidebarProps) {
     ...(canManageUsers || showReviewerSettings ? [{ id: 'settings', label: 'Pengaturan', icon: Settings }] : []),
   ]
 
-  const handleMenuClick = (viewId: string) => {
+  // SPA click handler — only intercepts plain left-clicks.
+  // Right-click / middle-click / Ctrl+click / Cmd+click fall through to the
+  // browser, which opens the real href in a new tab/window as users expect.
+  const handleMenuClick = (e: React.MouseEvent<HTMLAnchorElement>, viewId: string) => {
+    // Let the browser handle modifier keys and non-primary buttons (new tab, new window, context menu)
+    if (
+      e.button !== 0 ||           // not a primary (left) click
+      e.metaKey || e.ctrlKey ||   // Cmd/Ctrl+click = open in new tab
+      e.shiftKey ||               // Shift+click = open in new window
+      e.altKey                    // Alt+click = download
+    ) {
+      return // browser will follow the href naturally
+    }
+    e.preventDefault()
     setActiveView(viewId as 'dashboard' | 'overview' | 'reports' | 'profile' | 'users' | 'settings' | 'inbox' | 'announcements' | 'permohonan' | 'surat' | 'kegiatan')
+    // Keep URL in sync (so address bar reflects current view)
+    router.push(viewUrl(viewId), { scroll: false })
     onNavigate?.(viewId)
   }
 
@@ -100,25 +122,32 @@ export function Sidebar({ isOpen = false, onNavigate, onClose }: SidebarProps) {
         <nav className="space-y-1">
           {menuItems.map((item) => {
             const Icon = item.icon
+            const isActive = activeView === item.id
             return (
               <Button
                 key={item.id}
                 variant="ghost"
+                asChild
                 className={cn(
                   "w-full justify-start gap-3 px-4 py-3 rounded-xl transition-all",
-                  activeView === item.id 
-                    ? "bg-gradient-to-r from-violet-600 to-purple-700 text-white shadow-md shadow-violet-900/30 hover:from-violet-600 hover:to-purple-700 hover:text-white" 
+                  isActive
+                    ? "bg-gradient-to-r from-violet-600 to-purple-700 text-white shadow-md shadow-violet-900/30 hover:from-violet-600 hover:to-purple-700 hover:text-white"
                     : "hover:bg-slate-800/80 hover:text-stone-100"
                 )}
-                onClick={() => handleMenuClick(item.id)}
               >
-                <Icon className="w-5 h-5" />
-                <span className="font-medium">{item.label}</span>
-                {item.badge && (
-                  <span className="ml-auto bg-orange-500 text-white text-[10px] font-bold px-2 py-0.5 rounded-full shadow-sm">
-                    {item.badge}
-                  </span>
-                )}
+                <a
+                  href={viewUrl(item.id)}
+                  onClick={(e) => handleMenuClick(e, item.id)}
+                  aria-current={isActive ? 'page' : undefined}
+                >
+                  <Icon className="w-5 h-5" />
+                  <span className="font-medium">{item.label}</span>
+                  {item.badge && (
+                    <span className="ml-auto bg-orange-500 text-white text-[10px] font-bold px-2 py-0.5 rounded-full shadow-sm">
+                      {item.badge}
+                    </span>
+                  )}
+                </a>
               </Button>
             )
           })}

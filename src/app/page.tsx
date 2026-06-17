@@ -1,7 +1,7 @@
 'use client'
 
 import { Suspense, useEffect, useState, useCallback, useRef } from 'react'
-import { useSearchParams } from 'next/navigation'
+import { useSearchParams, useRouter, usePathname } from 'next/navigation'
 import dynamic from 'next/dynamic'
 import { useAppStore, type User } from '@/lib/store'
 import { Sidebar } from '@/components/pushakin/sidebar'
@@ -189,7 +189,16 @@ function AppContent() {
   const setActiveView = useAppStore(state => state.setActiveView)
 
   const searchParams = useSearchParams()
+  const router = useRouter()
+  const pathname = usePathname()
   const isPublicView = searchParams.get('public') === 'tracker'
+
+  // Valid app views that can be addressed via ?view=xxx
+  // (excludes 'login', 'create', 'project_detail' which are reached via in-app actions)
+  const validUrlViews = [
+    'dashboard', 'overview', 'surat', 'kegiatan', 'inbox',
+    'announcements', 'reports', 'profile', 'users', 'settings'
+  ] as const
 
   const [isLoading, setIsLoading] = useState(true)
   const [isHydrating, setIsHydrating] = useState(true)
@@ -247,6 +256,43 @@ function AppContent() {
     localStorage.removeItem('adminMaintenanceAccess')
     setAdminMaintenanceAccess(false)
   }, [])
+
+  // === URL <-> activeView sync (enables right-click "Open in new tab") ===
+  // Direction 1: URL ?view=xxx -> store (on load / back-forward / new tab)
+  useEffect(() => {
+    const urlView = searchParams.get('view')
+    if (!urlView) return
+    if ((validUrlViews as readonly string[]).includes(urlView)) {
+      const current = useAppStore.getState().activeView
+      if (current !== urlView) {
+        setActiveView(urlView as typeof current)
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams])
+
+  // Direction 2: store activeView -> URL (so the address bar reflects the view,
+  // enabling shareable URLs and correct behavior on refresh / new tab)
+  useEffect(() => {
+    if (!currentUser) return
+    const current = activeView
+    const urlView = searchParams.get('view')
+    // Only sync URL-addressable views to the URL
+    if ((validUrlViews as readonly string[]).includes(current)) {
+      if (urlView !== current) {
+        const params = new URLSearchParams(searchParams.toString())
+        params.set('view', current)
+        router.replace(`${pathname}?${params.toString()}`, { scroll: false })
+      }
+    } else if (urlView) {
+      // Non-addressable view (create/project_detail/login): drop the ?view param
+      const params = new URLSearchParams(searchParams.toString())
+      params.delete('view')
+      const qs = params.toString()
+      router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false })
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeView, currentUser])
 
   // Fetch maintenance status (consolidated with longer interval)
   const fetchMaintenanceStatus = useCallback(async () => {

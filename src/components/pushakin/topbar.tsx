@@ -14,6 +14,7 @@ import { ScrollArea } from '@/components/ui/scroll-area'
 import { useAppStore, getRoleDisplayName } from '@/lib/store'
 import { Bell, LogOut, ShieldAlert, Menu, Inbox } from 'lucide-react'
 import { useMemo } from 'react'
+import { useRouter } from 'next/navigation'
 
 interface TopbarProps {
   onToggleSidebar?: () => void
@@ -21,6 +22,7 @@ interface TopbarProps {
 
 export function Topbar({ onToggleSidebar }: TopbarProps) {
   const { activeView, currentUser, notifications, suratTugas, markNotifRead, setSelectedProjectId, setActiveView, isImpersonating, originalUser, stopImpersonate } = useAppStore()
+  const router = useRouter()
 
   const myNotifications = useMemo(() => 
     notifications.filter(n => n.userId === currentUser?.id),
@@ -115,19 +117,30 @@ export function Topbar({ onToggleSidebar }: TopbarProps) {
 
         <div className="flex items-center gap-2 sm:gap-4 shrink-0">
           {/* Inbox button with unread surat tugas count */}
-          <Button 
-            variant="outline" 
-            size="icon" 
+          <Button
+            variant="outline"
+            size="icon"
+            asChild
             className="relative rounded-full hover:border-orange-300 hover:bg-orange-50"
-            onClick={() => setActiveView('inbox')}
             title="Inbox — Surat Tugas"
           >
-            <Inbox className="w-5 h-5 text-slate-600" />
-            {unreadSuratCount > 0 && (
-              <span className="absolute -top-1 -right-1 min-w-[16px] h-4 bg-orange-500 rounded-full border-2 border-white text-[10px] font-bold text-white flex items-center justify-center px-1">
-                {unreadSuratCount > 9 ? '9+' : unreadSuratCount}
-              </span>
-            )}
+            <a
+              href="/?view=inbox"
+              onClick={(e) => {
+                // Let the browser handle modifier keys / non-primary buttons (new tab, new window)
+                if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return
+                e.preventDefault()
+                setActiveView('inbox')
+                router.push('/?view=inbox', { scroll: false })
+              }}
+            >
+              <Inbox className="w-5 h-5 text-slate-600" />
+              {unreadSuratCount > 0 && (
+                <span className="absolute -top-1 -right-1 min-w-[16px] h-4 bg-orange-500 rounded-full border-2 border-white text-[10px] font-bold text-white flex items-center justify-center px-1">
+                  {unreadSuratCount > 9 ? '9+' : unreadSuratCount}
+                </span>
+              )}
+            </a>
           </Button>
           
           {/* Notifications bell */}
