@@ -630,9 +630,10 @@ Seluruh staff melihat dashboard, statistik, dan inbox yang sama:
 1. Manager melengkapi detail proyek
 2. Memilih anggota tim untuk setiap peran yang dibutuhkan
 3. Sistem otomatis membuat:
-   - Folder Workspace Drive (PRODUKSI, PASCA PRODUKSI, FINAL, DESAIN, LAINNYA)
+   - Folder Workspace Drive (PRODUKSI & PASCA PRODUKSI sudah tercentang otomatis; tambahan DESAIN dan ADDITIONAL ASSET opsional)
    - Surat Tugas untuk setiap anggota tim
    - Task sesuai peran dan tahapan
+   - Akses Download/Upload tiap petugas diisi otomatis sesuai tahapan kerja
 4. Manager mengupload dokumen pendukung (laporan kegiatan)
 
 ### **Tahap 1 - Produksi**
@@ -670,7 +671,7 @@ Seluruh staff melihat dashboard, statistik, dan inbox yang sama:
 
 ### **Tahap 5 - Publikasi**
 1. Publisher menerima notifikasi
-2. Publisher mendownload file final dari folder FINAL
+2. Publisher mendownload file final dari folder PASCA PRODUKSI (saat file tugas diteruskan oleh Reviewer)
 3. Publisher mempublikasikan ke platform yang ditentukan
 4. Publisher menambahkan tautan publish di task card
 5. Klik **"Selesai"** pada task card
@@ -681,15 +682,24 @@ Seluruh staff melihat dashboard, statistik, dan inbox yang sama:
 # 4. Panduan Workspace Drive
 
 ## 4.1 Struktur Folder
-Setiap proyek memiliki 5 folder standar:
+Setiap proyek memiliki 4 pilihan folder (PRODUKSI & PASCA PRODUKSI tercentang otomatis saat inisiasi):
 
-- **PRODUKSI**: File mentah dari tim produksi (Tahap 1)
-- **PASCA PRODUKSI**: File hasil editing (Tahap 2-4)
-- **FINAL PRODUCT**: File siap publikasi (Tahap 5)
-- **DESAIN FOLDER**: Aset desain grafis
-- **LAINNYA**: Folder tambahan untuk kebutuhan logistik
+- **PRODUKSI (Berkas Mentah)**: File mentah dari tim produksi (Tahap 1)
+- **PASCA PRODUKSI (Draft & Editing)**: File hasil editing (Tahap 2-5)
+- **DESAIN FOLDER (Aset Visual)**: Aset desain grafis (opsional)
+- **Additional Asset (Tambahan Foto/Footage)**: Folder kustom tambahan selain file kebutuhan output utama (opsional)
 
-## 4.2 Aturan Upload
+> Catatan: Folder FINAL PRODUCT (Siap Publish) sudah tidak digunakan. File siap publikasi kini diambil langsung dari folder PASCA PRODUKSI oleh Publisher.
+
+## 4.2 Aturan Akses Otomatis
+Saat proyek dibuat, sistem mengisi hak akses Download (DL) / Upload (UL) otomatis sesuai tahapan kerja, agar Manager tidak perlu menentukan satu per satu:
+
+- **PRODUKSI**: Tahap 1 (Upload), Tahap 2 (Download)
+- **PASCA PRODUKSI**: Tahap 2 (Upload), Tahap 3/4/5 (Download — saat file tugas diteruskan oleh Reviewer)
+
+Manager tetap dapat menyesuaikan akses secara manual di form pembuatan proyek.
+
+## 4.3 Aturan Upload
 - **Hanya upload file melalui Tugas Anda** di halaman detail proyek
 - **JANGAN** upload langsung ke Google Drive
 - Pastikan format file sesuai kebutuhan (JPG, PNG, MP4, MP3, PDF, dll)

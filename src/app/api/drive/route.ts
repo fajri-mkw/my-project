@@ -419,9 +419,8 @@ export async function POST(request: NextRequest) {
     const folderNames: Record<string, string> = {
       raw: '1. PRODUKSI (Berkas Mentah)',
       revised: '2. PASCA PRODUKSI (Draft & Editing)',
-      final: '3. FINAL PRODUCT (Siap Publish)',
-      desain: '4. DESAIN FOLDER (Aset Visual)',
-      lainnya: '5. LAINNYA (Folder Tambahan)'
+      desain: '3. DESAIN FOLDER (Aset Visual)',
+      lainnya: '4. Additional Asset (Tambahan Foto/Footage)'
     }
     
     const createdFolders: CreatedFolder[] = []

@@ -362,8 +362,8 @@ function buildContent() {
   content.push(heading("5.2.2  Konfigurasi Workspace Drive", HeadingLevel.HEADING_3));
   content.push(para("Manager mengatur folder kerja untuk setiap proyek:"));
   content.push(...numberedItem(1, [
-    "Pilih folder yang diperlukan (default: PRODUKSI, PASCA PRODUKSI, FINAL PRODUCT).",
-    "Tentukan hak akses Download (DL) dan Upload (UL) untuk setiap anggota tim per folder.",
+    "Folder PRODUKSI dan PASCA PRODUKSI sudah tercentang otomatis saat inisiasi. Folder DESAIN dan ADDITIONAL ASSET bersifat opsional.",
+    "Hak akses Download (DL) dan Upload (UL) setiap petugas diisi otomatis sesuai tahapan kerja: PRODUKSI (Tahap 1 Upload, Tahap 2 Download); PASCA PRODUKSI (Tahap 2 Upload, Tahap 3-5 Download). Manager tetap dapat menyesuaikan manual.",
     "Anggota tim yang mendapat akses Upload akan otomatis dibuatkan subfolder pribadi.",
     "Klik Simpan untuk membuat proyek. Sistem otomatis membuat folder di Google Drive dan mengirim Surat Tugas ke seluruh tim.",
   ]));
@@ -421,8 +421,8 @@ function buildContent() {
     "Podcast Operator (Tahap 2): Tempel link YouTube podcast, centang Selesai.",
     "Reviewer (Tahap 3): Periksa seluruh konten hasil Pasca Produksi. Jika layak, klik Setujui untuk meneruskan ke Finalization. Jika perlu perbaikan, klik Tolak dengan alasan.",
     "Editor Template Sosial Media (Tahap 4): Download foto yang sudah direview dari folder PASCA PRODUKSI, buat template media sosial, upload hasilnya, centang Selesai.",
-    "Publisher Web (Tahap 5): Download dari FINAL PRODUCT, publikasikan ke Website, tambahkan tautan, centang Selesai.",
-    "Publisher Social Media (Tahap 5): Download dari FINAL PRODUCT, publikasikan ke media sosial, tambahkan tautan, centang Selesai.",
+    "Publisher Web (Tahap 5): Download file final dari folder PASCA PRODUKSI (saat file tugas diteruskan oleh Reviewer), publikasikan ke Website, tambahkan tautan, centang Selesai.",
+    "Publisher Social Media (Tahap 5): Download file final dari folder PASCA PRODUKSI (saat file tugas diteruskan oleh Reviewer), publikasikan ke media sosial, tambahkan tautan, centang Selesai.",
   ]));
 
   content.push(heading("6.4  Membaca Surat Tugas", HeadingLevel.HEADING_2));
@@ -443,13 +443,13 @@ function buildContent() {
   content.push(makeTable(
     ["No", "Folder", "Fungsi", "Pengguna Utama"],
     [
-      ["1", "PRODUKSI (Berkas Mentah)", "Upload materi mentah: teks, foto mentah, video mentah, file desain", "Reporter, Fotografer, Videografer, Desainer"],
-      ["2", "PASCA PRODUKSI (Draft & Editing)", "Upload hasil edit dan draft konten", "Editor, Reviewer, Publisher"],
-      ["3", "FINAL PRODUCT (Siap Publish)", "File hasil akhir yang siap dipublikasikan", "Publisher Web, Publisher Sosmed"],
-      ["4", "DESAIN FOLDER (Aset Visual)", "Penyimpanan file project desain", "Graphic Designer"],
-      ["5", "LAINNYA (Folder Tambahan)", "Folder kustom untuk kebutuhan logistik", "Sesuai kebutuhan"],
+      ["1", "PRODUKSI (Berkas Mentah)", "Upload materi mentah: teks, foto mentah, video mentah, file desain", "Tahap 1 (Upload), Tahap 2 (Download)"],
+      ["2", "PASCA PRODUKSI (Draft & Editing)", "Upload hasil edit dan draft konten; file siap publikasi juga diambil dari sini oleh Publisher", "Tahap 2 (Upload), Tahap 3-5 (Download)"],
+      ["3", "DESAIN FOLDER (Aset Visual)", "Penyimpanan file project desain (opsional)", "Graphic Designer"],
+      ["4", "Additional Asset (Tambahan Foto/Footage)", "Folder kustom tambahan selain file kebutuhan output utama (opsional)", "Sesuai kebutuhan"],
     ]
   ));
+  content.push(para("Catatan: Folder FINAL PRODUCT (Siap Publish) sudah tidak digunakan. File siap publikasi kini diambil langsung dari folder PASCA PRODUKSI oleh Publisher."));
 
   content.push(heading("7.2  Aturan Upload File", HeadingLevel.HEADING_2));
   content.push(...bullet([

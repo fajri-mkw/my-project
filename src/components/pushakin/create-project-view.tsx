@@ -9,7 +9,7 @@ import { Checkbox } from '@/components/ui/checkbox'
 import { Badge } from '@/components/ui/badge'
 import { Switch } from '@/components/ui/switch'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { useAppStore, ROLES, ROLE_CONFIG, FOLDER_OPTIONS, STAGES, getRoleDisplayName } from '@/lib/store'
+import { useAppStore, ROLES, ROLE_CONFIG, FOLDER_OPTIONS, FOLDER_ACCESS_DEFAULTS, STAGES, getRoleDisplayName } from '@/lib/store'
 import { 
   Rocket, 
   Users, 
@@ -46,8 +46,11 @@ export function CreateProjectView() {
   const [picName, setPicName] = useState('')
   const [picWhatsApp, setPicWhatsApp] = useState('')
   const [selectedUsers, setSelectedUsers] = useState<Record<string, string[]>>({}) // role → list of selected user IDs
-  const [selectedFolders, setSelectedFolders] = useState(['raw', 'revised', 'final'])
+  const [selectedFolders, setSelectedFolders] = useState(['raw', 'revised'])
   const [folderRoles, setFolderRoles] = useState<Record<string, string[]>>({})
+  // Track roles the manager explicitly removed from a folder, so the auto-assign
+  // effect does not re-add them. Entries are `${folderId}:${role}` strings.
+  const [manualRoleRemovals, setManualRoleRemovals] = useState<Set<string>>(new Set())
   const [jenisKegiatan, setJenisKegiatan] = useState<string[]>([])
   const [kebutuhanOutput, setKebutuhanOutput] = useState<string[]>([])
   const [kegiatanLainnya, setKegiatanLainnya] = useState('')
@@ -298,11 +301,16 @@ export function CreateProjectView() {
   }
 
   const toggleRoleForFolder = (folderId: string, role: string) => {
+    const key = `${folderId}:${role}`
     setFolderRoles(prev => {
       const currentRoles = prev[folderId] || []
       if (currentRoles.includes(role)) {
+        // Manager explicitly removed this role — remember so auto-assign won't re-add it
+        setManualRoleRemovals(s => { const n = new Set(s); n.add(key); return n })
         return { ...prev, [folderId]: currentRoles.filter(r => r !== role) }
       } else {
+        // Manager explicitly added this role back — clear the manual-removal flag
+        setManualRoleRemovals(s => { const n = new Set(s); n.delete(key); return n })
         return { ...prev, [folderId]: [...currentRoles, role] }
       }
     })
@@ -960,12 +968,20 @@ export function CreateProjectView() {
         // ONLY initialize for roles that are explicitly in folderRoles[folderId]
         // AND only for users that are explicitly selected for that role
         const assignedRolesForFolder = folderRoles[folderId] || []
+        const folderDefaults = FOLDER_ACCESS_DEFAULTS[folderId] // undefined for non-workflow folders
         assignedRolesForFolder.forEach(role => {
           const selectedUserIds = selectedUsers[role] || []
           selectedUserIds.forEach(userId => {
             // Only set default if this user doesn't already have an entry for this folder
             if (!updated[folderId][userId]) {
-              updated[folderId][userId] = { download: true, upload: true }
+              // For workflow folders (PRODUKSI / PASCA PRODUKSI), derive DL/UL from
+              // the user's role stage using the stage-based access policy.
+              const user = users.find(u => u.id === userId)
+              const stage = user ? ROLE_CONFIG[user.role]?.stage : undefined
+              const mapped = stage != null && folderDefaults ? folderDefaults[stage] : undefined
+              updated[folderId][userId] = mapped
+                ? { download: mapped.download, upload: mapped.upload }
+                : { download: true, upload: true }
             }
           })
         })
@@ -1007,6 +1023,59 @@ export function CreateProjectView() {
       return updated
     })
   }, [selectedFolders, JSON.stringify(selectedUsers), users.length, JSON.stringify(folderRoles)]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Auto-assign default folder access when a project is initiated.
+  // For workflow folders (PRODUKSI / PASCA PRODUKSI) defined in FOLDER_ACCESS_DEFAULTS,
+  // automatically add every role whose stage has an access policy — but only for roles
+  // that currently have at least one selected user, and never re-add a role the manager
+  // explicitly removed (tracked in manualRoleRemovals).
+  useEffect(() => {
+    setFolderRoles(prev => {
+      const updated = { ...prev }
+      let changed = false
+
+      selectedFolders.forEach(folderId => {
+        const defaults = FOLDER_ACCESS_DEFAULTS[folderId]
+        if (!defaults) return // only PRODUKSI / PASCA PRODUKSI auto-assign roles
+
+        const allowedStages = Object.keys(defaults).map(Number)
+        const current = updated[folderId] || []
+
+        // Determine which roles should be auto-added: roles whose stage is in the
+        // policy AND that have at least one selected user AND that the manager has
+        // not explicitly removed.
+        const rolesToHave = ROLES.filter(role => {
+          const stage = ROLE_CONFIG[role]?.stage
+          if (stage == null || !allowedStages.includes(stage)) return false
+          if ((selectedUsers[role] || []).length === 0) return false
+          if (manualRoleRemovals.has(`${folderId}:${role}`)) return false
+          return true
+        }) as string[]
+
+        const merged = Array.from(new Set([...current, ...rolesToHave]))
+        if (merged.length !== current.length) {
+          updated[folderId] = merged
+          changed = true
+        }
+      })
+
+      return changed ? updated : prev
+    })
+  }, [selectedFolders, JSON.stringify(selectedUsers), manualRoleRemovals]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Clean up manualRoleRemovals entries for folders that are no longer selected,
+  // so re-selecting a folder starts with a clean auto-assign state.
+  useEffect(() => {
+    setManualRoleRemovals(prev => {
+      if (prev.size === 0) return prev
+      const next = new Set<string>()
+      prev.forEach(key => {
+        const [folderId] = key.split(':')
+        if (selectedFolders.includes(folderId)) next.add(key)
+      })
+      return next.size === prev.size ? prev : next
+    })
+  }, [selectedFolders])
 
   return (
     <Card className="max-w-4xl mx-auto overflow-hidden">
@@ -1805,8 +1874,11 @@ export function CreateProjectView() {
                 <span className="font-medium"> Aktifkan di menu Pengaturan.</span>
               </p>
             )}
-            <p className="text-sm text-indigo-700/80 mb-4 ml-8">
-              Pilih struktur folder dan tentukan user mana saja yang memiliki akses:
+            <p className="text-sm text-indigo-700/80 mb-2 ml-8">
+              Pilih struktur folder dan tentukan user mana saja yang memiliki akses.
+            </p>
+            <p className="text-xs text-indigo-600/70 mb-4 ml-8">
+              ✅ Folder <span className="font-semibold">PRODUKSI</span> &amp; <span className="font-semibold">PASCA PRODUKSI</span> sudah tercentang otomatis. Akses Download/Upload setiap petugas juga diisi otomatis sesuai tahapan kerjanya — Manager tetap dapat menyesuaikan manual.
             </p>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 ml-8">
               {FOLDER_OPTIONS.map(folder => {
@@ -1832,6 +1904,12 @@ export function CreateProjectView() {
                         </div>
                         <div className="text-sm font-bold text-stone-800">{folder.name}</div>
                         <div className="text-xs text-stone-500 mt-1">{folder.desc}</div>
+                        {folder.accessHint && (
+                          <div className="mt-1.5 inline-flex items-center gap-1 text-[10px] font-semibold text-indigo-600 bg-indigo-50 border border-indigo-100 rounded-full px-2 py-0.5">
+                            <span aria-hidden>🔒</span>
+                            <span>Akses otomatis: {folder.accessHint}</span>
+                          </div>
+                        )}
                       </div>
                     </label>
 
