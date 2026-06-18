@@ -516,11 +516,15 @@ Pushakin Flows — Sistem Manajemen Produksi`
   }
 
   const visibleFolders = project.driveFolders.filter(folder => {
-    // All users (including Super Admin): only show folders assigned by Manager
+    // Super Admin & Manager: full access to ALL folders (Mode Override / Bypass Tahap)
+    // — no need for DL/UL checkboxes to be assigned to themselves
+    if (canManageProject) return true
+
+    // All other users: only show folders assigned by Manager
     const myId = currentUser?.id || ''
     const myRole = currentUser?.role || ''
     // Detect subfolders (parentFolderId or folderId pattern)
-    const isSub = folder.parentFolderId || 
+    const isSub = folder.parentFolderId ||
       (folder.folderId.includes('-') && ['raw', 'revised', 'final', 'desain', 'lainnya'].some(b => folder.folderId.startsWith(b + '-')))
     if (isSub) {
       // Check assignedUsers first (most precise) — match by userId
@@ -1854,7 +1858,8 @@ function TaskCard({
   // Manager centang DL → user bisa download (buka) folder tersebut
   // Manager centang UL → user bisa upload ke folder tersebut
   // Tidak ada hardcode tahap — semua bergantung pada checkbox manager
-  // Super Admin: folder access mengikuti aturan yang sama, tidak ada override
+  // Super Admin & Manager: akses penuh ke SEMUA folder (Mode Override / Bypass Tahap)
+  // — tidak perlu centang DL/UL untuk diri sendiri
 
   // Shared helper: apakah folder ini adalah subfolder (bukan parent folder utama)
   const isSub = (f: DriveFolder) => {
@@ -1879,9 +1884,14 @@ function TaskCard({
   }
 
   // Download: tampilkan PARENT FOLDER yang manager centang DL untuk user ini
-  // Semua user termasuk Super Admin mengikuti aturan yang sama
+  // Super Admin & Manager: akses penuh ke semua parent folder (Mode Override)
   const getDownloadFolders = () => {
     const myId = currentUser?.id || ''
+
+    // Super Admin / Manager override — full access to all parent folders
+    if (canManageProject) {
+      return visibleFolders.filter(f => !isSub(f))
+    }
 
     return visibleFolders.filter(f => {
       if (isSub(f)) return false // Download = parent folder saja
@@ -1893,9 +1903,14 @@ function TaskCard({
   // Upload: tampilkan OUTPUT SUBFOLDERS milik user (Foto/, Video/, dll.)
   // Jika tidak ada output subfolder, tampilkan user subfolder
   // Jika tidak ada user subfolder, fallback ke parent folder yang manager centang UL
-  // Semua user termasuk Super Admin mengikuti aturan yang sama
+  // Super Admin & Manager: akses penuh ke semua parent folder (Mode Override)
   const getUploadFolders = () => {
     const myUserId = currentUser?.id || ''
+
+    // Super Admin / Manager override — full access to all parent folders as upload destinations
+    if (canManageProject) {
+      return visibleFolders.filter(f => !isSub(f))
+    }
 
     // 1. Cari output subfolders (Foto/, Video/, dll.) milik user ini
     const myOutputSubs = visibleFolders.filter(f => {
