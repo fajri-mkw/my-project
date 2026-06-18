@@ -1851,7 +1851,7 @@ interface TaskCardProps {
   setInputValue: (v: string) => void
   isVerified: boolean
   setIsVerified: (v: boolean) => void
-  onComplete: (taskId: string, taskData: { link?: string; notes?: string; publishLinks?: PublishLink[] }) => void
+  onComplete: (taskId: string, taskData: { link?: string; notes?: string; publishLinks?: PublishLink[] }) => Promise<void> | void
   onReject: () => void
   onRevision: (taskId: string) => void
   onCancelRevision: () => void
@@ -1870,11 +1870,29 @@ function TaskCard({
   isVerified, setIsVerified, onComplete, onReject, onRevision, onCancelRevision, isRevising,
   visibleFolders, publishLinks, onAddPublishLink, onRemovePublishLink, onUpdatePublishLink, onFileUploaded
 }: TaskCardProps) {
+  // Hooks must run before any early return (Rules of Hooks).
+  // uploadedFilesCount: tracks how many files the worker has uploaded in this session.
+  // Initialized lazily: if inputValue already holds a Drive link (from a prior upload
+  // in the same session that survived a TaskCard remount), start at 1 so the worker
+  // is not forced to re-upload.
+  const [uploadedFilesCount, setUploadedFilesCount] = useState<number>(() =>
+    inputValue && /drive\.google\.com/i.test(inputValue) ? 1 : 0
+  )
+  // isSubmitting: tracks whether the "Selesaikan & Serahkan" / approve / revise
+  // action is currently in flight, so we can show a spinner on the button.
+  const [isSubmitting, setIsSubmitting] = useState(false)
+
   if (!config) return null
 
   const needsLink = ['paste_streaming', 'paste_youtube', 'download_link'].includes(config.type)
   const isReview = config.type === 'review'
   const isPublisherTask = config.type === 'download_link'
+  // Task types where the worker's deliverable IS the uploaded file. For these,
+  // the worker must upload at least one file before they can complete the task.
+  const requiresFileUpload = ['upload', 'download_upload'].includes(config.type)
+  // Admin/Manager override mode: force-completing a task on behalf of someone else.
+  // Overrides do not need to upload files themselves.
+  const isOverriding = canManageProject && !isAssignedToMe
   // Super Admin / Manager: show both download AND upload sections for full override access
   const showDownloadSection = canManageProject || ['download_upload', 'download_link', 'review', 'paste_streaming', 'paste_youtube'].includes(config.type)
   const showUploadSection = canManageProject || ['upload', 'download_upload', 'review'].includes(config.type)
@@ -2009,13 +2027,28 @@ function TaskCard({
     })
   }
 
-  const handleComplete = () => {
-    if (isPublisherTask) {
-      // For publisher tasks, send publishLinks array
-      onComplete(task.id, { publishLinks })
-    } else {
-      // For other tasks, send single link
-      onComplete(task.id, { link: inputValue })
+  const handleComplete = async () => {
+    setIsSubmitting(true)
+    try {
+      if (isPublisherTask) {
+        // For publisher tasks, send publishLinks array
+        await onComplete(task.id, { publishLinks })
+      } else {
+        // For other tasks, send single link
+        await onComplete(task.id, { link: inputValue })
+      }
+    } finally {
+      setIsSubmitting(false)
+    }
+  }
+
+  // Wrapper for the "Teruskan File (Approve)" action so it also shows a spinner.
+  const handleApprove = async () => {
+    setIsSubmitting(true)
+    try {
+      await onComplete(task.id, { notes: 'File diteruskan tanpa perubahan (Approved)' })
+    } finally {
+      setIsSubmitting(false)
     }
   }
 
@@ -2026,8 +2059,18 @@ function TaskCard({
     if (needsLink) {
       return inputValue.trim() !== ''
     }
+    // For upload/download_upload tasks, the worker must have uploaded at least
+    // one file to the Drive folder before they can mark the task as complete.
+    // Admin/Manager override mode is exempt (they are force-completing on
+    // someone else's behalf and may not need to upload themselves).
+    if (requiresFileUpload && !isOverriding) {
+      return uploadedFilesCount > 0
+    }
     return true
   }
+
+  // Whether the upload requirement is currently blocking completion (for UI hints).
+  const uploadRequirementBlocking = requiresFileUpload && !isOverriding && uploadedFilesCount === 0
 
   return (
     <Card className={cn(
@@ -2221,15 +2264,38 @@ function TaskCard({
                 {/* Upload Section */}
                 {showUploadSection && (
                   <div className="mb-4 bg-stone-50 p-5 rounded-2xl border border-stone-200">
-                    <div className="flex items-center gap-2 mb-3">
-                      <UploadCloud className="w-5 h-5 text-indigo-600" />
-                      <h5 className="text-sm font-bold text-stone-800">Unggah Hasil Kerja</h5>
+                    <div className="flex items-center justify-between gap-2 mb-3">
+                      <div className="flex items-center gap-2">
+                        <UploadCloud className="w-5 h-5 text-indigo-600" />
+                        <h5 className="text-sm font-bold text-stone-800">Unggah Hasil Kerja</h5>
+                      </div>
+                      {uploadedFilesCount > 0 && (
+                        <Badge className="bg-green-100 text-green-700 border-green-200 text-[10px] font-bold">
+                          <CheckCircle2 className="w-3 h-3 mr-0.5" />
+                          {uploadedFilesCount} file terunggah
+                        </Badge>
+                      )}
                     </div>
                     <p className="text-xs text-stone-600 mb-4 leading-relaxed">
                       {isReview
                         ? "Jika ada revisi yang Anda lakukan sendiri, silakan unggah file langsung dari komputer Anda."
                         : "Unggah hasil pekerjaan Anda langsung dari komputer. File akan otomatis tersimpan di Google Drive."}
                     </p>
+                    {requiresFileUpload && !isOverriding && (
+                      <div className={cn(
+                        "mb-4 p-3 rounded-xl border text-xs flex items-start gap-2",
+                        uploadedFilesCount > 0
+                          ? "bg-green-50 border-green-200 text-green-800"
+                          : "bg-amber-50 border-amber-200 text-amber-800"
+                      )}>
+                        <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5" />
+                        <span>
+                          {uploadedFilesCount > 0
+                            ? <>File telah diunggah. Anda dapat mencentang verifikasi dan menyerahkan tugas.</>
+                            : <> <strong>Wajib unggah minimal 1 file</strong> ke folder di bawah ini sebelum Anda dapat menyelesaikan & menyerahkan tugas.</>}
+                        </span>
+                      </div>
+                    )}
                     
                     {getUploadFolders().length === 0 ? (
                       <span className="text-xs text-red-500 font-medium italic">
@@ -2262,6 +2328,8 @@ function TaskCard({
                               uploaderName={currentUser?.name}
                               onUploadComplete={(file) => {
                                 console.log('[UPLOAD] File uploaded:', file.name)
+                                // Track that at least one file has been uploaded
+                                setUploadedFilesCount(prev => prev + 1)
                                 // Auto-fill link field with uploaded file link
                                 if (file.webViewLink) {
                                   onFileUploaded(file)
@@ -2411,6 +2479,24 @@ function TaskCard({
               </>
             )}
 
+            {/* In-Progress Banner — shown while the serah-terima / approve / revisi
+                request is being processed so the worker has a clear, visible signal
+                that the process is running (spinner + status text). */}
+            {isSubmitting && (
+              <div className="mb-4 p-4 rounded-2xl border border-indigo-200 bg-indigo-50 flex items-center gap-3 animate-pulse">
+                <Loader2 className="w-5 h-5 text-indigo-600 animate-spin flex-shrink-0" />
+                <div className="flex-1">
+                  <p className="text-sm font-bold text-indigo-800">
+                    Sedang memproses Verifikasi Serah Terima…
+                  </p>
+                  <p className="text-xs text-indigo-600 mt-0.5">
+                    Mohon tunggu, jangan tutup atau muat ulang halaman. Sistem sedang
+                    menyimpan hasil kerja dan meneruskan ke tahap berikutnya.
+                  </p>
+                </div>
+              </div>
+            )}
+
             {/* Action Buttons */}
             {(task.status === 'pending' || isRevising) && (
               <div className={cn(
@@ -2451,17 +2537,26 @@ function TaskCard({
                         Batal
                       </Button>
                       <Button
-                        disabled={!isVerified || !isValid()}
+                        disabled={!isVerified || !isValid() || isSubmitting}
                         onClick={handleComplete}
                         className={cn(
                           "gap-2",
-                          isVerified && isValid()
+                          isVerified && isValid() && !isSubmitting
                             ? "bg-teal-600 hover:bg-teal-700 ring-2 ring-teal-200 ring-offset-2"
                             : "bg-stone-200 text-stone-400 cursor-not-allowed shadow-none"
                         )}
                       >
-                        <RotateCcw className="w-4 h-4" />
-                        <span>Kirim Revisi</span>
+                        {isSubmitting ? (
+                          <>
+                            <Loader2 className="w-4 h-4 animate-spin" />
+                            <span>Memproses…</span>
+                          </>
+                        ) : (
+                          <>
+                            <RotateCcw className="w-4 h-4" />
+                            <span>Kirim Revisi</span>
+                          </>
+                        )}
                       </Button>
                     </div>
                   </>
@@ -2484,22 +2579,37 @@ function TaskCard({
                         <span className="text-[10px] text-stone-500 font-medium">
                           Saya menyatakan tugas ini telah selesai.
                         </span>
+                        {uploadRequirementBlocking && (
+                          <span className="text-[10px] text-amber-600 font-bold mt-1 flex items-center gap-1">
+                            <AlertCircle className="w-3 h-3" />
+                            Wajib unggah minimal 1 file di "Unggah Hasil Kerja" terlebih dahulu.
+                          </span>
+                        )}
                       </div>
                     </label>
                     <Button
-                      disabled={!isVerified || !isValid()}
+                      disabled={!isVerified || !isValid() || isSubmitting}
                       onClick={handleComplete}
                       className={cn(
-                        "gap-2",
-                        isVerified && isValid()
+                        "gap-2 min-w-[180px] justify-center",
+                        isVerified && isValid() && !isSubmitting
                           ? canManageProject && !isAssignedToMe
                             ? "bg-red-600 hover:bg-red-700 ring-2 ring-red-200 ring-offset-2"
                             : "bg-indigo-600 hover:bg-indigo-700 ring-2 ring-indigo-200 ring-offset-2"
                           : "bg-stone-200 text-stone-400 cursor-not-allowed shadow-none"
                       )}
                     >
-                      <span>{canManageProject && !isAssignedToMe ? 'Force Complete' : 'Selesaikan & Serahkan'}</span>
-                      <ChevronRight className="w-4 h-4" />
+                      {isSubmitting ? (
+                        <>
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                          <span>Memproses Serah Terima…</span>
+                        </>
+                      ) : (
+                        <>
+                          <span>{canManageProject && !isAssignedToMe ? 'Force Complete' : 'Selesaikan & Serahkan'}</span>
+                          <ChevronRight className="w-4 h-4" />
+                        </>
+                      )}
                     </Button>
                   </>
                 ) : (
@@ -2512,10 +2622,18 @@ function TaskCard({
                       Tolak (Revisi)
                     </Button>
                     <Button
-                      onClick={() => onComplete(task.id, { notes: 'File diteruskan tanpa perubahan (Approved)' })}
-                      className="bg-green-600 hover:bg-green-700 ring-2 ring-green-200 ring-offset-2"
+                      onClick={handleApprove}
+                      disabled={isSubmitting}
+                      className="bg-green-600 hover:bg-green-700 ring-2 ring-green-200 ring-offset-2 gap-2 min-w-[180px] justify-center"
                     >
-                      Teruskan File (Approve)
+                      {isSubmitting ? (
+                        <>
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                          <span>Memproses…</span>
+                        </>
+                      ) : (
+                        <span>Teruskan File (Approve)</span>
+                      )}
                     </Button>
                   </div>
                 )}
