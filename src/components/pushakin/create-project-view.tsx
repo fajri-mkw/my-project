@@ -485,24 +485,35 @@ export function CreateProjectView() {
                     }
                   }
                   
-                  // Check if this is a nested output-type subfolder (pattern: raw-role-idx-output-outputIdx)
+                  // Check if this is a nested output-type subfolder (pattern: raw-role-userId-output-idx)
                   const isOutputSub = f.folderId.includes('-output-')
-                  
+
                   if (isOutputSub) {
                     // Extract the parent user subfolder ID (everything before "-output-")
                     const outputPrefix = f.folderId.substring(0, f.folderId.indexOf('-output-'))
                     const parentType = ['raw', 'revised', 'final', 'desain', 'lainnya'].find(t => outputPrefix.startsWith(t + '-')) || ''
-                    
+
+                    // Find the user who owns this output subfolder by matching userId at end of prefix.
+                    // This ensures the output subfolder (Foto/, Video/) inherits the owning user's
+                    // access so that getUploadFolders() can route uploads directly to it.
+                    const matchedUser = users.find(u => outputPrefix.endsWith('-' + u.id))
+                    const parentAccess = folderUserAccess[parentType] || {}
+
                     return {
                       folderId: f.folderId,
                       name: f.name,
-                      desc: `Output ${f.name}`,
+                      desc: `Output ${f.name}${matchedUser ? ' - ' + matchedUser.name : ''}`,
                       color: 'text-stone-400',
                       bg: 'bg-stone-50/50',
                       border: 'border-stone-100',
                       link: f.webViewLink,
-                      assignedRoles: assignedToFolder,
-                      assignedUsers: [],
+                      assignedRoles: matchedUser ? [matchedUser.role] : assignedToFolder,
+                      assignedUsers: matchedUser ? [{
+                        userId: matchedUser.id,
+                        userName: matchedUser.name,
+                        download: parentAccess[matchedUser.id]?.download ?? true,
+                        upload: true // output subfolders are always upload destinations for the owner
+                      }] : [],
                       parentFolderId: outputPrefix
                     }
                   }

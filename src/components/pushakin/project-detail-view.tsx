@@ -515,7 +515,32 @@ Pushakin Flows — Sistem Manajemen Produksi`
     })
   }
 
-  const visibleFolders = project.driveFolders.filter(folder => {
+  // Normalize drive folders: ensure output subfolders (Foto/, Video/) have correct
+  // assignedUsers. This fixes projects created before the output-subfolder fix where
+  // assignedUsers was empty, causing uploads to go to the parent user subfolder (HS_...)
+  // instead of the specific output folder.
+  const normalizedDriveFolders = project.driveFolders.map(folder => {
+    if (folder.folderId.includes('-output-') && (!folder.assignedUsers || folder.assignedUsers.length === 0)) {
+      const outputPrefix = folder.folderId.substring(0, folder.folderId.indexOf('-output-'))
+      // Inherit assignedUsers from the parent user subfolder (HS_...)
+      const parentSub = project.driveFolders.find(f => f.folderId === outputPrefix)
+      if (parentSub?.assignedUsers && parentSub.assignedUsers.length > 0) {
+        return {
+          ...folder,
+          assignedRoles: parentSub.assignedRoles?.length ? parentSub.assignedRoles : folder.assignedRoles,
+          assignedUsers: parentSub.assignedUsers.map(au => ({
+            ...au,
+            upload: true, // output subfolders are always upload destinations for the owner
+            download: true, // owner can also download what they uploaded
+          })),
+          parentFolderId: outputPrefix,
+        }
+      }
+    }
+    return folder
+  })
+
+  const visibleFolders = normalizedDriveFolders.filter(folder => {
     // Super Admin & Manager: full access to ALL folders (Mode Override / Bypass Tahap)
     // — no need for DL/UL checkboxes to be assigned to themselves
     if (canManageProject) return true
@@ -1870,6 +1895,22 @@ function TaskCard({
     return false
   }
 
+  // Helper: format folder label for display. For output subfolders (Foto/, Video/),
+  // append the worker's name so users can distinguish multiple output folders.
+  // e.g. "Foto" → "Foto — Haitami"
+  const formatFolderLabel = (f: DriveFolder): string => {
+    const baseName = f.name.split(' (')[0]
+    if (isOutputSubfolder(f)) {
+      const workerName = f.assignedUsers?.[0]?.userName
+      if (workerName) {
+        // Use just the first name for brevity in button labels
+        const firstName = workerName.split(' ')[0]
+        return `${baseName} — ${firstName}`
+      }
+    }
+    return baseName
+  }
+
   // Shared helper: check if folder is a user-named subfolder (contains a user assignment)
   const isUserSubfolder = (f: DriveFolder) => {
     if (!f.parentFolderId) return false
@@ -1884,20 +1925,42 @@ function TaskCard({
   }
 
   // Download: tampilkan PARENT FOLDER yang manager centang DL untuk user ini
+  // Serta OUTPUT SUBFOLDERS (Foto/, Video/) dari folder parent yang user punya akses DL,
+  // agar petugas tahap berikutnya bisa langsung membuka folder output yang dibutuhkan.
   // Super Admin & Manager: akses penuh ke semua parent folder (Mode Override)
   const getDownloadFolders = () => {
     const myId = currentUser?.id || ''
 
-    // Super Admin / Manager override — full access to all parent folders
+    // Super Admin / Manager override — full access to all parent folders + output subfolders
     if (canManageProject) {
-      return visibleFolders.filter(f => !isSub(f))
+      return visibleFolders.filter(f => !isUserSubfolder(f))
     }
 
-    return visibleFolders.filter(f => {
-      if (isSub(f)) return false // Download = parent folder saja
-      // Hanya centang DL dari manager yang menentukan
+    // 1. Parent folders where manager centang DL for this user
+    const myParentFolders = visibleFolders.filter(f => {
+      if (isSub(f)) return false
       return f.assignedUsers?.some((au: any) => au.userId === myId && au.download) || false
     })
+
+    // 2. Output subfolders (Foto/, Video/) inside parent folders where user has DL
+    //    This lets Tahap 2 editors directly open a worker's Foto/ folder without
+    //    navigating through the HS_ user subfolder in Google Drive.
+    const myParentFolderIds = new Set(myParentFolders.map(f => f.folderId))
+    const accessibleOutputSubs = visibleFolders.filter(f => {
+      if (!isOutputSubfolder(f)) return false
+      // The output subfolder's parent is a user subfolder (HS_...).
+      // Find the top-level parent (raw/revised/etc.) that the user subfolder belongs to.
+      const userSub = visibleFolders.find(us => us.folderId === f.parentFolderId)
+      const topLevelParentId = userSub?.parentFolderId
+      if (topLevelParentId && myParentFolderIds.has(topLevelParentId)) {
+        return true
+      }
+      // Fallback: check by folderId prefix (legacy)
+      const parentType = ['raw', 'revised', 'final', 'desain', 'lainnya'].find(t => f.folderId.startsWith(t + '-'))
+      return parentType && myParentFolderIds.has(parentType)
+    })
+
+    return [...myParentFolders, ...accessibleOutputSubs]
   }
 
   // Upload: tampilkan OUTPUT SUBFOLDERS milik user (Foto/, Video/, dll.)
@@ -2146,7 +2209,7 @@ function TaskCard({
                           >
                             <a href={folder.link} target="_blank" rel="noreferrer">
                               <Folder className="w-4 h-4" />
-                              <span>Buka {folder.name.split(' (')[0]}</span>
+                              <span>Buka {formatFolderLabel(folder)}</span>
                             </a>
                           </Button>
                         ))
@@ -2179,7 +2242,7 @@ function TaskCard({
                           <div key={`upload-${folder.id}`} className="bg-white p-4 rounded-xl border border-stone-200">
                             <div className="flex items-center justify-between mb-3">
                               <span className="text-sm font-semibold text-stone-700">
-                                📁 {folder.name.split(' (')[0]}
+                                📁 {formatFolderLabel(folder)}
                               </span>
                               <a
                                 href={folder.link}
