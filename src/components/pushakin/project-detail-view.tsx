@@ -51,7 +51,6 @@ import {
   X,
   Globe,
   ExternalLink,
-  ArrowDownCircle,
   Paperclip,
   File,
   Loader2,
@@ -970,21 +969,15 @@ Pushakin Flows — Sistem Manajemen Produksi`
             </div>
           </div>
 
-          {/* Drive Folders — always visible to Admin/Manager (even if empty so they can add folders), 
-              visible to workers only if they have assigned folders */}
-          {(canManageProject || visibleFolders.length > 0) && (
+          {/* Workspace Drive Aktif — only for Manager / Super Admin.
+              Petugas (workers) access their folders via the "Tugas Anda" section below. */}
+          {canManageProject && (
             <div className="pt-6 border-t border-stone-100 mt-6">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between mb-4 gap-2">
                 <h3 className="text-xs font-bold text-stone-400 uppercase tracking-wider flex items-center gap-2">
                   <Folder className="w-4 h-4" />
                   <span>Workspace Drive Aktif</span>
                 </h3>
-                {!canManageProject && (
-                  <div className="text-[10px] text-amber-600 bg-amber-50 border border-amber-200 px-2.5 py-1 rounded-full flex items-center gap-1.5">
-                    <ArrowDownCircle className="w-3 h-3" />
-                    <span>Upload file melalui <strong>Tugas Anda</strong> di bawah</span>
-                  </div>
-                )}
                 {canManageProject && (
                   <Button
                     variant="outline"
