@@ -417,8 +417,8 @@ export async function POST(request: NextRequest) {
     
     // Create subfolders
     const folderNames: Record<string, string> = {
-      raw: '1. RAW FOLDER (Hasil Mentah)',
-      revised: '2. REVISED FOLDER (Draft & Editing)',
+      raw: '1. PRODUKSI (Berkas Mentah)',
+      revised: '2. PASCA PRODUKSI (Draft & Editing)',
       final: '3. FINAL PRODUCT (Siap Publish)',
       desain: '4. DESAIN FOLDER (Aset Visual)',
       lainnya: '5. LAINNYA (Folder Tambahan)'

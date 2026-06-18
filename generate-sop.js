@@ -361,7 +361,7 @@ function buildContent() {
   content.push(heading("5.2.2  Konfigurasi Workspace Drive", HeadingLevel.HEADING_3));
   content.push(para("Manager mengatur folder kerja untuk setiap proyek:"));
   content.push(...numberedItem(1, [
-    "Pilih folder yang diperlukan (default: RAW FOLDER, REVISED FOLDER, FINAL PRODUCT).",
+    "Pilih folder yang diperlukan (default: PRODUKSI, PASCA PRODUKSI, FINAL PRODUCT).",
     "Tentukan hak akses Download (DL) dan Upload (UL) untuk setiap anggota tim per folder.",
     "Anggota tim yang mendapat akses Upload akan otomatis dibuatkan subfolder pribadi.",
     "Klik Simpan untuk membuat proyek. Sistem otomatis membuat folder di Google Drive dan mengirim Surat Tugas ke seluruh tim.",
@@ -415,7 +415,7 @@ function buildContent() {
   content.push(para("Setiap anggota tim wajib menyelesaikan tugasnya agar proyek dapat berpindah ke tahap berikutnya:"));
   content.push(...bullet([
     "Reporter, Fotografer, Videografer, Desainer (Tahap 1): Upload materi mentah, tambahkan tautan hasil kerja jika ada, lalu centang Selesai.",
-    "Editor (Tahap 2): Download materi dari RAW FOLDER, edit konten, upload hasil ke REVISED FOLDER, centang Selesai.",
+    "Editor (Tahap 2): Download materi dari folder PRODUKSI, edit konten, upload hasil ke folder PASCA PRODUKSI, centang Selesai.",
     "Streaming Operator (Tahap 2): Tempel link streaming hasil siaran, centang Selesai.",
     "Podcast Operator (Tahap 2): Tempel link YouTube podcast, centang Selesai.",
     "Reviewer (Tahap 3): Periksa seluruh konten. Jika layak, klik Setujui. Jika perlu perbaikan, klik Tolak dengan alasan.",
@@ -441,8 +441,8 @@ function buildContent() {
   content.push(makeTable(
     ["No", "Folder", "Fungsi", "Pengguna Utama"],
     [
-      ["1", "RAW FOLDER (Hasil Mentah)", "Upload materi mentah: teks, foto mentah, video mentah, file desain", "Reporter, Fotografer, Videografer, Desainer"],
-      ["2", "REVISED FOLDER (Draft & Editing)", "Upload hasil edit dan draft konten", "Editor, Reviewer, Publisher"],
+      ["1", "PRODUKSI (Berkas Mentah)", "Upload materi mentah: teks, foto mentah, video mentah, file desain", "Reporter, Fotografer, Videografer, Desainer"],
+      ["2", "PASCA PRODUKSI (Draft & Editing)", "Upload hasil edit dan draft konten", "Editor, Reviewer, Publisher"],
       ["3", "FINAL PRODUCT (Siap Publish)", "File hasil akhir yang siap dipublikasikan", "Publisher Web, Publisher Sosmed"],
       ["4", "DESAIN FOLDER (Aset Visual)", "Penyimpanan file project desain", "Graphic Designer"],
       ["5", "LAINNYA (Folder Tambahan)", "Folder kustom untuk kebutuhan logistik", "Sesuai kebutuhan"],

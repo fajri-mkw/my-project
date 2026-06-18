@@ -630,7 +630,7 @@ Seluruh staff melihat dashboard, statistik, dan inbox yang sama:
 1. Manager melengkapi detail proyek
 2. Memilih anggota tim untuk setiap peran yang dibutuhkan
 3. Sistem otomatis membuat:
-   - Folder Workspace Drive (RAW, REVISED, FINAL, DESAIN, LAINNYA)
+   - Folder Workspace Drive (PRODUKSI, PASCA PRODUKSI, FINAL, DESAIN, LAINNYA)
    - Surat Tugas untuk setiap anggota tim
    - Task sesuai peran dan tahapan
 4. Manager mengupload dokumen pendukung (laporan kegiatan)
@@ -645,18 +645,18 @@ Seluruh staff melihat dashboard, statistik, dan inbox yang sama:
 
 ### **Tahap 2 - Pasca Produksi**
 1. Editor menerima notifikasi bahwa proyek sudah masuk Tahap 2
-2. Editor mendownload file mentah dari folder RAW
+2. Editor mendownload file mentah dari folder PRODUKSI
 3. Editor melakukan proses editing (video, web article, foto)
-4. Editor mengupload hasil editing ke folder REVISED
+4. Editor mengupload hasil editing ke folder PASCA PRODUKSI
 5. Streaming/Podcast Operator menempelkan tautan URL
 6. Klik **"Selesai"** pada task card
 7. Setelah **semua task Tahap 2 selesai**, proyek otomatis naik ke Tahap 3
 
 ### **Tahap 3 - Finalization**
 1. Editor (Template Sosial Media) menerima notifikasi
-2. Mendownload foto yang sudah diedit dari folder REVISED
+2. Mendownload foto yang sudah diedit dari folder PASCA PRODUKSI
 3. Membuat dan mengedit template konten media sosial
-4. Mengupload hasil template ke folder REVISED
+4. Mengupload hasil template ke folder PASCA PRODUKSI
 5. Klik **"Selesai"** pada task card
 6. Setelah **semua task Tahap 3 selesai**, proyek otomatis naik ke Tahap 4
 
@@ -683,8 +683,8 @@ Seluruh staff melihat dashboard, statistik, dan inbox yang sama:
 ## 4.1 Struktur Folder
 Setiap proyek memiliki 5 folder standar:
 
-- **RAW FOLDER**: File mentah dari tim produksi (Tahap 1)
-- **REVISED FOLDER**: File hasil editing (Tahap 2-4)
+- **PRODUKSI**: File mentah dari tim produksi (Tahap 1)
+- **PASCA PRODUKSI**: File hasil editing (Tahap 2-4)
 - **FINAL PRODUCT**: File siap publikasi (Tahap 5)
 - **DESAIN FOLDER**: Aset desain grafis
 - **LAINNYA**: Folder tambahan untuk kebutuhan logistik

@@ -362,8 +362,8 @@ export const ROLE_CONFIG: Record<string, { stage: number; type: string; icon: st
 }
 
 export const FOLDER_OPTIONS = [
-  { id: 'raw', title: '1. FOLDER', name: 'RAW FOLDER (Hasil Mentah)', desc: 'Untuk upload mentahan: Reporter, Fotografer, Videografer, Desain Grafis.', color: 'text-stone-600', bg: 'bg-stone-100', border: 'border-stone-200' },
-  { id: 'revised', title: '2. FOLDER', name: 'REVISED FOLDER (Draft & Editing)', desc: 'Untuk Editor, Reviewer, dan Publisher. Direview oleh QC.', color: 'text-orange-600', bg: 'bg-orange-50', border: 'border-orange-200' },
+  { id: 'raw', title: '1. FOLDER', name: 'PRODUKSI (Berkas Mentah)', desc: 'Untuk upload mentahan: Reporter, Fotografer, Videografer, Desain Grafis. Untuk upload Petugas Tahap 1.', color: 'text-stone-600', bg: 'bg-stone-100', border: 'border-stone-200' },
+  { id: 'revised', title: '2. FOLDER', name: 'PASCA PRODUKSI (Draft & Editing)', desc: 'Untuk Editor, Reviewer, dan Publisher. Direview oleh QC.', color: 'text-orange-600', bg: 'bg-orange-50', border: 'border-orange-200' },
   { id: 'final', title: '3. FOLDER', name: 'FINAL PRODUCT (Siap Publish)', desc: 'Hasil akhir yang siap didownload Publisher Web/Sosmed.', color: 'text-green-600', bg: 'bg-green-50', border: 'border-green-200' },
   { id: 'desain', title: '4. FOLDER', name: 'DESAIN FOLDER (Aset Visual)', desc: 'Khusus untuk penyimpanan file project desain.', color: 'text-blue-600', bg: 'bg-blue-50', border: 'border-blue-200' },
   { id: 'lainnya', title: '5. FOLDER', name: 'LAINNYA (Folder Tambahan)', desc: 'Folder kustom tambahan untuk keperluan logistik.', color: 'text-purple-600', bg: 'bg-purple-50', border: 'border-purple-200' }
