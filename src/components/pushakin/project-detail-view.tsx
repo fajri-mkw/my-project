@@ -174,8 +174,8 @@ export function ProjectDetailView() {
     const stageLabels: Record<number, string> = {
       1: 'Tahap 1 — Produksi',
       2: 'Tahap 2 — Pasca Produksi',
-      3: 'Tahap 3 — Finalisasi',
-      4: 'Tahap 4 — Review',
+      3: 'Tahap 3 — Review',
+      4: 'Tahap 4 — Finalisasi',
       5: 'Tahap 5 — Publikasi',
     }
 
@@ -698,10 +698,10 @@ Pushakin Flows — Sistem Manajemen Produksi`
                 const isCurrent = stageNum === project.currentStage
                 const isFastTracked = project.isFastTrack && stageNum >= 1 && stageNum <= 4
                 const isFastProduction = project.isFastProduction && stageNum >= 1 && stageNum <= 5
-                // Fast Production: stage 4 (Review) is auto-approved
-                const isFPAutoApproved = project.isFastProduction && stageNum === 4
+                // Fast Production: stage 3 (Review) is auto-approved
+                const isFPAutoApproved = project.isFastProduction && stageNum === 3
                 
-                // Fast Production: stages 1-5 are all "active" (teal), stage 4 is auto-approved, stage 6 is pending until all done
+                // Fast Production: stages 1-5 are all "active" (teal), stage 3 is auto-approved, stage 6 is pending until all done
                 const isFPActive = isFastProduction && !isCompleted && !isFPAutoApproved
                 
                 return (
@@ -769,7 +769,7 @@ Pushakin Flows — Sistem Manajemen Produksi`
                 const stageTasks = project.tasks.filter(t => t.stage === stageNum)
                 const isCompleted = stageNum < project.currentStage
                 const isCurrent = stageNum === project.currentStage
-                const isFPAutoApproved = project.isFastProduction && stageNum === 4
+                const isFPAutoApproved = project.isFastProduction && stageNum === 3
                 const isFPActive = project.isFastProduction && stageNum >= 1 && stageNum <= 5 && !isCompleted && !isFPAutoApproved
                 
                 return (
@@ -867,7 +867,7 @@ Pushakin Flows — Sistem Manajemen Produksi`
                 const stageTasks = project.tasks.filter(t => t.stage === stageNum)
                 const isCompleted = stageNum < project.currentStage
                 const isCurrent = stageNum === project.currentStage
-                const isFPAutoApproved = project.isFastProduction && stageNum === 4
+                const isFPAutoApproved = project.isFastProduction && stageNum === 3
                 const isFPActive = project.isFastProduction && stageNum >= 1 && stageNum <= 5 && !isCompleted && !isFPAutoApproved
                 
                 if (stageTasks.length === 0) return null
@@ -1214,8 +1214,8 @@ Pushakin Flows — Sistem Manajemen Produksi`
             const stageConfig: Record<number, { label: string; color: string; bg: string; border: string }> = {
               1: { label: 'Tahap 1 — Produksi', color: 'text-violet-700', bg: 'bg-violet-50', border: 'border-violet-200' },
               2: { label: 'Tahap 2 — Pasca Produksi', color: 'text-orange-700', bg: 'bg-orange-50', border: 'border-orange-200' },
-              3: { label: 'Tahap 3 — Finalisasi', color: 'text-cyan-700', bg: 'bg-cyan-50', border: 'border-cyan-200' },
-              4: { label: 'Tahap 4 — Review', color: 'text-amber-700', bg: 'bg-amber-50', border: 'border-amber-200' },
+              3: { label: 'Tahap 3 — Review', color: 'text-amber-700', bg: 'bg-amber-50', border: 'border-amber-200' },
+              4: { label: 'Tahap 4 — Finalisasi', color: 'text-cyan-700', bg: 'bg-cyan-50', border: 'border-cyan-200' },
               5: { label: 'Tahap 5 — Publikasi', color: 'text-green-700', bg: 'bg-green-50', border: 'border-green-200' },
             }
             
@@ -2341,7 +2341,7 @@ function TaskCard({
                       <span>Tindakan Quality Control (QC)</span>
                     </h5>
                     Periksa hasil kerja tim editor di folder Drive yang telah disediakan. Jika sudah sesuai, klik tombol 
-                    <strong> "Teruskan File (Approve)"</strong> di bawah agar file langsung lolos ke tahap Publikasi tanpa tumpang tindih. 
+                    <strong> "Teruskan File (Approve)"</strong> di bawah agar file lolos ke tahap Finalization (pembuatan template media sosial). 
                     Jika belum, Anda dapat mengklik <strong>"Tolak (Revisi)"</strong>.
                   </div>
                 )}

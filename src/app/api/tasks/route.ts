@@ -107,7 +107,7 @@ export async function PUT(request: NextRequest) {
     // Super Admin override: bypass stage gate entirely
     if (!proj?.isFastProduction && existingTask.stage !== proj?.currentStage && !isRevision && !isSuperAdmin) {
       const stageNames: Record<number, string> = {
-        0: 'Perencanaan', 1: 'Produksi', 2: 'Pasca Produksi', 3: 'Finalisasi', 4: 'Review', 5: 'Publikasi', 6: 'Selesai'
+        0: 'Perencanaan', 1: 'Produksi', 2: 'Pasca Produksi', 3: 'Review', 4: 'Finalisasi', 5: 'Publikasi', 6: 'Selesai'
       }
       const taskStageName = stageNames[existingTask.stage] || ''
       const projStageName = proj?.currentStage !== undefined ? (stageNames[proj.currentStage] || '') : ''
@@ -138,9 +138,9 @@ export async function PUT(request: NextRequest) {
     
     // For Fast Production: check if ALL tasks across ALL stages are done
     if (project?.isFastProduction) {
-      // Auto-approve: If there are pending reviewer tasks (stage 4), auto-complete them
+      // Auto-approve: If there are pending reviewer tasks (stage 3), auto-complete them
       // This handles cases where reviewer tasks weren't auto-approved at creation
-      const pendingReviewerTasks = projectTasks.filter(t => t.stage === 4 && t.status === 'pending')
+      const pendingReviewerTasks = projectTasks.filter(t => t.stage === 3 && t.status === 'pending')
       if (pendingReviewerTasks.length > 0) {
         const reviewerIds = [...new Set(pendingReviewerTasks.map(t => t.assignedTo))]
         const reviewers = await db.user.findMany({
@@ -181,7 +181,7 @@ export async function PUT(request: NextRequest) {
           data: { currentStage: 6 }
         })
       } else {
-        // Update currentStage to the lowest stage with pending tasks (excluding completed stage 4)
+        // Update currentStage to the lowest stage with pending tasks (excluding completed stage 3)
         const pendingStages = projectTasks.filter(t => t.status === 'pending').map(t => t.stage)
         if (pendingStages.length > 0) {
           const minPending = Math.min(...pendingStages)
@@ -248,9 +248,9 @@ export async function PUT(request: NextRequest) {
         fastTrackedTasks = skippedTasks.map(t => t.id)
       }
       
-      // Auto-approve: If advancing to stage 4 (Review), check if reviewer has auto-approve enabled
-      if (nextStage === 4) {
-        const reviewerTasks = projectTasks.filter(t => t.stage === 4)
+      // Auto-approve: If advancing to stage 3 (Review), check if reviewer has auto-approve enabled
+      if (nextStage === 3) {
+        const reviewerTasks = projectTasks.filter(t => t.stage === 3)
         const reviewerIds = [...new Set(reviewerTasks.map(t => t.assignedTo))]
         
         if (reviewerIds.length > 0) {
@@ -269,8 +269,8 @@ export async function PUT(request: NextRequest) {
             )
             autoApprovedTasks = reviewerTasks.map(t => t.id)
             
-            // Skip to stage 5
-            nextStage = 5
+            // Skip to stage 4 (Finalization)
+            nextStage = 4
             
             // Create notification for reviewers
             for (const reviewer of reviewers) {

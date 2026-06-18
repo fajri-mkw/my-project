@@ -9,7 +9,7 @@
 import { db } from './db'
 
 // Increment this when adding new migrations
-const SCHEMA_VERSION = 4
+const SCHEMA_VERSION = 5
 
 let syncPerformed = false
 let syncPromise: Promise<boolean> | null = null
@@ -139,6 +139,19 @@ async function syncSqlite(): Promise<void> {
     shiftSqliteStage('surat_tugas', 'stage', 4, 5),
     shiftSqliteStage('surat_tugas', 'stage', 3, 4),
   ])
+
+  // === Version 5: Swap Review (stage 4→3) and Finalization/EditorTemplateSosialMedia (stage 3→4) ===
+  // Role-conditional shifts are safe (no collision — different roles)
+  await Promise.all([
+    shiftSqliteStageWithCondition('tasks', 'stage', 4, 3, "role = 'Reviewer'"),
+    shiftSqliteStageWithCondition('tasks', 'stage', 3, 4, "role = 'EditorTemplateSosialMedia'"),
+    shiftSqliteStageWithCondition('surat_tugas', 'stage', 4, 3, "role = 'Reviewer'"),
+    shiftSqliteStageWithCondition('surat_tugas', 'stage', 3, 4, "role = 'EditorTemplateSosialMedia'"),
+  ])
+  // Swap projects.currentStage 3↔4 using temp value 99 (sequential to avoid collision)
+  await shiftSqliteStage('projects', 'currentStage', 3, 99) // 3 → 99 (temp)
+  await shiftSqliteStage('projects', 'currentStage', 4, 3)  // 4 → 3
+  await shiftSqliteStage('projects', 'currentStage', 99, 4) // 99 → 4
 }
 
 async function addSqliteColumnIfNotExists(
@@ -225,6 +238,19 @@ async function syncPostgres(): Promise<void> {
     shiftPostgresStage('surat_tugas', 'stage', 4, 5),
     shiftPostgresStage('surat_tugas', 'stage', 3, 4),
   ])
+
+  // === Version 5: Swap Review (stage 4→3) and Finalization/EditorTemplateSosialMedia (stage 3→4) ===
+  // Role-conditional shifts are safe (no collision — different roles)
+  await Promise.all([
+    shiftPostgresStageWithCondition('tasks', 'stage', 4, 3, "role = 'Reviewer'"),
+    shiftPostgresStageWithCondition('tasks', 'stage', 3, 4, "role = 'EditorTemplateSosialMedia'"),
+    shiftPostgresStageWithCondition('surat_tugas', 'stage', 4, 3, "role = 'Reviewer'"),
+    shiftPostgresStageWithCondition('surat_tugas', 'stage', 3, 4, "role = 'EditorTemplateSosialMedia'"),
+  ])
+  // Swap projects.currentStage 3↔4 using temp value 99 (sequential to avoid collision)
+  await shiftPostgresStage('projects', 'currentStage', 3, 99) // 3 → 99 (temp)
+  await shiftPostgresStage('projects', 'currentStage', 4, 3)  // 4 → 3
+  await shiftPostgresStage('projects', 'currentStage', 99, 4) // 99 → 4
 }
 
 async function addPostgresColumnIfNotExists(

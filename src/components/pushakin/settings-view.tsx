@@ -274,7 +274,7 @@ export function SettingsView() {
             updateUser({ ...currentUser, autoApproveReview: checked })
           }
           showAlert(checked
-            ? 'Auto-Approve diaktifkan! Review akan otomatis disetujui saat Finalization selesai.'
+            ? 'Auto-Approve diaktifkan! Review akan otomatis disetujui saat Pasca Produksi selesai.'
             : 'Auto-Approve dinonaktifkan. Anda harus melakukan review secara manual.'
           )
         } else {
@@ -326,7 +326,7 @@ export function SettingsView() {
                   )}
                 </div>
                 <CardDescription>
-                  Otomatis menyetujui review saat tahap Finalization selesai
+                  Otomatis menyetujui review saat tahap Pasca Produksi selesai
                 </CardDescription>
               </div>
             </div>
@@ -347,8 +347,8 @@ export function SettingsView() {
                   </p>
                   <p className="mt-1">
                     {autoApprove
-                      ? "Saat semua tugas di tahap Finalization (tahap 3) selesai, proses review akan otomatis disetujui dan proyek langsung menuju tahap Publikasi tanpa perlu Anda menekan tombol \"Teruskan File\"."
-                      : "Saat diaktifkan, jika semua tugas di tahap Finalization (tahap 3) telah selesai, proses review akan otomatis disetujui dan proyek langsung berpindah ke tahap Publikasi. Anda tidak perlu membuka proyek dan menekan tombol \"Teruskan File (Approve)\"."
+                      ? "Saat semua tugas di tahap Pasca Produksi (tahap 2) selesai, proses review akan otomatis disetujui dan proyek langsung berpindah ke tahap Finalization (tahap 4) tanpa perlu Anda menekan tombol \"Teruskan File\"."
+                      : "Saat diaktifkan, jika semua tugas di tahap Pasca Produksi (tahap 2) telah selesai, proses review akan otomatis disetujui dan proyek langsung berpindah ke tahap Finalization (tahap 4). Anda tidak perlu membuka proyek dan menekan tombol \"Teruskan File (Approve)\"."
                     }
                   </p>
                 </div>

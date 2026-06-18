@@ -1041,7 +1041,7 @@ export function CreateProjectView() {
                   </div>
                   <p className="text-xs text-stone-500 mt-0.5">
                     {isFastTrack
-                      ? 'Lewati Produksi, Pasca Produksi & Review — langsung ke Publisher'
+                      ? 'Lewati Produksi, Pasca Produksi, Review & Finalization — langsung ke Publisher'
                       : 'Aktifkan untuk melewati alur produksi dan langsung ke Publisher'
                     }
                   </p>
@@ -1060,7 +1060,7 @@ export function CreateProjectView() {
               <div className="mt-3 space-y-2">
                 <div className="flex items-center gap-2 text-xs text-amber-700">
                   <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
-                  <span>Tahap Produksi (1), Pasca Produksi (2), Finalization (3), dan Review (4) akan otomatis dilewati. Publisher langsung mengerjakan.</span>
+                  <span>Tahap Produksi (1), Pasca Produksi (2), Review (3), dan Finalization (4) akan otomatis dilewati. Publisher langsung mengerjakan.</span>
                 </div>
                 <div className="flex flex-wrap gap-1.5 mt-1">
                   {[1, 2, 3, 4].map(stage => (

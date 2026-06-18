@@ -591,11 +591,11 @@ Seluruh staff melihat dashboard, statistik, dan inbox yang sama:
 - **Streaming Operator**: Menempelkan tautan streaming (URL)
 - **Podcast Operator**: Menempelkan tautan YouTube/podcast (URL)
 
-### **Tahap 3 - Finalization**
-- **Editor (Template Sosial Media)**: Membuat dan mengedit template konten media sosial dari foto yang sudah diedit
+### **Tahap 3 - Review**
+- **Reviewer**: Melakukan quality control terhadap seluruh hasil Tahap 2 (Pasca Produksi). Dapat menyetujui (lanjut ke Finalization) atau menolak (kembali ke Tahap 2)
 
-### **Tahap 4 - Review**
-- **Reviewer**: Melakukan quality control terhadap seluruh hasil Tahap 2 dan 3. Dapat menyetujui atau menolak (kembali ke Tahap 2)
+### **Tahap 4 - Finalization**
+- **Editor (Template Sosial Media)**: Membuat dan mengedit template konten media sosial dari foto yang sudah direview
 
 ### **Tahap 5 - Publikasi**
 - **Publisher Web**: Mendownload file final, menambahkan tautan publish ke platform web
@@ -650,23 +650,23 @@ Seluruh staff melihat dashboard, statistik, dan inbox yang sama:
 4. Editor mengupload hasil editing ke folder PASCA PRODUKSI
 5. Streaming/Podcast Operator menempelkan tautan URL
 6. Klik **"Selesai"** pada task card
-7. Setelah **semua task Tahap 2 selesai**, proyek otomatis naik ke Tahap 3
+7. Setelah **semua task Tahap 2 selesai**, proyek otomatis naik ke Tahap 3 (Review)
 
-### **Tahap 3 - Finalization**
+### **Tahap 3 - Review**
+1. Reviewer menerima notifikasi
+2. Reviewer meninjau seluruh hasil Tahap 2 (Pasca Produksi)
+3. Reviewer memilih:
+   - **Setujui** → Proyek naik ke Tahap 4 (Finalization)
+   - **Tolak** → Proyek kembali ke Tahap 2, seluruh task Tahap 2, 3, dan 4 di-reset ke status pending
+4. Jika ditolak, tim Tahap 2 harus memperbaiki dan mengupload ulang
+
+### **Tahap 4 - Finalization**
 1. Editor (Template Sosial Media) menerima notifikasi
-2. Mendownload foto yang sudah diedit dari folder PASCA PRODUKSI
+2. Mendownload foto yang sudah direview dari folder PASCA PRODUKSI
 3. Membuat dan mengedit template konten media sosial
 4. Mengupload hasil template ke folder PASCA PRODUKSI
 5. Klik **"Selesai"** pada task card
-6. Setelah **semua task Tahap 3 selesai**, proyek otomatis naik ke Tahap 4
-
-### **Tahap 4 - Review**
-1. Reviewer menerima notifikasi
-2. Reviewer meninjau seluruh hasil Tahap 2 dan 3
-3. Reviewer memilih:
-   - **Setujui** → Proyek naik ke Tahap 5
-   - **Tolak** → Proyek kembali ke Tahap 2, seluruh task Tahap 2, 3, dan 4 di-reset ke status pending
-4. Jika ditolak, tim Tahap 2 dan 3 harus memperbaiki dan mengupload ulang
+6. Setelah **semua task Tahap 4 selesai**, proyek otomatis naik ke Tahap 5
 
 ### **Tahap 5 - Publikasi**
 1. Publisher menerima notifikasi

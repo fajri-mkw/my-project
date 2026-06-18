@@ -143,8 +143,8 @@ export async function POST(request: NextRequest) {
               // Fast Track: auto-complete stages 1-4
               status = 'completed'
               data = JSON.stringify({ fastTracked: true })
-            } else if (isFastProduction && t.stage === 4) {
-              // Fast Production: auto-approve reviewer tasks (stage 4)
+            } else if (isFastProduction && t.stage === 3) {
+              // Fast Production: auto-approve reviewer tasks (stage 3)
               status = 'completed'
               data = JSON.stringify({ autoApproved: true })
             }
@@ -196,7 +196,7 @@ export async function POST(request: NextRequest) {
 
     // Fast Production: notify auto-approved reviewers
     if (isFastProduction) {
-      const autoApprovedTasks = project.tasks.filter(t => t.stage === 4 && t.status === 'completed')
+      const autoApprovedTasks = project.tasks.filter(t => t.stage === 3 && t.status === 'completed')
       for (const task of autoApprovedTasks) {
         await db.notification.create({
           data: {

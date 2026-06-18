@@ -242,8 +242,8 @@ function buildContent() {
       ["8", "Editor (Foto)", "Tahap 2 (Pasca Produksi)", "Download & Upload"],
       ["9", "Streaming Operator", "Tahap 2 (Pasca Produksi)", "Tempel Link Streaming"],
       ["10", "Podcast Operator", "Tahap 2 (Pasca Produksi)", "Tempel Link YouTube"],
-      ["11", "Editor (Template Sosial Media)", "Tahap 3 (Finalization)", "Download & Upload"],
-      ["12", "Reviewer", "Tahap 4 (Review)", "Review Konten"],
+      ["11", "Editor (Template Sosial Media)", "Tahap 4 (Finalization)", "Download & Upload"],
+      ["12", "Reviewer", "Tahap 3 (Review)", "Review Konten"],
       ["13", "Publisher Web", "Tahap 5 (Publikasi)", "Download & Tambah Link"],
       ["14", "Publisher Social Media", "Tahap 5 (Publikasi)", "Download & Tambah Link"],
       ["15", "Super Admin", "Semua Tahapan", "Pengelolaan Sistem"],
@@ -281,15 +281,15 @@ function buildContent() {
       ["0", "Perencanaan", "Manager", "Pembuatan proyek, alokasi tugas dan folder"],
       ["1", "Produksi", "Reporter, Fotografer, Videografer, Desainer", "Pengumpulan materi mentah (teks, foto, video, desain)"],
       ["2", "Pasca Produksi", "Editor, Streaming Op., Podcast Op.", "Pengeditan video, artikel, foto; pascaproduksi konten"],
-      ["3", "Finalization", "Editor (Template Sosial Media)", "Pembuatan template konten media sosial dari foto yang diedit"],
-      ["4", "Review", "Reviewer", "Quality control dan persetujuan konten"],
+      ["3", "Review", "Reviewer", "Quality control dan persetujuan konten hasil Pasca Produksi"],
+      ["4", "Finalization", "Editor (Template Sosial Media)", "Pembuatan template konten media sosial dari foto yang telah direview"],
       ["5", "Publikasi", "Publisher Web, Publisher Sosmed", "Publikasi ke berbagai platform media"],
       ["6", "Selesai", "\u2014", "Proyek ditandai selesai secara otomatis"],
     ]
   ));
 
   content.push(heading("3.2  Peralihan Tahap Otomatis", HeadingLevel.HEADING_2));
-  content.push(para("Sistem akan secara otomatis memindahkan proyek ke tahap berikutnya ketika seluruh tugas pada tahap saat ini telah ditandai selesai oleh penanggung jawabnya. Pengecualian: pada Tahap 4 (Review), jika Reviewer menolak konten, proyek akan dikembalikan ke Tahap 2 (Pasca Produksi) dan seluruh tugas pada Tahap 2, 3, dan 4 akan direset ke status pending."));
+  content.push(para("Sistem akan secara otomatis memindahkan proyek ke tahap berikutnya ketika seluruh tugas pada tahap saat ini telah ditandai selesai oleh penanggung jawabnya. Pengecualian: pada Tahap 3 (Review), jika Reviewer menolak konten, proyek akan dikembalikan ke Tahap 2 (Pasca Produksi) dan seluruh tugas pada Tahap 2, 3, dan 4 akan direset ke status pending."));
 
   // BAB IV - PROSEDUR ADMINISTRATOR
   content.push(heading("BAB IV  PROSEDUR ADMINISTRATOR"));
@@ -355,7 +355,8 @@ function buildContent() {
     "Tahap 1 (Produksi): Pilih Reporter, Fotografer, Videografer, dan/atau Desainer.",
     "Tahap 2 (Pasca Produksi): Pilih Editor Media, Editor Web & Sosmed, Streaming Op., dan/atau Podcast Op.",
     "Tahap 3 (Review): Pilih Reviewer.",
-    "Tahap 4 (Publikasi): Pilih Publisher Web dan/atau Publisher Social Media.",
+    "Tahap 4 (Finalization): Pilih Editor (Template Sosial Media).",
+    "Tahap 5 (Publikasi): Pilih Publisher Web dan/atau Publisher Social Media.",
     "Pastikan setiap peran hanya diisi oleh satu anggota tim.",
   ]));
   content.push(heading("5.2.2  Konfigurasi Workspace Drive", HeadingLevel.HEADING_3));
@@ -418,9 +419,10 @@ function buildContent() {
     "Editor (Tahap 2): Download materi dari folder PRODUKSI, edit konten, upload hasil ke folder PASCA PRODUKSI, centang Selesai.",
     "Streaming Operator (Tahap 2): Tempel link streaming hasil siaran, centang Selesai.",
     "Podcast Operator (Tahap 2): Tempel link YouTube podcast, centang Selesai.",
-    "Reviewer (Tahap 3): Periksa seluruh konten. Jika layak, klik Setujui. Jika perlu perbaikan, klik Tolak dengan alasan.",
-    "Publisher Web (Tahap 4): Download dari FINAL PRODUCT, publikasikan ke Website, tambahkan tautan, centang Selesai.",
-    "Publisher Social Media (Tahap 4): Download dari FINAL PRODUCT, publikasikan ke media sosial, tambahkan tautan, centang Selesai.",
+    "Reviewer (Tahap 3): Periksa seluruh konten hasil Pasca Produksi. Jika layak, klik Setujui untuk meneruskan ke Finalization. Jika perlu perbaikan, klik Tolak dengan alasan.",
+    "Editor Template Sosial Media (Tahap 4): Download foto yang sudah direview dari folder PASCA PRODUKSI, buat template media sosial, upload hasilnya, centang Selesai.",
+    "Publisher Web (Tahap 5): Download dari FINAL PRODUCT, publikasikan ke Website, tambahkan tautan, centang Selesai.",
+    "Publisher Social Media (Tahap 5): Download dari FINAL PRODUCT, publikasikan ke media sosial, tambahkan tautan, centang Selesai.",
   ]));
 
   content.push(heading("6.4  Membaca Surat Tugas", HeadingLevel.HEADING_2));

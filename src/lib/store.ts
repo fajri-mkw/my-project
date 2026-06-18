@@ -330,8 +330,8 @@ export const STAGES: Record<number, string> = {
   0: 'Perencanaan',
   1: 'Produksi',
   2: 'Pasca Produksi',
-  3: 'Finalization',
-  4: 'Review',
+  3: 'Review',
+  4: 'Finalization',
   5: 'Publikasi',
   6: 'Selesai'
 }
@@ -351,11 +351,11 @@ export const ROLE_CONFIG: Record<string, { stage: number; type: string; icon: st
   'EditorVideo': { stage: 2, type: 'download_upload', icon: 'FileVideo' },
   'EditorWebArticle': { stage: 2, type: 'download_upload', icon: 'FileText' },
   'EditorFoto': { stage: 2, type: 'download_upload', icon: 'FileImage' },
-  'EditorTemplateSosialMedia': { stage: 3, type: 'download_upload', icon: 'FileImage' },
+  'EditorTemplateSosialMedia': { stage: 4, type: 'download_upload', icon: 'FileImage' },
   'StreamingOperator': { stage: 2, type: 'paste_streaming', icon: 'PlayCircle' },
   'PodcastOperator': { stage: 2, type: 'paste_youtube', icon: 'FileAudio' },
   
-  'Reviewer': { stage: 4, type: 'review', icon: 'AlertCircle' },
+  'Reviewer': { stage: 3, type: 'review', icon: 'AlertCircle' },
   
   'PublisherWeb': { stage: 5, type: 'download_link', icon: 'Link' },
   'PublisherSocialMedia': { stage: 5, type: 'download_link', icon: 'Link' },
@@ -577,9 +577,9 @@ export const useAppStore = create<AppState>()(
       
       // For Fast Production: no stage gating, all tasks can be done in parallel
       if (p.isFastProduction) {
-        // Auto-approve: mark any pending reviewer tasks (stage 4) as completed
+        // Auto-approve: mark any pending reviewer tasks (stage 3) as completed
         updatedTasks = updatedTasks.map(t => {
-          if (t.stage === 4 && t.status === 'pending') {
+          if (t.stage === 3 && t.status === 'pending') {
             return { ...t, status: 'completed' as const, data: { autoApproved: true } }
           }
           return t
