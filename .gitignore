@@ -58,3 +58,4 @@ agent-ctx/
 /upload/
 /download/
 tool-results/
+.open-next/

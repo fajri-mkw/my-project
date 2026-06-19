@@ -1,14 +1,44 @@
 import { PrismaClient } from '@prisma/client'
+import { PrismaLibSql } from '@prisma/adapter-libsql'
 
 const globalForPrisma = globalThis as unknown as {
   prisma: PrismaClient | undefined
 }
 
+/**
+ * Create a PrismaClient backed by the libSQL driver adapter.
+ *
+ * Supports two connection modes via DATABASE_URL:
+ *   - Local dev:  file:db/custom.db           (no auth token needed)
+ *   - Turso/edge: libsql://<host>?authToken=…  (token in URL or DATABASE_AUTH_TOKEN env)
+ *
+ * libSQL is a SQLite fork → schema provider stays "sqlite", all raw SQL
+ * (PRAGMA, ALTER TABLE, etc.) remains compatible.
+ */
+function createPrismaClient(): PrismaClient {
+  const databaseUrl = process.env.DATABASE_URL || 'file:db/custom.db'
+
+  // For file: URLs, no authToken is needed.
+  // For libsql: URLs (Turso/Cloudflare), authToken comes from the
+  // DATABASE_AUTH_TOKEN env var.
+  const isFile = databaseUrl.startsWith('file:')
+
+  // PrismaLibSql accepts a config object and creates the libSQL client internally.
+  const adapter = new PrismaLibSql(
+    isFile
+      ? { url: databaseUrl }
+      : { url: databaseUrl, authToken: process.env.DATABASE_AUTH_TOKEN }
+  )
+
+  return new PrismaClient({
+    adapter,
+    log: process.env.NODE_ENV === 'development' ? ['error', 'warn'] : ['error'],
+  })
+}
+
 // In production, create a new PrismaClient for each request
 // In development, reuse the same client
-export const db = globalForPrisma.prisma ?? new PrismaClient({
-  log: process.env.NODE_ENV === 'development' ? ['error', 'warn'] : ['error'],
-})
+export const db = globalForPrisma.prisma ?? createPrismaClient()
 
 if (process.env.NODE_ENV !== 'production') {
   globalForPrisma.prisma = db
@@ -28,8 +58,12 @@ export function getLastDbError(): string | null {
 /**
  * Ensure database connection + schema sync.
  * Returns true if connected, false if failed.
- * 
- * Schema sync uses version-based skip: on Vercel cold starts,
+ *
+ * NOTE: With the libSQL driver adapter, $connect() is effectively a no-op
+ * (the adapter manages the connection pool internally). We still call it
+ * for backward compatibility, but the real work happens in ensureSchemaSync().
+ *
+ * Schema sync uses version-based skip: on cold starts,
  * only 1 query (version check) is needed instead of 26+ migration queries
  * when the schema is already up-to-date.
  */
@@ -37,7 +71,7 @@ export async function ensureDbConnection(): Promise<boolean> {
   try {
     lastConnectionError = null
 
-    // Skip $connect() if already connected (saves ~50ms per request on warm server)
+    // Skip $connect() if already connected (saves overhead on warm requests)
     if (!isConnected) {
       // Deduplicate concurrent connection attempts
       if (!connectionPromise) {
@@ -49,9 +83,9 @@ export async function ensureDbConnection(): Promise<boolean> {
           throw err
         })
       }
-      
+
       // Race with timeout
-      const timeoutPromise = new Promise<never>((_, reject) => 
+      const timeoutPromise = new Promise<never>((_, reject) =>
         setTimeout(() => reject(new Error('Database connection timeout after 10s')), 10000)
       )
       await Promise.race([connectionPromise, timeoutPromise])

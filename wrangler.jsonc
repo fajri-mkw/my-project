@@ -1,0 +1,25 @@
+{
+  // Cloudflare Workers config for Pushakin Flows
+  // Deployed via OpenNext (@opennextjs/cloudflare)
+  "main": ".open-next/worker.js",
+  "name": "pushakin-flows",
+  "compatibility_date": "2024-09-23",
+  "compatibility_flags": ["nodejs_compat"],
+
+  // Static assets served from OpenNext build output
+  "assets": {
+    "directory": ".open-next/assets",
+    "binding": "ASSETS"
+  },
+
+  // Environment variables (set via `wrangler secret put` or dashboard)
+  // DO NOT put secrets here — this file is committed to git.
+  "vars": {
+    "NEXT_PUBLIC_APP_NAME": "Pushakin Flows"
+  }
+
+  // Secrets (set via CLI):
+  //   wrangler2 secret put DATABASE_URL
+  //   wrangler2 secret put DATABASE_AUTH_TOKEN
+  //   wrangler2 secret put DIRECT_DATABASE_URL  (not needed for Turso)
+}
