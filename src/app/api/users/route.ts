@@ -88,8 +88,8 @@ export async function POST(request: NextRequest) {
     
     // Hash password or use default
     const hashedPassword = password 
-      ? await bcrypt.hash(password, 10)
-      : await bcrypt.hash('pushakin123', 10)
+      ? await bcrypt.hash(password, 6)
+      : await bcrypt.hash('pushakin123', 6)
     
     const user = await db.user.create({
       data: {

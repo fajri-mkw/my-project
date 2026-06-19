@@ -49,7 +49,7 @@ export async function GET() {
     }
 
     // Default password for all demo users
-    const defaultPassword = await bcrypt.hash('pushakin123', 10)
+    const defaultPassword = await bcrypt.hash('pushakin123', 6)
 
     // Create users for each role
     const users = []
