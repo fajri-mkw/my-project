@@ -1889,7 +1889,7 @@ export function CreateProjectView() {
               Pilih struktur folder dan tentukan user mana saja yang memiliki akses.
             </p>
             <p className="text-xs text-indigo-600/70 mb-4 ml-8">
-              ✅ Folder <span className="font-semibold">PRODUKSI</span> &amp; <span className="font-semibold">PASCA PRODUKSI</span> sudah tercentang otomatis. Akses <span className="font-semibold">Upload</span> aktif (tercentang) di <span className="font-semibold">setiap tahap</span> untuk semua petugas — Download mengikuti tahapan kerja. Manager tetap dapat menyesuaikan manual.
+              ✅ Folder <span className="font-semibold">PRODUKSI</span> &amp; <span className="font-semibold">PASCA PRODUKSI</span> sudah tercentang otomatis. Akses <span className="font-semibold">Download/Upload</span> terisi otomatis sesuai tahapan kerja: T1 (UL) · T2 PRODUKSI (DL) · T2 PASCA PRODUKSI (UL) · T3 (DL+UL) · T4–T5 (DL). Manager tetap dapat menyesuaikan manual.
             </p>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 ml-8">
               {FOLDER_OPTIONS.map(folder => {

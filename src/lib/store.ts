@@ -362,8 +362,8 @@ export const ROLE_CONFIG: Record<string, { stage: number; type: string; icon: st
 }
 
 export const FOLDER_OPTIONS = [
-  { id: 'raw', title: '1. FOLDER', name: 'PRODUKSI (Berkas Mentah)', desc: 'Untuk upload mentahan: Reporter, Fotografer, Videografer, Desain Grafis. Untuk upload Petugas Tahap 1.', color: 'text-stone-600', bg: 'bg-stone-100', border: 'border-stone-200', accessHint: 'Semua Tahap: Upload aktif (T1: UL | T2: DL+UL)' },
-  { id: 'revised', title: '2. FOLDER', name: 'PASCA PRODUKSI (Draft & Editing)', desc: 'Untuk Editor, Reviewer, dan Publisher. Direview oleh QC.', color: 'text-orange-600', bg: 'bg-orange-50', border: 'border-orange-200', accessHint: 'Semua Tahap: Upload aktif (T2: UL | T3-5: DL+UL)' },
+  { id: 'raw', title: '1. FOLDER', name: 'PRODUKSI (Berkas Mentah)', desc: 'Untuk upload mentahan: Reporter, Fotografer, Videografer, Desain Grafis. Untuk upload Petugas Tahap 1.', color: 'text-stone-600', bg: 'bg-stone-100', border: 'border-stone-200', accessHint: 'T1: UL | T2: DL' },
+  { id: 'revised', title: '2. FOLDER', name: 'PASCA PRODUKSI (Draft & Editing)', desc: 'Untuk Editor, Reviewer, dan Publisher. Direview oleh QC.', color: 'text-orange-600', bg: 'bg-orange-50', border: 'border-orange-200', accessHint: 'T2: UL | T3: DL+UL | T4-5: DL' },
   { id: 'desain', title: '3. FOLDER', name: 'DESAIN FOLDER (Aset Visual)', desc: 'Khusus untuk penyimpanan file project desain.', color: 'text-blue-600', bg: 'bg-blue-50', border: 'border-blue-200' },
   { id: 'lainnya', title: '4. FOLDER', name: 'Additional Asset (Tambahan Foto/Footage)', desc: 'Folder kustom tambahan selain file kebutuhan output utama.', color: 'text-purple-600', bg: 'bg-purple-50', border: 'border-purple-200' }
 ]
@@ -374,21 +374,27 @@ export const FOLDER_OPTIONS = [
 // Keyed by folderId → stageNumber → { download, upload }.
 // Roles whose ROLE_CONFIG.stage matches will be auto-assigned with these toggles.
 //
-// IMPORTANT: Upload (UL) is auto-checked (true) for EVERY tahap so that petugas at
-// every stage can upload their work. Download (DL) follows the original stage policy
-// (only granted where downstream review/edit is needed).
+// Policy (per user request):
+//   PRODUKSI (raw):
+//     T1 → Upload only  (petugas upload mentahan)
+//     T2 → Download only (editor download mentahan untuk diedit)
+//   PASCA PRODUKSI (revised):
+//     T2 → Upload only  (editor upload hasil edit)
+//     T3 → Download + Upload (reviewer download untuk direview + upload review/annotasi)
+//     T4 → Download only (finalization download untuk difinalisasi)
+//     T5 → Download only (publisher download untuk dipublikasi)
 export const FOLDER_ACCESS_DEFAULTS: Record<string, Record<number, { download: boolean; upload: boolean }>> = {
-  // PRODUKSI: Tahap 1 (Upload only), Tahap 2 (Download + Upload)
+  // PRODUKSI: T1 (UL only), T2 (DL only)
   raw: {
     1: { download: false, upload: true },
-    2: { download: true, upload: true },
+    2: { download: true, upload: false },
   },
-  // PASCA PRODUKSI: Tahap 2 (Upload only), Tahap 3-5 (Download + Upload)
+  // PASCA PRODUKSI: T2 (UL only), T3 (DL+UL), T4 (DL only), T5 (DL only)
   revised: {
     2: { download: false, upload: true },
     3: { download: true, upload: true },
-    4: { download: true, upload: true },
-    5: { download: true, upload: true },
+    4: { download: true, upload: false },
+    5: { download: true, upload: false },
   },
 }
 
