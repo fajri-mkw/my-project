@@ -1,6 +1,7 @@
 import { db, ensureDbConnection } from '@/lib/db'
 import { NextRequest, NextResponse } from 'next/server'
 import { checkMaintenanceMode } from '@/lib/maintenance-check'
+import { withEdgeCache } from '@/lib/edge-cache'
 
 // Auto-generate nomor surat
 async function generateNomorSurat(jenisSurat: string): Promise<string> {
@@ -30,8 +31,8 @@ async function generateNomorSurat(jenisSurat: string): Promise<string> {
   return `${prefix}-${String(nextNumber).padStart(3, '0')}/${year}`
 }
 
-// GET all surat
-export async function GET(request: NextRequest) {
+// GET all surat (edge-cached 30s)
+export const GET = withEdgeCache(async (request: NextRequest) => {
   try {
     const isConnected = await ensureDbConnection()
     if (!isConnected) {
@@ -83,7 +84,7 @@ export async function GET(request: NextRequest) {
     const msg = error instanceof Error ? error.message : 'Unknown error'
     return NextResponse.json({ error: 'Failed to fetch surat', details: msg, surat: [] }, { status: 500 })
   }
-}
+}, { ttl: 30 })
 
 // POST create surat
 export async function POST(request: NextRequest) {

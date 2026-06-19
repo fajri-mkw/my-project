@@ -3,10 +3,12 @@ import { NextRequest, NextResponse } from 'next/server'
 import { checkMaintenanceMode } from '@/lib/maintenance-check'
 import { sendTaskAssignmentNotification } from '@/lib/notification-service'
 import { getRoleDisplayName } from '@/lib/store'
+import { withEdgeCache, invalidateCache } from '@/lib/edge-cache'
 
 // GET all projects with relations
 // Optimized: excludes full assignee/manager objects (frontends has /api/users data)
-export async function GET(request: NextRequest) {
+// Edge-cached for 60s to reduce CPU usage on Workers free plan
+export const GET = withEdgeCache(async (request: NextRequest) => {
   const maintenanceBlock = await checkMaintenanceMode(request)
   if (maintenanceBlock) return maintenanceBlock
   await ensureDbConnection()
@@ -97,7 +99,7 @@ export async function GET(request: NextRequest) {
     console.error('Get projects error:', error)
     return NextResponse.json({ error: 'Failed to fetch projects' }, { status: 500 })
   }
-}
+}, { ttl: 60 })
 
 // POST create project
 export async function POST(request: NextRequest) {

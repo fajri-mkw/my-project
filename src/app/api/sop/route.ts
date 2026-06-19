@@ -1,9 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db, ensureDbConnection } from '@/lib/db'
 import { checkMaintenanceMode } from '@/lib/maintenance-check'
+import { withEdgeCache, invalidateCache } from '@/lib/edge-cache'
 
 // GET - Fetch all SOPs/Pengumuman
-export async function GET(request: NextRequest) {
+// Edge-cached for 300s (5 min) — SOPs rarely change
+export const GET = withEdgeCache(async (request: NextRequest) => {
   const maintenanceBlock = await checkMaintenanceMode(request)
   if (maintenanceBlock) return maintenanceBlock
   try {
@@ -46,7 +48,7 @@ export async function GET(request: NextRequest) {
       { status: 500 }
     )
   }
-}
+}, { ttl: 300 })
 
 // POST - Create new SOP/Pengumuman
 export async function POST(request: NextRequest) {
@@ -93,6 +95,7 @@ export async function POST(request: NextRequest) {
       }
     })
 
+    await invalidateCache('/api/sop')
     return NextResponse.json(sop)
   } catch (error) {
     console.error('Error creating SOP:', error)
@@ -155,6 +158,7 @@ export async function PUT(request: NextRequest) {
       }
     })
 
+    await invalidateCache('/api/sop')
     return NextResponse.json(sop)
   } catch (error) {
     console.error('Error updating SOP:', error)
@@ -185,6 +189,7 @@ export async function DELETE(request: NextRequest) {
       where: { id }
     })
 
+    await invalidateCache('/api/sop')
     return NextResponse.json({ success: true })
   } catch (error) {
     console.error('Error deleting SOP:', error)

@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Inter, JetBrains_Mono } from "next/font/google";
 import "./globals.css";
 import { Toaster } from "@/components/ui/toaster";
+import { FetchRetryProvider } from "@/components/fetch-retry-provider";
 
 const inter = Inter({
   variable: "--font-geist-sans",
@@ -33,7 +34,9 @@ export default function RootLayout({
       <body
         className={`${inter.variable} ${jetbrains.variable} antialiased bg-background text-foreground`}
       >
-        {children}
+        <FetchRetryProvider>
+          {children}
+        </FetchRetryProvider>
         <Toaster />
       </body>
     </html>

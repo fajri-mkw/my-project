@@ -1,7 +1,9 @@
 import { NextResponse } from 'next/server'
 import { db, ensureDbConnection } from '@/lib/db'
+import { withEdgeCache } from '@/lib/edge-cache'
 
-export async function GET() {
+// Edge-cached for 10s to reduce CPU usage on Workers free plan
+export const GET = withEdgeCache(async (_request: Request) => {
   try {
     await ensureDbConnection()
     const settings = await db.settings.findUnique({
@@ -25,7 +27,7 @@ export async function GET() {
       message: null
     })
   }
-}
+}, { ttl: 10 })
 
 export async function PUT(request: Request) {
   try {

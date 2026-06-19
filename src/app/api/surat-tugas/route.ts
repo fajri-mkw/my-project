@@ -1,6 +1,7 @@
 import { db, ensureDbConnection } from '@/lib/db'
 import { NextRequest, NextResponse } from 'next/server'
 import { checkMaintenanceMode } from '@/lib/maintenance-check'
+import { withEdgeCache } from '@/lib/edge-cache'
 
 // Generate nomor surat: ST/001/I/2025
 async function generateNomorSurat(): Promise<string> {
@@ -28,7 +29,8 @@ async function generateNomorSurat(): Promise<string> {
 }
 
 // GET - Get all surat tugas for a user
-export async function GET(request: NextRequest) {
+// Edge-cached for 10s — per-user (cache key includes userId)
+export const GET = withEdgeCache(async (request: NextRequest) => {
   const maintenanceBlock = await checkMaintenanceMode(request)
   if (maintenanceBlock) return maintenanceBlock
   try {
@@ -129,7 +131,7 @@ export async function GET(request: NextRequest) {
     console.error('Get surat tugas error:', error)
     return NextResponse.json({ error: 'Failed to fetch surat tugas' }, { status: 500 })
   }
-}
+}, { ttl: 10 })
 
 // POST - Create new surat tugas
 export async function POST(request: NextRequest) {

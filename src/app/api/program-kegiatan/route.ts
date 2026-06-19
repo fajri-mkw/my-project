@@ -1,6 +1,7 @@
 import { db, ensureDbConnection } from '@/lib/db'
 import { NextRequest, NextResponse } from 'next/server'
 import { checkMaintenanceMode } from '@/lib/maintenance-check'
+import { withEdgeCache } from '@/lib/edge-cache'
 
 // Auto-generate nomor kegiatan: KG-001/2025
 async function generateNomorKegiatan(): Promise<string> {
@@ -29,8 +30,8 @@ async function generateNomorKegiatan(): Promise<string> {
   return `${prefix}-${String(nextNumber).padStart(3, '0')}/${year}`
 }
 
-// GET all program kegiatan
-export async function GET(request: NextRequest) {
+// GET all program kegiatan (edge-cached 30s)
+export const GET = withEdgeCache(async (request: NextRequest) => {
   try {
     const isConnected = await ensureDbConnection()
     if (!isConnected) {
@@ -75,7 +76,7 @@ export async function GET(request: NextRequest) {
     const msg = error instanceof Error ? error.message : 'Unknown error'
     return NextResponse.json({ error: 'Failed to fetch program kegiatan', details: msg, programKegiatan: [] }, { status: 500 })
   }
-}
+}, { ttl: 30 })
 
 // POST create program kegiatan
 export async function POST(request: NextRequest) {

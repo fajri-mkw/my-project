@@ -1,9 +1,11 @@
 import { db, ensureDbConnection } from '@/lib/db'
 import { NextRequest, NextResponse } from 'next/server'
 import { checkMaintenanceMode } from '@/lib/maintenance-check'
+import { withEdgeCache, invalidateCache } from '@/lib/edge-cache'
 
 // GET notifications for a user
-export async function GET(request: NextRequest) {
+// Edge-cached for 10s — per-user (cache key includes userId), short TTL
+export const GET = withEdgeCache(async (request: NextRequest) => {
   const maintenanceBlock = await checkMaintenanceMode(request)
   if (maintenanceBlock) return maintenanceBlock
   try {
@@ -34,7 +36,7 @@ export async function GET(request: NextRequest) {
     console.error('Get notifications error:', error)
     return NextResponse.json({ error: 'Failed to fetch notifications' }, { status: 500 })
   }
-}
+}, { ttl: 10 })
 
 // PUT mark notification as read
 export async function PUT(request: NextRequest) {
@@ -50,6 +52,7 @@ export async function PUT(request: NextRequest) {
       data: { read: true }
     })
     
+    await invalidateCache('/api/notifications')
     return NextResponse.json(notification)
   } catch (error) {
     console.error('Update notification error:', error)

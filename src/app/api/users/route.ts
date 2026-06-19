@@ -2,9 +2,11 @@ import { db, ensureDbConnection } from '@/lib/db'
 import { NextRequest, NextResponse } from 'next/server'
 import bcrypt from 'bcryptjs'
 import { checkMaintenanceMode } from '@/lib/maintenance-check'
+import { withEdgeCache, invalidateCache } from '@/lib/edge-cache'
 
 // GET all users — always allowed (needed for login)
-export async function GET() {
+// Edge-cached for 60s to reduce CPU usage on Workers free plan
+export const GET = withEdgeCache(async (_request: NextRequest) => {
   try {
     // Ensure database connection
     const isConnected = await ensureDbConnection()
@@ -68,7 +70,7 @@ export async function GET() {
       users: []
     }, { status: 500 })
   }
-}
+}, { ttl: 60 })
 
 // POST create user
 export async function POST(request: NextRequest) {
@@ -102,6 +104,7 @@ export async function POST(request: NextRequest) {
       }
     })
     
+    await invalidateCache('/api/users')
     return NextResponse.json({
       id: user.id,
       name: user.name,
@@ -150,6 +153,7 @@ export async function PUT(request: NextRequest) {
       }
     })
     
+    await invalidateCache('/api/users')
     return NextResponse.json({
       id: user.id,
       name: user.name,
@@ -186,6 +190,7 @@ export async function DELETE(request: NextRequest) {
       where: { id }
     })
     
+    await invalidateCache('/api/users')
     return NextResponse.json({ success: true })
   } catch (error) {
     console.error('Delete user error:', error)

@@ -2,9 +2,11 @@ import { db, ensureDbConnection } from '@/lib/db'
 import { invalidateMaintenanceCache } from '@/lib/maintenance-check'
 import { sanitizeServiceAccountKey, validateServiceAccountKeyString } from '@/lib/drive-service'
 import { NextRequest, NextResponse } from 'next/server'
+import { withEdgeCache, invalidateCache } from '@/lib/edge-cache'
 
 // GET settings
-export async function GET() {
+// Edge-cached for 30s to reduce CPU usage on Workers free plan
+export const GET = withEdgeCache(async (_request: NextRequest) => {
   try {
     await ensureDbConnection()
     let settings = await db.settings.findUnique({
@@ -31,7 +33,7 @@ export async function GET() {
     console.error('Get settings error:', error)
     return NextResponse.json({ error: 'Failed to fetch settings' }, { status: 500 })
   }
-}
+}, { ttl: 30 })
 
 // PUT update settings
 export async function PUT(request: NextRequest) {
@@ -105,6 +107,7 @@ export async function PUT(request: NextRequest) {
       invalidateMaintenanceCache()
     }
 
+    await invalidateCache('/api/settings')
     return NextResponse.json({
       success: true,
       driveAutoCreate: settings.driveAutoCreate || false,
