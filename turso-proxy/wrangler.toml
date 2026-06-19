@@ -1,0 +1,7 @@
+name = "turso-proxy"
+main = "worker.js"
+compatibility_date = "2024-12-01"
+account_id = "afe4c96696bf83bebd0761ec59094e74"
+
+[vars]
+PROXY_SECRET = "pushakin-local-proxy-2026"
