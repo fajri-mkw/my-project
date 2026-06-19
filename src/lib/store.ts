@@ -363,7 +363,7 @@ export const ROLE_CONFIG: Record<string, { stage: number; type: string; icon: st
 
 export const FOLDER_OPTIONS = [
   { id: 'raw', title: '1. FOLDER', name: 'PRODUKSI (Berkas Mentah)', desc: 'Untuk upload mentahan: Reporter, Fotografer, Videografer, Desain Grafis. Untuk upload Petugas Tahap 1.', color: 'text-stone-600', bg: 'bg-stone-100', border: 'border-stone-200', accessHint: 'T1: UL | T2: DL' },
-  { id: 'revised', title: '2. FOLDER', name: 'PASCA PRODUKSI (Draft & Editing)', desc: 'Untuk Editor, Reviewer, dan Publisher. Direview oleh QC.', color: 'text-orange-600', bg: 'bg-orange-50', border: 'border-orange-200', accessHint: 'T2: UL | T3: DL+UL | T4-5: DL' },
+  { id: 'revised', title: '2. FOLDER', name: 'PASCA PRODUKSI (Draft & Editing)', desc: 'Untuk Editor, Reviewer, dan Publisher. Direview oleh QC.', color: 'text-orange-600', bg: 'bg-orange-50', border: 'border-orange-200', accessHint: 'T2: UL | T3: DL+UL | T4: DL+UL | T5: DL' },
   { id: 'desain', title: '3. FOLDER', name: 'DESAIN FOLDER (Aset Visual)', desc: 'Khusus untuk penyimpanan file project desain.', color: 'text-blue-600', bg: 'bg-blue-50', border: 'border-blue-200' },
   { id: 'lainnya', title: '4. FOLDER', name: 'Additional Asset (Tambahan Foto/Footage)', desc: 'Folder kustom tambahan selain file kebutuhan output utama.', color: 'text-purple-600', bg: 'bg-purple-50', border: 'border-purple-200' }
 ]
@@ -381,7 +381,7 @@ export const FOLDER_OPTIONS = [
 //   PASCA PRODUKSI (revised):
 //     T2 → Upload only  (editor upload hasil edit)
 //     T3 → Download + Upload (reviewer download untuk direview + upload review/annotasi)
-//     T4 → Download only (finalization download untuk difinalisasi)
+//     T4 → Download + Upload (finalization download untuk difinalisasi + upload hasil finalisasi)
 //     T5 → Download only (publisher download untuk dipublikasi)
 export const FOLDER_ACCESS_DEFAULTS: Record<string, Record<number, { download: boolean; upload: boolean }>> = {
   // PRODUKSI: T1 (UL only), T2 (DL only)
@@ -389,11 +389,11 @@ export const FOLDER_ACCESS_DEFAULTS: Record<string, Record<number, { download: b
     1: { download: false, upload: true },
     2: { download: true, upload: false },
   },
-  // PASCA PRODUKSI: T2 (UL only), T3 (DL+UL), T4 (DL only), T5 (DL only)
+  // PASCA PRODUKSI: T2 (UL only), T3 (DL+UL), T4 (DL+UL), T5 (DL only)
   revised: {
     2: { download: false, upload: true },
     3: { download: true, upload: true },
-    4: { download: true, upload: false },
+    4: { download: true, upload: true },
     5: { download: true, upload: false },
   },
 }
