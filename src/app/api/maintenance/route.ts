@@ -27,7 +27,7 @@ export const GET = withEdgeCache(async (_request: Request) => {
       message: null
     })
   }
-}, { ttl: 10 })
+}, { ttl: 60 })
 
 export async function PUT(request: Request) {
   try {

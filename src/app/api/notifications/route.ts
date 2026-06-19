@@ -36,7 +36,7 @@ export const GET = withEdgeCache(async (request: NextRequest) => {
     console.error('Get notifications error:', error)
     return NextResponse.json({ error: 'Failed to fetch notifications' }, { status: 500 })
   }
-}, { ttl: 10 })
+}, { ttl: 30 })
 
 // PUT mark notification as read
 export async function PUT(request: NextRequest) {

@@ -131,7 +131,7 @@ export const GET = withEdgeCache(async (request: NextRequest) => {
     console.error('Get surat tugas error:', error)
     return NextResponse.json({ error: 'Failed to fetch surat tugas' }, { status: 500 })
   }
-}, { ttl: 10 })
+}, { ttl: 30 })
 
 // POST - Create new surat tugas
 export async function POST(request: NextRequest) {
