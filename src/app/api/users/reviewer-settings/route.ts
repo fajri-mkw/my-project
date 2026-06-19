@@ -59,23 +59,23 @@ export async function PUT(request: NextRequest) {
     })
     
     // When auto-approve is turned ON, immediately auto-approve any pending
-    // reviewer tasks for this user on projects that are currently at stage 4
+    // reviewer tasks for this user on projects that are currently at stage 3
     // (Review). This ensures the setting takes immediate effect — the reviewer
     // doesn't have to wait for another task completion event to trigger it.
-    // For projects not yet at stage 4, the auto-approve will fire automatically
-    // when the stage advances to 4 (handled in the tasks API).
+    // For projects not yet at stage 3, the auto-approve will fire automatically
+    // when the stage advances to 3 (handled in the tasks API).
     if (autoApproveReview) {
       const pendingReviewTasks = await db.task.findMany({
         where: {
           assignedTo: userId,
-          stage: 4,
+          stage: 3,
           status: 'pending'
         },
         include: { project: true }
       })
       
-      // Only auto-approve tasks where the project is at stage 4 (Review)
-      const tasksToAutoApprove = pendingReviewTasks.filter(t => t.project.currentStage === 4)
+      // Only auto-approve tasks where the project is at stage 3 (Review)
+      const tasksToAutoApprove = pendingReviewTasks.filter(t => t.project.currentStage === 3)
       
       for (const task of tasksToAutoApprove) {
         await db.task.update({
@@ -94,15 +94,15 @@ export async function PUT(request: NextRequest) {
           }
         })
         
-        // Check if all stage-4 tasks for this project are now completed.
+        // Check if all stage-3 tasks for this project are now completed.
         // If so, advance the project to the next stage (skip Review).
         const projectTasks = await db.task.findMany({ where: { projectId: task.projectId } })
-        const stage4Tasks = projectTasks.filter(t => t.stage === 4)
-        const stage4AllDone = stage4Tasks.length > 0 && stage4Tasks.every(t => t.status === 'completed')
+        const stage3Tasks = projectTasks.filter(t => t.stage === 3)
+        const stage3AllDone = stage3Tasks.length > 0 && stage3Tasks.every(t => t.status === 'completed')
         
-        if (stage4AllDone) {
-          // Find the next stage with pending tasks (skip stage 4)
-          let nextStage = 5
+        if (stage3AllDone) {
+          // Find the next stage with pending tasks (skip stage 3)
+          let nextStage = 4
           while (nextStage <= 5) {
             const nextTasks = projectTasks.filter(t => t.stage === nextStage && t.status === 'pending')
             if (nextTasks.length > 0) break

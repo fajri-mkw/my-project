@@ -347,8 +347,8 @@ export function SettingsView() {
                   </p>
                   <p className="mt-1">
                     {autoApprove
-                      ? "Pada SEMUA proyek (mode biasa maupun Fast Production), saat proyek mencapai tahap Review (tahap 4), tugas review Anda akan otomatis disetujui tanpa perlu menekan tombol \"Teruskan File\". Jika semua reviewer telah menyelesaikan review (auto atau manual), proyek akan otomatis berpindah ke tahap berikutnya."
-                      : "Saat diaktifkan, tugas review Anda akan otomatis disetujui pada setiap proyek yang mencapai tahap Review (tahap 4). Berlaku untuk mode biasa maupun Fast Production. Reviewer lain yang belum mengaktifkan fitur ini tetap harus melakukan review secara manual."
+                      ? "Pada SEMUA proyek (mode biasa maupun Fast Production), saat proyek mencapai tahap Review (tahap 3), tugas review Anda akan otomatis disetujui tanpa perlu menekan tombol \"Teruskan File\". Jika semua reviewer telah menyelesaikan review (auto atau manual), proyek akan otomatis berpindah ke tahap berikutnya."
+                      : "Saat diaktifkan, tugas review Anda akan otomatis disetujui pada setiap proyek yang mencapai tahap Review (tahap 3). Berlaku untuk mode biasa maupun Fast Production. Reviewer lain yang belum mengaktifkan fitur ini tetap harus melakukan review secara manual."
                     }
                   </p>
                 </div>
