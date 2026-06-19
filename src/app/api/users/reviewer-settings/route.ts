@@ -58,7 +58,87 @@ export async function PUT(request: NextRequest) {
       data: { autoApproveReview: autoApproveReview ?? false }
     })
     
-    return NextResponse.json({ success: true, autoApproveReview: autoApproveReview ?? false })
+    // When auto-approve is turned ON, immediately auto-approve any pending
+    // reviewer tasks for this user on projects that are currently at stage 4
+    // (Review). This ensures the setting takes immediate effect — the reviewer
+    // doesn't have to wait for another task completion event to trigger it.
+    // For projects not yet at stage 4, the auto-approve will fire automatically
+    // when the stage advances to 4 (handled in the tasks API).
+    if (autoApproveReview) {
+      const pendingReviewTasks = await db.task.findMany({
+        where: {
+          assignedTo: userId,
+          stage: 4,
+          status: 'pending'
+        },
+        include: { project: true }
+      })
+      
+      // Only auto-approve tasks where the project is at stage 4 (Review)
+      const tasksToAutoApprove = pendingReviewTasks.filter(t => t.project.currentStage === 4)
+      
+      for (const task of tasksToAutoApprove) {
+        await db.task.update({
+          where: { id: task.id },
+          data: { status: 'completed', data: JSON.stringify({ autoApproved: true }) }
+        })
+        
+        // Notify the reviewer
+        await db.notification.create({
+          data: {
+            userId,
+            message: `Proyek "${task.project.title}" telah di-auto-approve. Tahap review Anda dilewati otomatis sesuai pengaturan Auto-Approve Anda.`,
+            projectId: task.projectId,
+            targetView: 'project_detail',
+            read: false
+          }
+        })
+        
+        // Check if all stage-4 tasks for this project are now completed.
+        // If so, advance the project to the next stage (skip Review).
+        const projectTasks = await db.task.findMany({ where: { projectId: task.projectId } })
+        const stage4Tasks = projectTasks.filter(t => t.stage === 4)
+        const stage4AllDone = stage4Tasks.length > 0 && stage4Tasks.every(t => t.status === 'completed')
+        
+        if (stage4AllDone) {
+          // Find the next stage with pending tasks (skip stage 4)
+          let nextStage = 5
+          while (nextStage <= 5) {
+            const nextTasks = projectTasks.filter(t => t.stage === nextStage && t.status === 'pending')
+            if (nextTasks.length > 0) break
+            const nextCompleted = projectTasks.filter(t => t.stage === nextStage && t.status === 'completed')
+            if (nextCompleted.length > 0) { nextStage++; continue }
+            nextStage++
+          }
+          if (nextStage > 5) nextStage = 6
+          
+          await db.project.update({
+            where: { id: task.projectId },
+            data: { currentStage: nextStage }
+          })
+          
+          // Notify next-stage workers
+          const nextStagePendingTasks = projectTasks.filter(t => t.stage === nextStage && t.status === 'pending')
+          for (const nextTask of nextStagePendingTasks) {
+            await db.notification.create({
+              data: {
+                userId: nextTask.assignedTo,
+                message: `Proyek ${task.project.title} maju ke tahap ${nextStage}. Giliran Anda!`,
+                projectId: task.projectId,
+                targetView: 'project_detail',
+                read: false
+              }
+            })
+          }
+        }
+      }
+    }
+    
+    return NextResponse.json({ 
+      success: true, 
+      autoApproveReview: autoApproveReview ?? false,
+      immediateAutoApproved: autoApproveReview ? true : false
+    })
   } catch (error) {
     console.error('Error updating reviewer settings:', error)
     const errorMessage = error instanceof Error ? error.message : 'Internal server error'

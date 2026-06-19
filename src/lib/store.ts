@@ -614,8 +614,25 @@ export const useAppStore = create<AppState>()(
         return { ...p, tasks: updatedTasks, currentStage: minPending }
       }
       
+      // === Per-reviewer Auto-Approve for Review stage (stage 4) — Case A ===
+      // When the project is ALREADY at stage 4 (Review), auto-approve remaining
+      // pending reviewer tasks where the reviewer has autoApproveReview enabled.
+      // This handles the co-reviewer scenario (one reviewer completes, another
+      // with auto-approve gets auto-completed).
+      if (p.currentStage === 4) {
+        const autoApproveIds = new Set(
+          state.users.filter(u => u.autoApproveReview).map(u => u.id)
+        )
+        updatedTasks = updatedTasks.map(t => {
+          if (t.stage === 4 && t.status === 'pending' && autoApproveIds.has(t.assignedTo)) {
+            return { ...t, status: 'completed' as const, data: { autoApproved: true } }
+          }
+          return t
+        })
+      }
+      
       const currentStageTasks = updatedTasks.filter(t => t.stage === p.currentStage)
-      const allCurrentDone = currentStageTasks.length > 0 && currentStageTasks.every(t => t.status === 'completed')
+      let allCurrentDone = currentStageTasks.length > 0 && currentStageTasks.every(t => t.status === 'completed')
       
       let nextStage = p.currentStage
       if (allCurrentDone) {
@@ -645,6 +662,37 @@ export const useAppStore = create<AppState>()(
           // No tasks at this stage at all — skip
           nextStage++
         }
+        
+        // === Per-reviewer Auto-Approve for Review stage (stage 4) — Case B ===
+        // When advancing to stage 4 (Review), auto-approve reviewer tasks where
+        // the reviewer has autoApproveReview enabled. If ALL stage-4 tasks get
+        // auto-approved, skip stage 4 and advance to the next non-empty stage.
+        if (nextStage === 4) {
+          const autoApproveIds = new Set(
+            state.users.filter(u => u.autoApproveReview).map(u => u.id)
+          )
+          updatedTasks = updatedTasks.map(t => {
+            if (t.stage === 4 && t.status === 'pending' && autoApproveIds.has(t.assignedTo)) {
+              return { ...t, status: 'completed' as const, data: { autoApproved: true } }
+            }
+            return t
+          })
+          
+          // Re-check: are ALL stage-4 tasks now completed?
+          const stage4Tasks = updatedTasks.filter(t => t.stage === 4)
+          const stage4AllDone = stage4Tasks.length > 0 && stage4Tasks.every(t => t.status === 'completed')
+          if (stage4AllDone) {
+            nextStage = 5
+            while (nextStage <= 5) {
+              const nextTasks = updatedTasks.filter(t => t.stage === nextStage && t.status === 'pending')
+              if (nextTasks.length > 0) break
+              const nextCompleted = updatedTasks.filter(t => t.stage === nextStage && t.status === 'completed')
+              if (nextCompleted.length > 0) { nextStage++; continue }
+              nextStage++
+            }
+          }
+        }
+        
         if (nextStage > 5) nextStage = 6
       }
       

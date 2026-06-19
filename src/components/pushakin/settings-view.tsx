@@ -274,7 +274,7 @@ export function SettingsView() {
             updateUser({ ...currentUser, autoApproveReview: checked })
           }
           showAlert(checked
-            ? 'Auto-Approve diaktifkan! Review akan otomatis disetujui saat Pasca Produksi selesai.'
+            ? 'Auto-Approve diaktifkan! Review Anda akan otomatis disetujui pada SEMUA proyek (mode biasa maupun Fast Production) saat proyek mencapai tahap Review.'
             : 'Auto-Approve dinonaktifkan. Anda harus melakukan review secara manual.'
           )
         } else {
@@ -326,7 +326,7 @@ export function SettingsView() {
                   )}
                 </div>
                 <CardDescription>
-                  Otomatis menyetujui review saat tahap Pasca Produksi selesai
+                  Otomatis menyetujui review Anda pada setiap proyek saat mencapai tahap Review
                 </CardDescription>
               </div>
             </div>
@@ -347,8 +347,8 @@ export function SettingsView() {
                   </p>
                   <p className="mt-1">
                     {autoApprove
-                      ? "Saat semua tugas di tahap Pasca Produksi (tahap 2) selesai, proses review akan otomatis disetujui dan proyek langsung berpindah ke tahap Finalization (tahap 4) tanpa perlu Anda menekan tombol \"Teruskan File\"."
-                      : "Saat diaktifkan, jika semua tugas di tahap Pasca Produksi (tahap 2) telah selesai, proses review akan otomatis disetujui dan proyek langsung berpindah ke tahap Finalization (tahap 4). Anda tidak perlu membuka proyek dan menekan tombol \"Teruskan File (Approve)\"."
+                      ? "Pada SEMUA proyek (mode biasa maupun Fast Production), saat proyek mencapai tahap Review (tahap 4), tugas review Anda akan otomatis disetujui tanpa perlu menekan tombol \"Teruskan File\". Jika semua reviewer telah menyelesaikan review (auto atau manual), proyek akan otomatis berpindah ke tahap berikutnya."
+                      : "Saat diaktifkan, tugas review Anda akan otomatis disetujui pada setiap proyek yang mencapai tahap Review (tahap 4). Berlaku untuk mode biasa maupun Fast Production. Reviewer lain yang belum mengaktifkan fitur ini tetap harus melakukan review secara manual."
                     }
                   </p>
                 </div>

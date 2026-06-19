@@ -107,7 +107,7 @@ export async function PUT(request: NextRequest) {
     // Super Admin override: bypass stage gate entirely
     if (!proj?.isFastProduction && existingTask.stage !== proj?.currentStage && !isRevision && !isSuperAdmin) {
       const stageNames: Record<number, string> = {
-        0: 'Perencanaan', 1: 'Produksi', 2: 'Pasca Produksi', 3: 'Review', 4: 'Finalisasi', 5: 'Publikasi', 6: 'Selesai'
+        0: 'Perencanaan', 1: 'Produksi', 2: 'Pasca Produksi', 3: 'Finalization', 4: 'Review', 5: 'Publikasi', 6: 'Selesai'
       }
       const taskStageName = stageNames[existingTask.stage] || ''
       const projStageName = proj?.currentStage !== undefined ? (stageNames[proj.currentStage] || '') : ''
@@ -138,9 +138,9 @@ export async function PUT(request: NextRequest) {
     
     // For Fast Production: check if ALL tasks across ALL stages are done
     if (project?.isFastProduction) {
-      // Auto-approve: If there are pending reviewer tasks (stage 3), auto-complete them
+      // Auto-approve: If there are pending reviewer tasks (stage 4), auto-complete them
       // This handles cases where reviewer tasks weren't auto-approved at creation
-      const pendingReviewerTasks = projectTasks.filter(t => t.stage === 3 && t.status === 'pending')
+      const pendingReviewerTasks = projectTasks.filter(t => t.stage === 4 && t.status === 'pending')
       if (pendingReviewerTasks.length > 0) {
         const reviewerIds = [...new Set(pendingReviewerTasks.map(t => t.assignedTo))]
         const reviewers = await db.user.findMany({
@@ -181,7 +181,7 @@ export async function PUT(request: NextRequest) {
           data: { currentStage: 6 }
         })
       } else {
-        // Update currentStage to the lowest stage with pending tasks (excluding completed stage 3)
+        // Update currentStage to the lowest stage with pending tasks (excluding completed stage 4)
         const pendingStages = projectTasks.filter(t => t.status === 'pending').map(t => t.stage)
         if (pendingStages.length > 0) {
           const minPending = Math.min(...pendingStages)
@@ -224,12 +224,60 @@ export async function PUT(request: NextRequest) {
     }
     
     const currentStageTasks = projectTasks.filter(t => t.stage === task.project.currentStage)
-    const allCurrentDone = currentStageTasks.length > 0 && currentStageTasks.every(t => t.status === 'completed')
+    let allCurrentDone = currentStageTasks.length > 0 && currentStageTasks.every(t => t.status === 'completed')
     
     let nextStage = task.project.currentStage
     let stageAdvanced = false
     let autoApprovedTasks: string[] = []
     let fastTrackedTasks: string[] = []
+    
+    // === Per-reviewer Auto-Approve for Review stage (stage 4) — Case A ===
+    // When the project is ALREADY at stage 4 (Review) and a task was just completed,
+    // auto-approve any remaining pending reviewer tasks where the reviewer has
+    // autoApproveReview enabled. This handles the co-reviewer scenario:
+    // Reviewer B (manual) completes → Reviewer A (auto-approve setting) gets auto-completed.
+    // Per-reviewer: only auto-completes tasks for reviewers who HAVE the setting enabled;
+    // reviewers without it keep their tasks pending for manual review.
+    if (!project?.isFastProduction && task.project.currentStage === 4) {
+      const pendingReviewers = projectTasks.filter(t => t.stage === 4 && t.status === 'pending')
+      if (pendingReviewers.length > 0) {
+        const reviewerIds = [...new Set(pendingReviewers.map(t => t.assignedTo))]
+        const autoApproveReviewers = await db.user.findMany({
+          where: { id: { in: reviewerIds }, autoApproveReview: true }
+        })
+        const autoApproveIds = new Set(autoApproveReviewers.map(r => r.id))
+        const toAutoApprove = pendingReviewers.filter(t => autoApproveIds.has(t.assignedTo))
+        
+        if (toAutoApprove.length > 0) {
+          await Promise.all(
+            toAutoApprove.map(t => db.task.update({
+              where: { id: t.id },
+              data: { status: 'completed', data: JSON.stringify({ autoApproved: true }) }
+            }))
+          )
+          autoApprovedTasks = toAutoApprove.map(t => t.id)
+          
+          for (const reviewer of autoApproveReviewers) {
+            await db.notification.create({
+              data: {
+                userId: reviewer.id,
+                message: `Proyek "${task.project.title}" telah di-auto-approve. Tahap review Anda dilewati otomatis sesuai pengaturan Auto-Approve Anda.`,
+                projectId, targetView: 'project_detail', read: false
+              }
+            })
+          }
+          
+          // Refresh task list to include auto-approved tasks
+          const refreshedTasks = await db.task.findMany({ where: { projectId } })
+          projectTasks.length = 0
+          projectTasks.push(...refreshedTasks)
+          
+          // Re-check allCurrentDone — auto-approving may have completed all stage-4 tasks
+          const stage4Tasks = projectTasks.filter(t => t.stage === 4)
+          allCurrentDone = stage4Tasks.length > 0 && stage4Tasks.every(t => t.status === 'completed')
+        }
+      }
+    }
     
     if (allCurrentDone) {
       nextStage = task.project.currentStage + 1
@@ -246,46 +294,6 @@ export async function PUT(request: NextRequest) {
           }))
         )
         fastTrackedTasks = skippedTasks.map(t => t.id)
-      }
-      
-      // Auto-approve: If advancing to stage 3 (Review), check if reviewer has auto-approve enabled
-      if (nextStage === 3) {
-        const reviewerTasks = projectTasks.filter(t => t.stage === 3)
-        const reviewerIds = [...new Set(reviewerTasks.map(t => t.assignedTo))]
-        
-        if (reviewerIds.length > 0) {
-          const reviewers = await db.user.findMany({
-            where: { id: { in: reviewerIds }, autoApproveReview: true }
-          })
-          
-          // If ALL reviewers for this project have auto-approve enabled
-          if (reviewers.length === reviewerIds.length && reviewers.length > 0) {
-            // Auto-complete all review tasks
-            await Promise.all(
-              reviewerTasks.map(t => db.task.update({
-                where: { id: t.id },
-                data: { status: 'completed', data: JSON.stringify({ autoApproved: true }) }
-              }))
-            )
-            autoApprovedTasks = reviewerTasks.map(t => t.id)
-            
-            // Skip to stage 4 (Finalization)
-            nextStage = 4
-            
-            // Create notification for reviewers
-            for (const reviewer of reviewers) {
-              await db.notification.create({
-                data: {
-                  userId: reviewer.id,
-                  message: `Proyek "${task.project.title}" telah di-auto-approve. Tahap review dilewati otomatis.`,
-                  projectId: projectId,
-                  targetView: 'project_detail',
-                  read: false
-                }
-              })
-            }
-          }
-        }
       }
       
       // FIX: Skip empty stages — advance to the next stage that actually has pending tasks
@@ -305,6 +313,66 @@ export async function PUT(request: NextRequest) {
         }
         // No tasks at this stage at all — skip to next
         nextStage++
+      }
+      
+      // === Per-reviewer Auto-Approve for Review stage (stage 4) — Case B ===
+      // When the stage is ADVANCING to stage 4 (Review), auto-approve reviewer tasks
+      // where the reviewer has autoApproveReview enabled. This runs AFTER the
+      // empty-stage skip loop, so it correctly handles the case where stage 3
+      // (Finalization) was empty and the project jumps from stage 2 directly to 4.
+      // Per-reviewer: only auto-completes tasks for reviewers who HAVE the setting;
+      // reviewers without it keep their tasks pending for manual review.
+      if (!project?.isFastProduction && nextStage === 4) {
+        const pendingReviewers = freshTasks.filter(t => t.stage === 4 && t.status === 'pending')
+        if (pendingReviewers.length > 0) {
+          const reviewerIds = [...new Set(pendingReviewers.map(t => t.assignedTo))]
+          const autoApproveReviewers = await db.user.findMany({
+            where: { id: { in: reviewerIds }, autoApproveReview: true }
+          })
+          const autoApproveIds = new Set(autoApproveReviewers.map(r => r.id))
+          const toAutoApprove = pendingReviewers.filter(t => autoApproveIds.has(t.assignedTo))
+          
+          if (toAutoApprove.length > 0) {
+            await Promise.all(
+              toAutoApprove.map(t => db.task.update({
+                where: { id: t.id },
+                data: { status: 'completed', data: JSON.stringify({ autoApproved: true }) }
+              }))
+            )
+            autoApprovedTasks = [...autoApprovedTasks, ...toAutoApprove.map(t => t.id)]
+            
+            for (const reviewer of autoApproveReviewers) {
+              await db.notification.create({
+                data: {
+                  userId: reviewer.id,
+                  message: `Proyek "${task.project.title}" telah di-auto-approve. Tahap review Anda dilewati otomatis sesuai pengaturan Auto-Approve Anda.`,
+                  projectId, targetView: 'project_detail', read: false
+                }
+              })
+            }
+            
+            // Re-check: are ALL stage-4 tasks now completed?
+            const refreshedTasks2 = await db.task.findMany({ where: { projectId } })
+            const stage4Tasks = refreshedTasks2.filter(t => t.stage === 4)
+            const stage4AllDone = stage4Tasks.length > 0 && stage4Tasks.every(t => t.status === 'completed')
+            
+            if (stage4AllDone) {
+              // All review tasks done (auto-approved) — skip stage 4, advance to next non-empty stage
+              nextStage = 5
+              while (nextStage <= 5) {
+                const nextTasks = refreshedTasks2.filter(t => t.stage === nextStage && t.status === 'pending')
+                if (nextTasks.length > 0) break
+                const nextCompleted = refreshedTasks2.filter(t => t.stage === nextStage && t.status === 'completed')
+                if (nextCompleted.length > 0) { nextStage++; continue }
+                nextStage++
+              }
+            }
+            
+            // Update freshTasks for downstream notification logic
+            freshTasks.length = 0
+            freshTasks.push(...refreshedTasks2)
+          }
+        }
       }
       
       // If we've passed stage 5 with all tasks done, mark as completed
