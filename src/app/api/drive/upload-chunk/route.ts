@@ -2,6 +2,7 @@ import { db, ensureDbConnection } from '@/lib/db'
 import { NextRequest, NextResponse } from 'next/server'
 import { checkMaintenanceMode } from '@/lib/maintenance-check'
 import { google } from 'googleapis'
+import { parseServiceAccountKey, validateServiceAccountCredentials } from '@/lib/drive-service'
 
 const CHUNK_SIZE = 1 * 1024 * 1024 // 1MB per chunk (well under Vercel's 4.5MB limit)
 
@@ -26,7 +27,8 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Google Drive belum dikonfigurasi' }, { status: 400 })
     }
 
-    const credentials = JSON.parse(settings.driveServiceAccountKey)
+    const credentials = parseServiceAccountKey(settings.driveServiceAccountKey)
+    validateServiceAccountCredentials(credentials)
     const auth = new google.auth.GoogleAuth({
       credentials,
       scopes: ['https://www.googleapis.com/auth/drive']

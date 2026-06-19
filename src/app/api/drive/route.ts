@@ -2,6 +2,7 @@ import { db, ensureDbConnection } from '@/lib/db'
 import { NextRequest, NextResponse } from 'next/server'
 import { checkMaintenanceMode } from '@/lib/maintenance-check'
 import { google } from 'googleapis'
+import { getDriveClient } from '@/lib/drive-service'
 
 // Interface for folder creation result
 interface CreatedFolder {
@@ -163,17 +164,8 @@ async function findOrCreateYearMonthFolder(
   return monthFolderId
 }
 
-// Create Google Drive client from service account
-function getDriveClient(serviceAccountKey: string) {
-  const credentials = JSON.parse(serviceAccountKey)
-  
-  const auth = new google.auth.GoogleAuth({
-    credentials,
-    scopes: ['https://www.googleapis.com/auth/drive']
-  })
-  
-  return google.drive({ version: 'v3', auth })
-}
+// Create Google Drive client from service account — imported from @/lib/drive-service
+// (robust parser handles corrupted/CSV-wrapped keys with literal control chars)
 
 // Create a folder in Google Drive (supports Shared Drives)
 async function createFolder(

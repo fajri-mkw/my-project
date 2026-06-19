@@ -2,6 +2,7 @@ import { db, ensureDbConnection } from '@/lib/db'
 import { NextRequest, NextResponse } from 'next/server'
 import { checkMaintenanceMode } from '@/lib/maintenance-check'
 import { google } from 'googleapis'
+import { parseServiceAccountKey, validateServiceAccountCredentials } from '@/lib/drive-service'
 
 /**
  * Generate a sanitized, formatted filename for uploaded files.
@@ -76,8 +77,9 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Google Drive belum dikonfigurasi' }, { status: 400 })
     }
 
-    // Authenticate with service account
-    const credentials = JSON.parse(settings.driveServiceAccountKey)
+    // Authenticate with service account (robust parser handles corrupted keys)
+    const credentials = parseServiceAccountKey(settings.driveServiceAccountKey)
+    validateServiceAccountCredentials(credentials)
     const auth = new google.auth.GoogleAuth({
       credentials,
       scopes: ['https://www.googleapis.com/auth/drive']

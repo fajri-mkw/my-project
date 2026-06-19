@@ -2,6 +2,7 @@ import { db, ensureDbConnection } from '@/lib/db'
 import { NextRequest, NextResponse } from 'next/server'
 import { checkMaintenanceMode } from '@/lib/maintenance-check'
 import { google } from 'googleapis'
+import { parseServiceAccountKey, validateServiceAccountCredentials } from '@/lib/drive-service'
 
 export async function POST(request: NextRequest) {
   const maintenanceBlock = await checkMaintenanceMode(request)
@@ -19,7 +20,8 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Google Drive belum dikonfigurasi' }, { status: 400 })
     }
 
-    const credentials = JSON.parse(settings.driveServiceAccountKey)
+    const credentials = parseServiceAccountKey(settings.driveServiceAccountKey)
+    validateServiceAccountCredentials(credentials)
     const auth = new google.auth.GoogleAuth({
       credentials,
       scopes: ['https://www.googleapis.com/auth/drive']

@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { checkMaintenanceMode } from '@/lib/maintenance-check'
 import { google } from 'googleapis'
 import { Readable } from 'stream'
+import { getDriveClient } from '@/lib/drive-service'
 
 // Indonesian month names
 const BULAN_INDONESIA = [
@@ -137,15 +138,7 @@ function bufferToStream(buffer: Buffer) {
   return readable
 }
 
-// Create Google Drive client from service account
-function getDriveClient(serviceAccountKey: string) {
-  const credentials = JSON.parse(serviceAccountKey)
-  const auth = new google.auth.GoogleAuth({
-    credentials,
-    scopes: ['https://www.googleapis.com/auth/drive']
-  })
-  return google.drive({ version: 'v3', auth })
-}
+// getDriveClient imported from @/lib/drive-service (robust JSON parser)
 
 interface DocumentMeta {
   id: string

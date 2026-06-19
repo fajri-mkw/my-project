@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { checkMaintenanceMode } from '@/lib/maintenance-check'
 import { google } from 'googleapis'
 import { Readable } from 'stream'
+import { getDriveClient } from '@/lib/drive-service'
 
 // Convert Buffer to Readable stream for Google Drive upload
 function bufferToStream(buffer: Buffer) {
@@ -10,16 +11,6 @@ function bufferToStream(buffer: Buffer) {
   readable.push(buffer)
   readable.push(null)
   return readable
-}
-
-// Create Google Drive client from service account
-function getDriveClient(serviceAccountKey: string) {
-  const credentials = JSON.parse(serviceAccountKey)
-  const auth = new google.auth.GoogleAuth({
-    credentials,
-    scopes: ['https://www.googleapis.com/auth/drive']
-  })
-  return google.drive({ version: 'v3', auth })
 }
 
 interface DocumentMeta {

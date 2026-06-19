@@ -209,3 +209,100 @@ for f in node_modules/.prisma/client/index.js node_modules/.prisma/client/wasm.j
     echo "[patch-libsql] $f engineType → wasm"
   fi
 done
+
+# === Patch node-fetch: use native fetch (CF Workers has fetch built-in) ===
+# gaxios (used by googleapis) dynamically imports 'node-fetch' when `window` is
+# undefined. node-fetch v2 uses Node's http/https modules, which are unenv
+# stubs on CF Workers → "https.request is not implemented yet!".
+# Fix: overwrite ALL node-fetch entry points with a shim that re-exports
+# the native global fetch().
+NODE_FETCH_SHIM='// PATCHED FOR CLOUDFLARE — uses native fetch (CF Workers built-in)
+// Replaces node-fetch v2 Node.js implementation with native fetch shim
+if (typeof fetch !== "undefined") {
+  module.exports = fetch.bind(globalThis);
+  module.exports.default = fetch.bind(globalThis);
+  module.exports.Headers = (typeof Headers !== "undefined") ? Headers : undefined;
+  module.exports.Request = (typeof Request !== "undefined") ? Request : undefined;
+  module.exports.Response = (typeof Response !== "undefined") ? Response : undefined;
+} else {
+  throw new Error("[patch] native fetch not available");
+}
+'
+NODE_FETCH_SHIM_ESM='// PATCHED FOR CLOUDFLARE — uses native fetch (CF Workers built-in)
+const _fetch = fetch.bind(globalThis);
+export default _fetch;
+export { _fetch as fetch };
+export const Headers = (typeof Headers !== "undefined") ? Headers : undefined;
+export const Request = (typeof Request !== "undefined") ? Request : undefined;
+export const Response = (typeof Response !== "undefined") ? Response : undefined;
+'
+# Find ALL node-fetch installations (including nested ones)
+find node_modules -type d -name "node-fetch" 2>/dev/null | while read -r NF_PKG; do
+  if [ ! -f "$NF_PKG/package.json" ]; then continue; fi
+  NF_VER=$(node -e "console.log(require('$NF_PKG/package.json').version)" 2>/dev/null || echo "?")
+  echo "[patch-libsql] Found node-fetch@$NF_VER at: $NF_PKG"
+
+  # Overwrite lib/index.js (CommonJS entry)
+  if [ -f "$NF_PKG/lib/index.js" ]; then
+    echo "$NODE_FETCH_SHIM" > "$NF_PKG/lib/index.js"
+    echo "[patch-libsql]   ✓ lib/index.js → native fetch shim"
+  fi
+  # Overwrite lib/index.mjs (ESM entry)
+  if [ -f "$NF_PKG/lib/index.mjs" ]; then
+    echo "$NODE_FETCH_SHIM_ESM" > "$NF_PKG/lib/index.mjs"
+    echo "[patch-libsql]   ✓ lib/index.mjs → native fetch shim (ESM)"
+  fi
+  # Overwrite browser.js too (in case it's resolved)
+  if [ -f "$NF_PKG/browser.js" ]; then
+    echo "$NODE_FETCH_SHIM" > "$NF_PKG/browser.js"
+    echo "[patch-libsql]   ✓ browser.js → native fetch shim"
+  fi
+done
+
+# === Patch https-proxy-agent: stub it (CF Workers doesn't need proxy agents) ===
+# gaxios dynamically imports 'https-proxy-agent' → uses Node's http/https.
+# On CF Workers, proxies aren't needed. Stub it to a no-op class.
+PROXY_SHIM='// PATCHED FOR CLOUDFLARE — https-proxy-agent stub (no proxy needed on Workers)
+class HttpsProxyAgent {
+  constructor() {}
+}
+module.exports = HttpsProxyAgent;
+module.exports.HttpsProxyAgent = HttpsProxyAgent;
+module.exports.default = HttpsProxyAgent;
+'
+PROXY_SHIM_ESM='// PATCHED FOR CLOUDFLARE — https-proxy-agent stub (no proxy needed on Workers)
+class HttpsProxyAgent {
+  constructor() {}
+}
+export default HttpsProxyAgent;
+export { HttpsProxyAgent };
+'
+find node_modules -type d -name "https-proxy-agent" 2>/dev/null | while read -r PA_PKG; do
+  if [ ! -f "$PA_PKG/package.json" ]; then continue; fi
+  echo "[patch-libsql] Found https-proxy-agent at: $PA_PKG"
+  # Overwrite dist/index.js (CommonJS)
+  if [ -f "$PA_PKG/dist/index.js" ]; then
+    echo "$PROXY_SHIM" > "$PA_PKG/dist/index.js"
+    echo "[patch-libsql]   ✓ dist/index.js → stub"
+  fi
+  # Overwrite dist/index.mjs (ESM) if it exists
+  if [ -f "$PA_PKG/dist/index.mjs" ]; then
+    echo "$PROXY_SHIM_ESM" > "$PA_PKG/dist/index.mjs"
+    echo "[patch-libsql]   ✓ dist/index.mjs → stub (ESM)"
+  fi
+done
+
+# === Patch gaxios: force native fetch (bypass node-fetch dynamic import) ===
+# gaxios's #getFetch() checks `typeof window !== 'undefined'` — on CF Workers
+# this is false, so it falls back to `import('node-fetch')` which uses Node's
+# https module (unenv stub → "https.request is not implemented yet!").
+# Fix: set hasWindow=true and use fetch.bind(globalThis) instead of window.fetch.
+for GAXIOS_FILE in node_modules/gaxios/build/esm/src/gaxios.js node_modules/gaxios/build/cjs/src/gaxios.js; do
+  if [ -f "$GAXIOS_FILE" ]; then
+    if grep -q "const hasWindow = typeof window" "$GAXIOS_FILE" 2>/dev/null; then
+      sed -i 's|const hasWindow = typeof window !== .undefined. && \!\!window;|const hasWindow = true; // PATCHED FOR CLOUDFLARE|g' "$GAXIOS_FILE"
+      sed -i 's|window\.fetch|fetch.bind(globalThis)|g' "$GAXIOS_FILE"
+      echo "[patch-libsql] ✓ $GAXIOS_FILE → hasWindow=true, uses native fetch"
+    fi
+  fi
+done

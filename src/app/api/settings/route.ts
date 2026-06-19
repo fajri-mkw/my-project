@@ -1,5 +1,6 @@
 import { db, ensureDbConnection } from '@/lib/db'
 import { invalidateMaintenanceCache } from '@/lib/maintenance-check'
+import { sanitizeServiceAccountKey, validateServiceAccountKeyString } from '@/lib/drive-service'
 import { NextRequest, NextResponse } from 'next/server'
 
 // GET settings
@@ -59,7 +60,26 @@ export async function PUT(request: NextRequest) {
       updateData.driveSharedDriveId = driveSharedDriveId || null
     }
     if (driveServiceAccountKey !== undefined) {
-      updateData.driveServiceAccountKey = driveServiceAccountKey || null
+      if (driveServiceAccountKey) {
+        // Validate & sanitize the service account key before storing it.
+        // This prevents "Bad control character in string literal" errors
+        // when the key is later parsed by getDriveClient().
+        const validation = validateServiceAccountKeyString(driveServiceAccountKey)
+        if (!validation.valid) {
+          return NextResponse.json({
+            error: 'Service Account Key tidak valid',
+            details: validation.error
+          }, { status: 400 })
+        }
+        // Store the sanitized (clean JSON) form so future parses always work
+        updateData.driveServiceAccountKey = sanitizeServiceAccountKey(driveServiceAccountKey)
+        console.log('[SETTINGS] Service account key saved & sanitized:', {
+          clientEmail: validation.clientEmail,
+          projectId: validation.projectId
+        })
+      } else {
+        updateData.driveServiceAccountKey = null
+      }
     }
     if (driveApiKey !== undefined) {
       updateData.driveApiKey = driveApiKey || null
