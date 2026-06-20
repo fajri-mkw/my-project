@@ -94,21 +94,28 @@ export function withEdgeCache<T extends Request>(
     // Only cache successful responses
     if (response.status === 200) {
       try {
-        const headers = new Headers(response.headers)
+        // IMPORTANT: clone the response BEFORE touching its body.
+        // `new Response(response.body, ...)` would transfer the body stream
+        // away from `response`, causing "failed to pipe response" when we
+        // `return response` below. Cloning first tees the stream so both the
+        // original (returned to client) and the clone (stored in cache) can be
+        // read independently.
+        const responseClone = response.clone()
+        const headers = new Headers(responseClone.headers)
         headers.set('Cache-Control', `public, max-age=${ttl}`)
         headers.set('x-edge-cache', 'MISS')
-        const cachedResponse = new Response(response.body, {
-          status: response.status,
-          statusText: response.statusText,
+        const cachedResponse = new Response(responseClone.body, {
+          status: responseClone.status,
+          statusText: responseClone.statusText,
           headers,
         })
         // Use waitUntil to not block the response
         // @ts-ignore - ctx is available in Workers
         if (typeof ctx !== 'undefined' && ctx.waitUntil) {
           // @ts-ignore
-          ctx.waitUntil(cache.put(cacheKey, cachedResponse.clone()))
+          ctx.waitUntil(cache.put(cacheKey, cachedResponse))
         } else {
-          await cache.put(cacheKey, cachedResponse.clone())
+          await cache.put(cacheKey, cachedResponse)
         }
       } catch {}
     }
