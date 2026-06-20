@@ -115,7 +115,26 @@ export async function PUT(request: NextRequest) {
         error: `Tugas berada di Tahap ${existingTask.stage} (${taskStageName}), tetapi proyek saat ini di Tahap ${proj?.currentStage ?? '?'} (${projStageName}). Tunggu hingga proyek mencapai tahap Anda.` 
       }, { status: 400 })
     }
-    
+
+    // === Intra-stage dependency di Tahap 2 (Pasca Produksi) ===
+    // Editor (Template Sosial Media) hanya bisa mengerjakan setelah Editor (Foto)
+    // menyelesaikan tugasnya di tahap & project yang sama. Fast Production &
+    // Super Admin override bypass gate ini (mode override/bypass).
+    if (!proj?.isFastProduction
+        && !isSuperAdmin
+        && existingTask.stage === 2
+        && existingTask.role === 'EditorTemplateSosialMedia') {
+      const fotoTasks = await db.task.findMany({
+        where: { projectId, stage: 2, role: 'EditorFoto' },
+      })
+      const fotoStillPending = fotoTasks.length > 0 && fotoTasks.some(t => t.status !== 'completed')
+      if (fotoStillPending) {
+        return NextResponse.json({
+          error: `Tugas Editor (Template Sosial Media) belum bisa dikerjakan. Tunggu Editor (Foto) menyelesaikan tugasnya terlebih dahulu di Tahap 2 (Pasca Produksi).`
+        }, { status: 400 })
+      }
+    }
+
     const revisionCount = (existingTask.revisionCount || 0) + (isRevision ? 1 : 0)
     
     const task = await db.task.update({
@@ -468,7 +487,34 @@ export async function PUT(request: NextRequest) {
         })
       }
     }
-    
+
+    // === Intra-stage handoff notification (Tahap 2) ===
+    // Saat Editor (Foto) menyelesaikan tugasnya dan tidak ada lagi Editor (Foto)
+    // yang pending, Editor (Template Sosial Media) yang sedang menunggu menjadi
+    // ter-unblock. Beri notifikasi agar mereka tahu gilirannya tiba (tanpa harus
+    // menunggu perpindahan tahap, karena ini handoff di dalam Tahap 2 itu sendiri).
+    if (!project?.isFastProduction && task.role === 'EditorFoto' && task.stage === 2) {
+      const remainingFoto = await db.task.findMany({
+        where: { projectId, stage: 2, role: 'EditorFoto', status: 'pending' }
+      })
+      if (remainingFoto.length === 0) {
+        const unblockedTemplateTasks = await db.task.findMany({
+          where: { projectId, stage: 2, role: 'EditorTemplateSosialMedia', status: 'pending' }
+        })
+        for (const tt of unblockedTemplateTasks) {
+          await db.notification.create({
+            data: {
+              userId: tt.assignedTo,
+              message: `Editor (Foto) telah menyelesaikan tugas pada proyek "${task.project.title}". Giliran Anda membuat Template Sosial Media (Tahap 2 — Pasca Produksi).`,
+              projectId,
+              targetView: 'project_detail',
+              read: false
+            }
+          })
+        }
+      }
+    }
+
     // Return full project state for store sync to prevent desync
     const finalProjectTasks = await db.task.findMany({ where: { projectId } })
     const finalProject = await db.project.findUnique({ where: { id: projectId } })

@@ -351,7 +351,10 @@ export const ROLE_CONFIG: Record<string, { stage: number; type: string; icon: st
   'EditorVideo': { stage: 2, type: 'download_upload', icon: 'FileVideo' },
   'EditorWebArticle': { stage: 2, type: 'download_upload', icon: 'FileText' },
   'EditorFoto': { stage: 2, type: 'download_upload', icon: 'FileImage' },
-  'EditorTemplateSosialMedia': { stage: 4, type: 'download_upload', icon: 'FileImage' },
+  // Editor (Template Sosial Media) sekarang bekerja di Tahap 2 (Pasca Produksi),
+  // SETELAH Editor (Foto) menyelesaikan tugasnya. Lihat STAGE2_DEPENDENCY di bawah.
+  // Tahap 4 (Finalization) kini kosong (auto-skip). Lihat getStage2Dependency().
+  'EditorTemplateSosialMedia': { stage: 2, type: 'download_upload', icon: 'FileImage' },
   'StreamingOperator': { stage: 2, type: 'paste_streaming', icon: 'PlayCircle' },
   'PodcastOperator': { stage: 2, type: 'paste_youtube', icon: 'FileAudio' },
   
@@ -359,6 +362,57 @@ export const ROLE_CONFIG: Record<string, { stage: number; type: string; icon: st
   
   'PublisherWeb': { stage: 5, type: 'download_link', icon: 'Link' },
   'PublisherSocialMedia': { stage: 5, type: 'download_link', icon: 'Link' },
+}
+
+// ============================================================================
+// Intra-stage dependency within Tahap 2 (Pasca Produksi)
+// ============================================================================
+// Editor (Template Sosial Media) harus MENUNGGU Editor (Foto) menyelesaikan
+// tugasnya terlebih dahulu di Tahap 2, agar templating dilakukan di atas foto
+// yang sudah final. Setelah KEDUA petugas ini (dan semua task Tahap 2 lainnya)
+// selesai, proyek baru maju ke Tahap 3 (Review).
+//
+// Kunci: role → role prasyarat (di tahap & project yang sama).
+// Hanya berlaku untuk stage 2. Tidak berlaku untuk Fast Production (semua
+// paralel). Jika tidak ada task prasyarat sama sekali, dependency dianggap
+// terpenuhi (tidak memblokir).
+// ============================================================================
+export const STAGE2_DEPENDENCY: Record<string, string> = {
+  'EditorTemplateSosialMedia': 'EditorFoto',
+}
+
+export interface DependencyCheck {
+  blocked: boolean
+  waitingForRole?: string
+  waitingForDisplayName?: string
+}
+
+/**
+ * Cek apakah sebuah task di Tahap 2 diblokir oleh dependency intra-stage.
+ * Mis. Editor (Template Sosial Media) diblokir sampai Editor (Foto) selesai.
+ *
+ * @param task       Task yang ingin dikerjakan (hanya stage 2 yang relevan).
+ * @param allTasks   Semua task pada project yang sama (untuk cek status prasyarat).
+ */
+export function getStage2Dependency(
+  task: { role: string; stage: number },
+  allTasks: Array<{ role: string; stage: number; status: string }>
+): DependencyCheck {
+  if (task.stage !== 2) return { blocked: false }
+  const prereqRole = STAGE2_DEPENDENCY[task.role]
+  if (!prereqRole) return { blocked: false }
+  const prereqTasks = allTasks.filter(t => t.stage === 2 && t.role === prereqRole)
+  // Tidak ada task prasyarat → tidak ada yang ditunggu → tidak diblokir.
+  if (prereqTasks.length === 0) return { blocked: false }
+  const hasPending = prereqTasks.some(t => t.status !== 'completed')
+  if (hasPending) {
+    return {
+      blocked: true,
+      waitingForRole: prereqRole,
+      waitingForDisplayName: ROLE_DISPLAY_NAMES[prereqRole] || prereqRole,
+    }
+  }
+  return { blocked: false }
 }
 
 export const FOLDER_OPTIONS = [

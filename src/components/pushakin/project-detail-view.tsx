@@ -24,7 +24,7 @@ import {
 } from '@/components/ui/select'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
-import { useAppStore, STAGES, ROLE_CONFIG, getRoleDisplayName } from '@/lib/store'
+import { useAppStore, STAGES, ROLE_CONFIG, getRoleDisplayName, getStage2Dependency } from '@/lib/store'
 import { FileUpload } from '@/components/pushakin/file-upload'
 import { 
   ArrowLeft, 
@@ -60,7 +60,8 @@ import {
   RotateCcw,
   PenTool,
   Copy,
-  Check
+  Check,
+  Hourglass
 } from 'lucide-react'
 import { useState, useMemo, useCallback } from 'react'
 import { cn } from '@/lib/utils'
@@ -823,6 +824,7 @@ Pushakin Flows — Sistem Manajemen Produksi`
                         const user = getUserDetails(task.assignedTo)
                         const taskCompleted = task.status === 'completed'
                         const taskCurrent = project.isFastProduction ? true : task.stage === project.currentStage
+                        const taskWaiting = !project.isFastProduction && taskCurrent && !taskCompleted && getStage2Dependency(task, project.tasks).blocked
                         
                         return (
                           <div
@@ -833,11 +835,13 @@ Pushakin Flows — Sistem Manajemen Produksi`
                                 ? project.isFastProduction
                                   ? "bg-teal-50/50 border-teal-100"
                                   : "bg-green-50/50 border-green-100"
-                                : taskCurrent
-                                  ? project.isFastProduction
-                                    ? "bg-white border-teal-200 shadow-sm"
-                                    : "bg-white border-indigo-200 shadow-sm"
-                                  : "bg-stone-50/50 border-stone-200 opacity-70"
+                                : taskWaiting
+                                  ? "bg-amber-50/50 border-amber-200"
+                                  : taskCurrent
+                                    ? project.isFastProduction
+                                      ? "bg-white border-teal-200 shadow-sm"
+                                      : "bg-white border-indigo-200 shadow-sm"
+                                    : "bg-stone-50/50 border-stone-200 opacity-70"
                             )}
                           >
                             <Avatar className="h-7 w-7 border border-white shadow-sm shrink-0">
@@ -864,6 +868,10 @@ Pushakin Flows — Sistem Manajemen Produksi`
                                       {task.revisionCount}
                                     </span>
                                   )}
+                                </div>
+                              ) : taskWaiting ? (
+                                <div className="bg-amber-100 text-amber-600 p-1 rounded-md" title="Menunggu Editor (Foto)">
+                                  <Hourglass className="w-3 h-3" />
                                 </div>
                               ) : taskCurrent ? (
                                 <div className={cn(
@@ -933,6 +941,7 @@ Pushakin Flows — Sistem Manajemen Produksi`
                         const user = getUserDetails(task.assignedTo)
                         const taskCompleted = task.status === 'completed'
                         const taskCurrent = project.isFastProduction ? true : task.stage === project.currentStage
+                        const taskWaiting = !project.isFastProduction && taskCurrent && !taskCompleted && getStage2Dependency(task, project.tasks).blocked
                         
                         return (
                           <div
@@ -943,11 +952,13 @@ Pushakin Flows — Sistem Manajemen Produksi`
                                 ? project.isFastProduction
                                   ? "bg-teal-50/50 border-teal-100"
                                   : "bg-green-50/50 border-green-100"
-                                : taskCurrent
-                                  ? project.isFastProduction
-                                    ? "bg-white border-teal-200 shadow-sm"
-                                    : "bg-white border-indigo-200 shadow-sm"
-                                  : "bg-stone-50/50 border-stone-200 opacity-70"
+                                : taskWaiting
+                                  ? "bg-amber-50/50 border-amber-200"
+                                  : taskCurrent
+                                    ? project.isFastProduction
+                                      ? "bg-white border-teal-200 shadow-sm"
+                                      : "bg-white border-indigo-200 shadow-sm"
+                                    : "bg-stone-50/50 border-stone-200 opacity-70"
                             )}
                           >
                             <Avatar className="h-10 w-10 border-2 border-white shadow-sm">
@@ -974,6 +985,10 @@ Pushakin Flows — Sistem Manajemen Produksi`
                                       {task.revisionCount}
                                     </span>
                                   )}
+                                </div>
+                              ) : taskWaiting ? (
+                                <div className="bg-amber-100 text-amber-600 p-1.5 rounded-lg" title="Menunggu Editor (Foto)">
+                                  <Hourglass className="w-4 h-4" />
                                 </div>
                               ) : taskCurrent ? (
                                 <div className={cn(
@@ -1485,17 +1500,21 @@ Pushakin Flows — Sistem Manajemen Produksi`
           const isCurrentStage = project.isFastProduction ? true : task.stage === project.currentStage
           const config = ROLE_CONFIG[task.role]
           const Icon = config ? ICON_MAP[config.icon] : AlertCircle
-          
+
           const isAssignedToMe = task.assignedTo === currentUser?.id
           // Super Admin (Admin role): can act on ANY task regardless of stage
           const isSuperAdmin = currentUser?.role === 'Admin'
-          const canActOnTask = project.isFastProduction 
-            ? (isAssignedToMe || canManageProject) 
-            : (isCurrentStage || isSuperAdmin) && (isAssignedToMe || canManageProject)
+          // Intra-stage dependency (Tahap 2): Editor (Template Sosial Media) diblokir
+          // sampai Editor (Foto) selesai. Fast Production & Super Admin bypass-nya.
+          const dep = getStage2Dependency(task, project.tasks)
+          const isBlockedByDependency = !project.isFastProduction && !isSuperAdmin && task.status !== 'completed' && dep.blocked
+          const canActOnTask = project.isFastProduction
+            ? (isAssignedToMe || canManageProject)
+            : (isCurrentStage || isSuperAdmin) && (isAssignedToMe || canManageProject) && !isBlockedByDependency
           // Super Admin / Manager: can act as "my active task" on any pending task (override mode)
-          const isMyActiveTask = project.isFastProduction 
+          const isMyActiveTask = project.isFastProduction
             ? (isAssignedToMe || canManageProject) && task.status === 'pending'
-            : (isCurrentStage || isSuperAdmin) && (isAssignedToMe || canManageProject) && task.status === 'pending'
+            : (isCurrentStage || isSuperAdmin) && (isAssignedToMe || canManageProject) && task.status === 'pending' && !isBlockedByDependency
 
           return (
             <TaskCard
@@ -1508,6 +1527,8 @@ Pushakin Flows — Sistem Manajemen Produksi`
               isAssignedToMe={isAssignedToMe}
               canActOnTask={canActOnTask}
               isMyActiveTask={isMyActiveTask}
+              isBlockedByDependency={isBlockedByDependency}
+              waitingForDisplayName={dep.waitingForDisplayName}
               canManageProject={canManageProject}
               currentUser={currentUser}
               inputValue={currentTaskInputs[task.id] || ''}
@@ -1845,6 +1866,8 @@ interface TaskCardProps {
   isAssignedToMe: boolean
   canActOnTask: boolean
   isMyActiveTask: boolean
+  isBlockedByDependency: boolean
+  waitingForDisplayName?: string
   canManageProject: boolean
   currentUser: { id: string; name: string; role: string } | null
   inputValue: string
@@ -1866,7 +1889,7 @@ interface TaskCardProps {
 
 function TaskCard({
   task, project, config, Icon, isCurrentStage, isAssignedToMe, canActOnTask,
-  isMyActiveTask, canManageProject, currentUser, inputValue, setInputValue,
+  isMyActiveTask, isBlockedByDependency, waitingForDisplayName, canManageProject, currentUser, inputValue, setInputValue,
   isVerified, setIsVerified, onComplete, onReject, onRevision, onCancelRevision, isRevising,
   visibleFolders, publishLinks, onAddPublishLink, onRemovePublishLink, onUpdatePublishLink, onFileUploaded
 }: TaskCardProps) {
@@ -2077,9 +2100,11 @@ function TaskCard({
       "transition-all relative overflow-hidden",
       isMyActiveTask 
         ? "border-2 border-indigo-500 shadow-xl ring-4 ring-indigo-50/50" 
-        : canActOnTask && task.status === 'pending' 
-          ? "border-indigo-300 shadow-md ring-1 ring-indigo-50" 
-          : "border-stone-200 opacity-80"
+        : isBlockedByDependency
+          ? "border-2 border-amber-400 shadow-md ring-4 ring-amber-50/50"
+          : canActOnTask && task.status === 'pending' 
+            ? "border-indigo-300 shadow-md ring-1 ring-indigo-50" 
+            : "border-stone-200 opacity-80"
     )}>
       {isMyActiveTask && (
         <div className="absolute top-0 right-0 bg-indigo-600 text-white text-[10px] font-bold px-4 py-1.5 rounded-bl-xl uppercase tracking-wider shadow-sm">
@@ -2139,18 +2164,32 @@ function TaskCard({
               "text-xs font-bold uppercase tracking-wider",
               task.status === 'completed' 
                 ? "bg-green-100 text-green-700 border-green-200" 
-                : isCurrentStage 
-                  ? "bg-orange-100 text-orange-700 border-orange-200" 
-                  : "bg-stone-100 text-stone-500 border-stone-200"
+                : isBlockedByDependency
+                  ? "bg-amber-100 text-amber-700 border-amber-200"
+                  : isCurrentStage 
+                    ? "bg-orange-100 text-orange-700 border-orange-200" 
+                    : "bg-stone-100 text-stone-500 border-stone-200"
             )}
           >
             {task.status === 'completed' ? (
               <span className="flex items-center gap-1"><CheckCircle2 className="w-4 h-4" /> Selesai</span>
+            ) : isBlockedByDependency ? (
+              <span className="flex items-center gap-1 normal-case"><Hourglass className="w-3.5 h-3.5" /> Menunggu {waitingForDisplayName}</span>
             ) : (
               isCurrentStage ? 'Menunggu Aksi' : 'Terkunci'
             )}
           </Badge>
         </div>
+
+        {isBlockedByDependency && (
+          <div className="mb-4 flex items-start gap-2 bg-amber-50 border border-amber-200 text-amber-800 rounded-xl p-3 text-sm">
+            <Hourglass className="w-4 h-4 mt-0.5 shrink-0" />
+            <div>
+              <strong className="block">Menunggu {waitingForDisplayName}</strong>
+              <span className="text-amber-700 text-xs">Tugas ini baru dapat dikerjakan setelah {waitingForDisplayName} menyelesaikan tugasnya terlebih dahulu di Tahap 2 (Pasca Produksi).</span>
+            </div>
+          </div>
+        )}
 
         {(canActOnTask || task.status === 'completed' || isRevising) && (
           <div className="mt-6 pt-6 border-t border-stone-100">
@@ -2471,8 +2510,8 @@ function TaskCard({
                       <AlertCircle className="w-4 h-4" />
                       <span>Tindakan Quality Control (QC)</span>
                     </h5>
-                    Periksa hasil kerja tim editor di folder Drive yang telah disediakan. Jika sudah sesuai, klik tombol 
-                    <strong> "Teruskan File (Approve)"</strong> di bawah agar file lolos ke tahap Finalization (pembuatan template media sosial). 
+                    Periksa hasil kerja tim editor (termasuk Template Sosial Media yang dibuat di Tahap 2) di folder Drive yang telah disediakan. Jika sudah sesuai, klik tombol
+                    <strong> "Teruskan File (Approve)"</strong> di bawah agar file lolos ke tahap Publikasi (Publisher).
                     Jika belum, Anda dapat mengklik <strong>"Tolak (Revisi)"</strong>.
                   </div>
                 )}

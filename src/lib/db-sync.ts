@@ -9,7 +9,7 @@
 import { db } from './db'
 
 // Increment this when adding new migrations
-const SCHEMA_VERSION = 5
+const SCHEMA_VERSION = 6
 
 let syncPerformed = false
 let syncPromise: Promise<boolean> | null = null
@@ -152,6 +152,22 @@ async function syncSqlite(): Promise<void> {
   await shiftSqliteStage('projects', 'currentStage', 3, 99) // 3 → 99 (temp)
   await shiftSqliteStage('projects', 'currentStage', 4, 3)  // 4 → 3
   await shiftSqliteStage('projects', 'currentStage', 99, 4) // 99 → 4
+
+  // === Version 6: Pindahkan Editor (Template Sosial Media) dari Finalization
+  // (Tahap 4) ke Pasca Produksi (Tahap 2), dengan dependency intra-stage:
+  // Editor (Template Sosial Media) bekerja SETELAH Editor (Foto) selesai di
+  // Tahap 2. Tahap 4 (Finalization) kini kosong dan auto-skip.
+  //
+  // HANYA migrasi project yang belum mencapai Tahap 3 (currentStage <= 2) agar
+  // tidak mengganggu project yang sedang in-flight di Review (3) / Finalization (4).
+  // Project di stage 5/6 sudah selesai EditorTemplateSosialMedia-nya (completed),
+  // jadi tidak perlu dipindah. Project di stage 3/4 tetap mengikuti alur lama.
+  await Promise.all([
+    shiftSqliteStageWithCondition('tasks', 'stage', 4, 2,
+      "role = 'EditorTemplateSosialMedia' AND projectId IN (SELECT id FROM projects WHERE currentStage IN (1, 2))"),
+    shiftSqliteStageWithCondition('surat_tugas', 'stage', 4, 2,
+      "role = 'EditorTemplateSosialMedia' AND projectId IN (SELECT id FROM projects WHERE currentStage IN (1, 2))"),
+  ])
 }
 
 async function addSqliteColumnIfNotExists(
@@ -251,6 +267,16 @@ async function syncPostgres(): Promise<void> {
   await shiftPostgresStage('projects', 'currentStage', 3, 99) // 3 → 99 (temp)
   await shiftPostgresStage('projects', 'currentStage', 4, 3)  // 4 → 3
   await shiftPostgresStage('projects', 'currentStage', 99, 4) // 99 → 4
+
+  // === Version 6: Pindahkan Editor (Template Sosial Media) dari Finalization
+  // (Tahap 4) ke Pasca Produksi (Tahap 2). HANYA untuk project currentStage <= 2
+  // (lihat penjelasan lengkap di syncSqlite Version 6).
+  await Promise.all([
+    shiftPostgresStageWithCondition('tasks', 'stage', 4, 2,
+      "role = 'EditorTemplateSosialMedia' AND projectId IN (SELECT id FROM projects WHERE currentStage IN (1, 2))"),
+    shiftPostgresStageWithCondition('surat_tugas', 'stage', 4, 2,
+      "role = 'EditorTemplateSosialMedia' AND projectId IN (SELECT id FROM projects WHERE currentStage IN (1, 2))"),
+  ])
 }
 
 async function addPostgresColumnIfNotExists(
