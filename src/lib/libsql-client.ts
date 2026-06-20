@@ -9,9 +9,17 @@
  *   2. Skip ensureDbConnection() + ensureSchemaSync() (1+ extra query + CPU)
  *   3. Only pay for network I/O (free) + minimal JSON parsing (CPU)
  *
- * COMPATIBILITY: Works with both `file:` URLs (local dev / Node) and
- * `libsql://` URLs (Turso / Cloudflare Workers production). The transport is
- * auto-selected by @libsql/client based on the URL scheme.
+ * COMPATIBILITY:
+ *   - Production (Cloudflare Workers + Turso `libsql://` URL):
+ *       Uses the patched `@libsql/client` (HTTP/WebSocket transport, no native
+ *       bindings — required by Workers). The package's `node.js` entry was
+ *       patched to be identical to `web.js` so it bundles cleanly on Workers.
+ *   - Local dev (Node + `file:` URL):
+ *       The patched `@libsql/client` does NOT support `file:` URLs (the local
+ *       SQLite driver was stripped to keep the Workers bundle small). We
+ *       therefore detect `file:` URLs and fall back to `better-sqlite3`
+ *       (already a dependency), wrapped in a thin Client-compatible adapter.
+ *       This branch is never reached on Workers (production uses libsql://).
  *
  * STORAGE FORMAT (Prisma + SQLite):
  *   - DateTime → INTEGER (epoch milliseconds)
@@ -35,6 +43,10 @@ let _client: Client | null = null
 /**
  * Get the shared libsql client. Reads DATABASE_URL (required) and
  * DATABASE_AUTH_TOKEN (optional, only for libsql:// Turso remote).
+ *
+ * Routing:
+ *   - `file:` URL  → better-sqlite3 adapter (local dev only)
+ *   - other scheme → patched @libsql/client (production / remote)
  */
 export function getLibsql(): Client {
   if (_client) return _client
@@ -44,10 +56,155 @@ export function getLibsql(): Client {
     throw new Error('DATABASE_URL is not set')
   }
 
-  const authToken = process.env.DATABASE_AUTH_TOKEN || undefined
+  if (url.startsWith('file:')) {
+    // Local dev branch — never reached on Cloudflare Workers (prod uses
+    // libsql:// URLs). Lazy-require better-sqlite3 so the native module is
+    // never bundled into the Workers build.
+    _client = createLocalSqliteClient(url)
+    return _client
+  }
 
+  const authToken = process.env.DATABASE_AUTH_TOKEN || undefined
   _client = createClient({ url, authToken })
   return _client
+}
+
+// ---------------------------------------------------------------------------
+// Local-dev adapter: wraps `better-sqlite3` in a `@libsql/client`-compatible
+// Client. Only the methods our codebase actually uses are implemented
+// (`execute`, `batch`, `transaction`, `close`). The shape of ResultSet mirrors
+// what @libsql/client returns so all callers (helpers like toBool/toDateISO,
+// .rows.map, .rowsAffected, etc.) work unchanged.
+// ---------------------------------------------------------------------------
+
+interface BetterSqlite3Database {
+  prepare(sql: string): {
+    all(...args: unknown[]): Record<string, unknown>[]
+    run(...args: unknown[]): { changes: number; lastInsertRowid: number | bigint }
+    columns(): { name: string }[]
+  }
+  exec(sql: string): void
+  pragma(cmd: string): unknown
+  transaction<T>(fn: () => T): T
+  close(): void
+}
+
+// Webpack escape hatch. When webpack bundles this file, it leaves
+// `__non_webpack_require__` as-is — at runtime it becomes the original Node
+// CommonJS require (not webpack's bundled module resolver). This lets us load
+// `better-sqlite3` (which has native C++ bindings) at runtime in local dev
+// WITHOUT webpack trying to bundle it into the Cloudflare Workers build.
+// In pure-Node (non-webpack) environments, `__non_webpack_require__` is not
+// defined, so we fall back to the regular `require` which Node provides.
+declare const __non_webpack_require__: NodeRequire | undefined
+
+function createLocalSqliteClient(fileUrl: string): Client {
+  // Resolve a "native" require that bypasses webpack's module bundling.
+  // - In webpack bundles (next dev / next build): __non_webpack_require__
+  //   is the original Node require, and webpack won't try to follow it.
+  // - In pure Node: __non_webpack_require__ is undefined, fall back to require.
+  // - In Workers (production): this whole branch is never reached (prod uses
+  //   libsql:// URLs), so the require call never executes.
+  const nativeRequire: NodeRequire =
+    typeof __non_webpack_require__ !== 'undefined'
+      ? __non_webpack_require__
+      : typeof require !== 'undefined'
+        ? require
+        : (undefined as unknown as NodeRequire)
+
+  if (!nativeRequire) {
+    throw new Error(
+      'Local dev (file: URL) requires a CommonJS require() to load better-sqlite3, but none is available in this runtime.',
+    )
+  }
+
+  let Database: new (path: string, opts?: Record<string, unknown>) => BetterSqlite3Database
+  try {
+    Database = nativeRequire('better-sqlite3')
+  } catch {
+    throw new Error(
+      'Local dev (file: URL) requires better-sqlite3. Install it with: bun add better-sqlite3',
+    )
+  }
+
+  // Strip 'file:' prefix. Handle 'file:/abs/path', 'file:rel/path',
+  // and 'file:./rel/path'. better-sqlite3 expects a normal filesystem path.
+  const raw = fileUrl.slice('file:'.length)
+  const dbPath = raw.startsWith('/') ? raw : raw.replace(/^\.\//, '')
+
+  const db = new Database(dbPath)
+  // Recommended pragmas for concurrency + perf in local dev.
+  try { db.pragma('journal_mode = WAL') } catch {}
+  try { db.pragma('foreign_keys = ON') } catch {}
+
+  const executeOne = (stmt: InStatement): ReturnType<Client['execute']> => {
+    const sql = typeof stmt === 'string' ? stmt : stmt.sql
+    const args = typeof stmt === 'string' ? [] : (stmt.args ?? [])
+
+    const prepared = db.prepare(sql)
+    const trimmed = sql.trimStart().toUpperCase()
+    const isReadOnly =
+      trimmed.startsWith('SELECT') ||
+      trimmed.startsWith('WITH') ||
+      trimmed.startsWith('VALUES') ||
+      trimmed.startsWith('PRAGMA')
+
+    if (isReadOnly) {
+      const rows = prepared.all(...args)
+      const columns = prepared.columns().map((c) => c.name)
+      return Promise.resolve({
+        columns,
+        rows: rows as unknown as Record<string, unknown>[],
+        rowsAffected: 0,
+        lastInsertRowid: undefined,
+      }) as ReturnType<Client['execute']>
+    }
+
+    const info = prepared.run(...args)
+    return Promise.resolve({
+      columns: [],
+      rows: [],
+      rowsAffected: info.changes,
+      lastInsertRowid: info.lastInsertRowid,
+    }) as ReturnType<Client['execute']>
+  }
+
+  // Minimal Client-compatible object. The `any` casts are intentional — we
+  // only need to satisfy the methods our codebase calls.
+  const client = {
+    execute: (
+      stmt: InStatement | string,
+      args?: InArgs,
+    ): ReturnType<Client['execute']> => {
+      const statement: InStatement =
+        typeof stmt === 'string' ? { sql: stmt, args: args ?? [] } : stmt
+      return executeOne(statement)
+    },
+    batch: (
+      statements: InStatement[],
+      _mode?: 'deferred' | 'write' | 'async',
+    ): Promise<unknown[]> => {
+      // Run all statements atomically. better-sqlite3's db.transaction()
+      // wraps in BEGIN/COMMIT and rolls back on error — exactly what we want.
+      try {
+        const out = db.transaction(() => statements.map(executeOne))
+        return Promise.resolve(out)
+      } catch (e) {
+        return Promise.reject(e)
+      }
+    },
+    transaction: (_mode?: 'deferred' | 'write' | 'async') => {
+      // Minimal Transaction stub. Our codebase doesn't use Transaction
+      // objects directly (only `execute` + `batch`), so this is here purely
+      // for interface completeness.
+      throw new Error('transaction() is not supported by the local SQLite adapter')
+    },
+    close: () => {
+      try { db.close() } catch {}
+    },
+  } as unknown as Client
+
+  return client
 }
 
 // ============================================================================
