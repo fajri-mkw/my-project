@@ -179,17 +179,21 @@ function t(isDark: boolean) {
     fillerBg: isDark ? 'bg-slate-800/30' : 'bg-slate-50',
     // Stage item (mobile)
     stageItemDone: isDark ? 'bg-green-900/20 border-green-800/50' : 'bg-green-50 border-green-200',
+    stageItemInProgress: isDark ? 'bg-amber-900/20 border-amber-800/50' : 'bg-amber-50 border-amber-200',
     stageItemCurrent: (colors: { bg: string; border: string }) => isDark ? `${colors.bg}/20 border ${colors.border}/40` : `${colors.bg}/10 border ${colors.border}/30`,
     stageItemPending: isDark ? 'bg-slate-800/50 border-slate-700/30' : 'bg-slate-50 border-slate-200',
     // Stage circle
     circleDone: 'bg-green-500 border-green-400 text-white',
+    circleInProgress: 'bg-amber-500 border-amber-400 text-white shadow-md',
     circleCurrent: (colors: { bg: string }) => isDark ? `${colors.bg} border-white/40 text-white shadow-md` : `${colors.bg} border-white text-white shadow-md`,
     circlePending: isDark ? 'bg-slate-800 border-slate-700 text-slate-500' : 'bg-slate-100 border-slate-300 text-slate-400',
     // Stage text
     stageLabelDone: isDark ? 'text-green-400' : 'text-green-700',
+    stageLabelInProgress: isDark ? 'text-amber-400' : 'text-amber-700',
     stageLabelCurrent: isDark ? 'text-white' : 'text-slate-900',
     stageLabelPending: isDark ? 'text-slate-500' : 'text-slate-400',
     stagePercentDone: isDark ? 'text-green-400' : 'text-green-700',
+    stagePercentInProgress: isDark ? 'text-amber-400' : 'text-amber-700',
     stagePercentCurrent: isDark ? 'text-white' : 'text-slate-900',
     stagePercentPending: isDark ? 'text-slate-600' : 'text-slate-400',
     // Workers (mobile)
@@ -798,13 +802,15 @@ export function PublicTrackerView({ onBack }: PublicTrackerViewProps) {
                           <div className="flex flex-col gap-1.5 sm:hidden overflow-y-auto flex-1">
                             {[1, 2, 3, 4].map((stage) => {
                               const colors = getStageColors(stage, isDark)
-                              const isStageCompleted = stage < project.currentStage
-                              const isCurrent = stage === project.currentStage
-                              const isPending = stage > project.currentStage
                               const progress = stageProgress[stage] || { total: 0, completed: 0 }
                               const stagePercent = progress.total > 0 
                                 ? Math.round((progress.completed / progress.total) * 100) 
                                 : 0
+                              // "Completed" = ALL tasks done (not just stage < currentStage)
+                              const isStageCompleted = progress.total > 0 && progress.completed === progress.total
+                              const isInProgress = !isStageCompleted && progress.completed > 0 && progress.completed < progress.total
+                              const isCurrent = stage === project.currentStage && !isStageCompleted
+                              const isPending = stage > project.currentStage && !isInProgress
                               const members = teamByStage[stage] || []
                               
                               return (
@@ -813,6 +819,7 @@ export function PublicTrackerView({ onBack }: PublicTrackerViewProps) {
                                   className={cn(
                                     "flex items-start gap-2 rounded-lg px-2 py-1.5 border shrink-0",
                                     isStageCompleted ? tc.stageItemDone :
+                                    isInProgress ? tc.stageItemInProgress :
                                     isCurrent ? tc.stageItemCurrent(colors) :
                                     tc.stageItemPending
                                   )}
@@ -821,23 +828,24 @@ export function PublicTrackerView({ onBack }: PublicTrackerViewProps) {
                                   <div className={cn(
                                     "w-7 h-7 rounded-full flex items-center justify-center text-[11px] font-bold border shrink-0",
                                     isStageCompleted ? tc.circleDone :
+                                    isInProgress ? tc.circleInProgress :
                                     isCurrent ? tc.circleCurrent(colors) :
                                     tc.circlePending
                                   )}>
-                                    {isStageCompleted ? <CheckCircle2 className="w-4 h-4" /> : stage}
+                                    {isStageCompleted ? <CheckCircle2 className="w-4 h-4" /> : isInProgress ? <Clock className="w-4 h-4" /> : stage}
                                   </div>
                                   {/* Stage Info + Workers */}
                                   <div className="flex-1 min-w-0">
                                     <div className="flex items-center justify-between">
                                       <span className={cn(
                                         "text-[11px] font-semibold truncate",
-                                        isStageCompleted ? tc.stageLabelDone : isCurrent ? tc.stageLabelCurrent : tc.stageLabelPending
+                                        isStageCompleted ? tc.stageLabelDone : isInProgress ? tc.stageLabelInProgress : isCurrent ? tc.stageLabelCurrent : tc.stageLabelPending
                                       )}>
                                         {STAGES[stage]}
                                       </span>
                                       <span className={cn(
                                         "text-[10px] font-bold ml-1 shrink-0",
-                                        isStageCompleted ? tc.stagePercentDone : isCurrent ? tc.stagePercentCurrent : tc.stagePercentPending
+                                        isStageCompleted ? tc.stagePercentDone : isInProgress ? tc.stagePercentInProgress : isCurrent ? tc.stagePercentCurrent : tc.stagePercentPending
                                       )}>
                                         {stagePercent}%
                                       </span>
@@ -895,13 +903,15 @@ export function PublicTrackerView({ onBack }: PublicTrackerViewProps) {
                           <div className="hidden sm:flex items-start justify-between gap-0 flex-1 min-h-0">
                             {[1, 2, 3, 4].map((stage, idx) => {
                               const colors = getStageColors(stage, isDark)
-                              const isStageCompleted = stage < project.currentStage
-                              const isCurrent = stage === project.currentStage
-                              const isPending = stage > project.currentStage
                               const progress = stageProgress[stage] || { total: 0, completed: 0 }
                               const stagePercent = progress.total > 0 
                                 ? Math.round((progress.completed / progress.total) * 100) 
                                 : 0
+                              // "Completed" = ALL tasks done (not just stage < currentStage)
+                              const isStageCompleted = progress.total > 0 && progress.completed === progress.total
+                              const isInProgress = !isStageCompleted && progress.completed > 0 && progress.completed < progress.total
+                              const isCurrent = stage === project.currentStage && !isStageCompleted
+                              const isPending = stage > project.currentStage && !isInProgress
                               const members = teamByStage[stage] || []
                               
                               return (
@@ -912,22 +922,23 @@ export function PublicTrackerView({ onBack }: PublicTrackerViewProps) {
                                     <div className={cn(
                                       "w-5 h-5 rounded-full flex items-center justify-center text-[9px] font-bold border shrink-0",
                                       isStageCompleted ? tc.circleDone :
+                                      isInProgress ? tc.circleInProgress :
                                       isCurrent ? tc.circleCurrent(colors) :
                                       tc.circlePending
                                     )}>
-                                      {isStageCompleted ? <CheckCircle2 className="w-3 h-3" /> : stage}
+                                      {isStageCompleted ? <CheckCircle2 className="w-3 h-3" /> : isInProgress ? <Clock className="w-3 h-3" /> : stage}
                                     </div>
                                     {/* Stage Label */}
                                     <div className="mt-0.5 text-center">
                                       <div className={cn(
                                         "text-[7px] lg:text-[8px] font-semibold leading-tight truncate max-w-[60px] lg:max-w-[80px]",
-                                        isStageCompleted ? tc.stageLabelDone : isCurrent ? tc.stageLabelCurrent : tc.stageLabelPending
+                                        isStageCompleted ? tc.stageLabelDone : isInProgress ? tc.stageLabelInProgress : isCurrent ? tc.stageLabelCurrent : tc.stageLabelPending
                                       )}>
                                         {STAGES[stage]}
                                       </div>
                                       <div className={cn(
                                         "text-[8px] lg:text-[9px] font-bold leading-tight",
-                                        isStageCompleted ? tc.stagePercentDone : isCurrent ? tc.stagePercentCurrent : tc.stagePercentPending
+                                        isStageCompleted ? tc.stagePercentDone : isInProgress ? tc.stagePercentInProgress : isCurrent ? tc.stagePercentCurrent : tc.stagePercentPending
                                       )}>
                                         {stagePercent}%
                                       </div>

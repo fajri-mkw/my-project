@@ -496,13 +496,17 @@ export function DashboardView() {
                     <div className="flex items-start justify-between">
                       {[1, 2, 3, 4].map((stage, idx) => {
                         const gradient = getStageGradient(stage)
-                        const isCompleted = stage < project.currentStage
-                        const isCurrent = stage === project.currentStage
-                        const isPending = stage > project.currentStage
                         const progress = stageProgress[stage] || { total: 0, completed: 0 }
                         const stagePercent = progress.total > 0 
                           ? Math.round((progress.completed / progress.total) * 100) 
                           : 0
+                        // "Completed" = ALL tasks in this stage are done (not just stage < currentStage).
+                        // This fixes the bug where a stage showed green checkmark despite pending tasks.
+                        const isCompleted = progress.total > 0 && progress.completed === progress.total
+                        // "In progress" = current stage OR any stage with some (not all) tasks done
+                        const isInProgress = !isCompleted && progress.completed > 0 && progress.completed < progress.total
+                        const isCurrent = stage === project.currentStage && !isCompleted
+                        const isPending = stage > project.currentStage && !isInProgress
                         const members = teamByStage[stage] || []
                         
                         return (
@@ -513,11 +517,14 @@ export function DashboardView() {
                               <div className={cn(
                                 "w-10 h-10 rounded-full flex items-center justify-center text-sm font-bold transition-all border-2 shrink-0",
                                 isCompleted ? "bg-green-500 border-green-500 text-white" :
+                                isInProgress ? "bg-amber-500 border-amber-500 text-white shadow-md" :
                                 isCurrent ? cn(gradient.bg, "border-white shadow-lg text-white") :
                                 "bg-white border-slate-300 text-slate-400"
                               )}>
                                 {isCompleted ? (
                                   <CheckCircle2 className="w-5 h-5" />
+                                ) : isInProgress ? (
+                                  <Clock className="w-5 h-5" />
                                 ) : (
                                   stage
                                 )}
@@ -527,6 +534,7 @@ export function DashboardView() {
                                 <div className={cn(
                                   "text-[11px] font-semibold leading-tight",
                                   isCompleted ? "text-green-600" :
+                                  isInProgress ? "text-amber-600" :
                                   isCurrent ? gradient.text :
                                   "text-slate-400"
                                 )}>
@@ -535,6 +543,7 @@ export function DashboardView() {
                                 <div className={cn(
                                   "text-[10px] font-bold mt-0.5",
                                   isCompleted ? "text-green-500" :
+                                  isInProgress ? "text-amber-500" :
                                   isCurrent ? gradient.text :
                                   "text-slate-400"
                                 )}>
@@ -712,14 +721,16 @@ export function DashboardView() {
                         ? Math.round((progress.completed / progress.total) * 100) 
                         : 0
                       const gradient = getStageGradient(stage)
-                      const isCompleted = stage < project.currentStage
-                      const isCurrent = stage === project.currentStage
+                      const isCompleted = progress.total > 0 && progress.completed === progress.total
+                      const isInProgress = !isCompleted && progress.completed > 0 && progress.completed < progress.total
+                      const isCurrent = stage === project.currentStage && !isCompleted
                       
                       return (
                         <TableCell key={stage} className="text-center">
                           <div className={cn(
                             "inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-bold",
                             isCompleted ? "bg-green-100 text-green-700" :
+                            isInProgress ? "bg-amber-100 text-amber-700" :
                             isCurrent ? cn(gradient.from, gradient.text) :
                             "bg-slate-100 text-slate-500"
                           )}>

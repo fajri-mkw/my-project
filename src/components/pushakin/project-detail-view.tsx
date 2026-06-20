@@ -735,21 +735,48 @@ Pushakin Flows — Sistem Manajemen Produksi`
             </h3>
             <div className="hidden sm:flex items-center justify-between w-full relative">
               <div className="absolute left-0 top-1/2 -translate-y-1/2 w-full h-1 bg-stone-100 rounded-full z-0" />
-              {project.isFastProduction ? (
-                <div 
-                  className="absolute left-0 top-1/2 -translate-y-1/2 h-1 bg-teal-500 rounded-full z-0 transition-all duration-500" 
-                  style={{ width: '100%' }}
-                />
-              ) : (
-                <div 
-                  className="absolute left-0 top-1/2 -translate-y-1/2 h-1 bg-indigo-500 rounded-full z-0 transition-all duration-500" 
-                  style={{ width: `${((project.currentStage - 1) / 4) * 100}%` }}
-                />
-              )}
+              {/* Compute number of fully-completed stages (1-4) based on actual task status,
+                  not just currentStage. This ensures the progress bar reflects real progress. */}
+              {(() => {
+                const completedStagesCount = [1, 2, 3, 4].filter(s => {
+                  const ts = project.tasks.filter(t => t.stage === s)
+                  return ts.length > 0 && ts.every(t => t.status === 'completed')
+                }).length
+                const fastTrackSkipped = project.isFastTrack ? 3 : 0  // stages 1-3 skipped
+                const effectiveCompleted = Math.max(completedStagesCount, fastTrackSkipped)
+                const progressPercent = project.isFastProduction
+                  ? 100
+                  : project.currentStage === 5
+                    ? 100
+                    : (effectiveCompleted / 4) * 100
+                return project.isFastProduction ? (
+                  <div 
+                    className="absolute left-0 top-1/2 -translate-y-1/2 h-1 bg-teal-500 rounded-full z-0 transition-all duration-500" 
+                    style={{ width: '100%' }}
+                  />
+                ) : (
+                  <div 
+                    className="absolute left-0 top-1/2 -translate-y-1/2 h-1 bg-indigo-500 rounded-full z-0 transition-all duration-500" 
+                    style={{ width: `${progressPercent}%` }}
+                  />
+                )
+              })()}
               
               {[1, 2, 3, 4, 5].map((stageNum) => {
-                const isCompleted = stageNum < project.currentStage
-                const isCurrent = stageNum === project.currentStage
+                // Stage 5 (Selesai) is completed when currentStage === 5.
+                // For stages 1-4: "completed" means ALL tasks in that stage have status 'completed'.
+                // We check actual task status (not just currentStage) because some projects may have
+                // reached a later stage while earlier tasks are still pending (edge case).
+                // Exception: Fast Track skips stages 1-3 (no tasks) → treat as "skipped/completed".
+                const isFastTrackSkipped = project.isFastTrack && stageNum >= 1 && stageNum <= 3
+                const stageTasks = stageNum < 5 ? project.tasks.filter(t => t.stage === stageNum) : []
+                const allStageTasksDone = stageTasks.length > 0 && stageTasks.every(t => t.status === 'completed')
+                const isCompleted = stageNum === 5
+                  ? project.currentStage === 5
+                  : isFastTrackSkipped
+                    ? project.currentStage >= 4  // skipped stages are "done" once project reaches stage 4+
+                    : allStageTasksDone
+                const isCurrent = stageNum === project.currentStage && !isCompleted
                 const isFastTracked = project.isFastTrack && stageNum >= 1 && stageNum <= 3
                 const isFastProduction = project.isFastProduction && stageNum >= 1 && stageNum <= 4
                 // Fast Production: stage 3 (Review) is auto-approved
@@ -757,6 +784,10 @@ Pushakin Flows — Sistem Manajemen Produksi`
                 
                 // Fast Production: stages 1-4 are all "active" (teal), stage 3 is auto-approved, stage 5 is pending until all done
                 const isFPActive = isFastProduction && !isCompleted && !isFPAutoApproved
+                
+                // "In progress" = current stage with some completed tasks but not all (amber/orange indicator)
+                const completedInStage = stageTasks.filter(t => t.status === 'completed').length
+                const isInProgress = !isCompleted && !isFastTrackSkipped && stageTasks.length > 0 && completedInStage > 0 && completedInStage < stageTasks.length
                 
                 return (
                   <div key={stageNum} className="relative z-10 flex flex-col items-center">
@@ -771,12 +802,14 @@ Pushakin Flows — Sistem Manajemen Produksi`
                             : isFastTracked && isCompleted
                               ? "bg-purple-500 border-purple-500 text-white"
                               : isCompleted 
-                                ? "bg-indigo-600 border-indigo-600 text-white" 
-                                : isCurrent 
-                                  ? "bg-white border-indigo-500 text-indigo-600 shadow-md ring-4 ring-indigo-50" 
-                                  : "bg-stone-50 border-stone-200 text-stone-400"
+                                ? "bg-emerald-500 border-emerald-500 text-white" 
+                                : isInProgress
+                                  ? "bg-amber-500 border-amber-500 text-white shadow-md ring-4 ring-amber-50"
+                                  : isCurrent 
+                                    ? "bg-white border-indigo-500 text-indigo-600 shadow-md ring-4 ring-indigo-50" 
+                                    : "bg-stone-50 border-stone-200 text-stone-400"
                     )}>
-                      {isFPAutoApproved ? <CheckCircle2 className="w-4 h-4" /> : isFastProduction && isCompleted ? <CheckCircle2 className="w-4 h-4" /> : isFastTracked && isCompleted ? <SkipForward className="w-4 h-4" /> : isCompleted ? <CheckCircle2 className="w-4 h-4" /> : stageNum}
+                      {isFPAutoApproved ? <CheckCircle2 className="w-4 h-4" /> : isFastProduction && isCompleted ? <CheckCircle2 className="w-4 h-4" /> : isFastTracked && isCompleted ? <SkipForward className="w-4 h-4" /> : isCompleted ? <CheckCircle2 className="w-4 h-4" /> : isInProgress ? <Clock className="w-4 h-4" /> : stageNum}
                     </div>
                     <span className={cn(
                       "absolute top-10 text-[10px] font-bold uppercase tracking-wider w-24 text-center",
@@ -788,16 +821,19 @@ Pushakin Flows — Sistem Manajemen Produksi`
                             ? "text-teal-600" 
                             : isFastTracked && isCompleted 
                               ? "text-purple-600" 
-                              : isCurrent 
-                                ? "text-indigo-700" 
-                                : isCompleted 
-                                  ? "text-stone-700" 
-                                  : "text-stone-400"
+                              : isCompleted 
+                                ? "text-emerald-700" 
+                                : isInProgress
+                                  ? "text-amber-700"
+                                  : isCurrent 
+                                    ? "text-indigo-700" 
+                                    : "text-stone-400"
                     )}>
                       {STAGES[stageNum]}
                       {isFPAutoApproved && <span className="block text-emerald-400 text-[8px]">auto-approve</span>}
                       {isFastProduction && isFPActive && <span className="block text-teal-400 text-[8px]">aktif</span>}
                       {isFastTracked && isCompleted && <span className="block text-purple-400 text-[8px]">skipped</span>}
+                      {isInProgress && <span className="block text-amber-500 text-[8px]">{completedInStage}/{stageTasks.length} selesai</span>}
                     </span>
                   </div>
                 )

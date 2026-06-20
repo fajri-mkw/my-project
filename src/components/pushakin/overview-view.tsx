@@ -268,13 +268,15 @@ export function OverviewView() {
                       <div className="flex items-start justify-between">
                         {[1, 2, 3, 4].map((stage, idx) => {
                           const gradient = getStageGradient(stage)
-                          const isStageCompleted = stage < project.currentStage
-                          const isCurrent = stage === project.currentStage
-                          const isPending = stage > project.currentStage
                           const progress = stageProgress[stage] || { total: 0, completed: 0 }
                           const stagePercent = progress.total > 0 
                             ? Math.round((progress.completed / progress.total) * 100) 
                             : 0
+                          // "Completed" = ALL tasks done (not just stage < currentStage)
+                          const isStageCompleted = progress.total > 0 && progress.completed === progress.total
+                          const isInProgress = !isStageCompleted && progress.completed > 0 && progress.completed < progress.total
+                          const isCurrent = stage === project.currentStage && !isStageCompleted
+                          const isPending = stage > project.currentStage && !isInProgress
                           const members = teamByStage[stage] || []
                           
                           return (
@@ -285,11 +287,14 @@ export function OverviewView() {
                                 <div className={cn(
                                   "w-10 h-10 rounded-full flex items-center justify-center text-sm font-bold transition-all border-2 shrink-0",
                                   isStageCompleted ? "bg-green-500 border-green-500 text-white" :
+                                  isInProgress ? "bg-amber-500 border-amber-500 text-white shadow-md" :
                                   isCurrent ? cn(gradient.bg, "border-white shadow-lg text-white") :
                                   "bg-white border-slate-300 text-slate-400"
                                 )}>
                                   {isStageCompleted ? (
                                     <CheckCircle2 className="w-5 h-5" />
+                                  ) : isInProgress ? (
+                                    <Clock className="w-5 h-5" />
                                   ) : (
                                     stage
                                   )}
@@ -299,6 +304,7 @@ export function OverviewView() {
                                   <div className={cn(
                                     "text-[11px] font-semibold leading-tight",
                                     isStageCompleted ? "text-green-600" :
+                                    isInProgress ? "text-amber-600" :
                                     isCurrent ? gradient.text :
                                     "text-slate-400"
                                   )}>
@@ -307,6 +313,7 @@ export function OverviewView() {
                                   <div className={cn(
                                     "text-[10px] font-bold mt-0.5",
                                     isStageCompleted ? "text-green-500" :
+                                    isInProgress ? "text-amber-500" :
                                     isCurrent ? gradient.text :
                                     "text-slate-400"
                                   )}>
