@@ -56,8 +56,9 @@ function getStageGradient(stage: number) {
 export function DashboardView() {
   const { currentUser, projects, users, setActiveView, setSelectedProjectId, deleteProject, forceCompleteProject, showAlert, showConfirm, suratList, permohonanList } = useAppStore()
   const [viewMode, setViewMode] = useState<'grid' | 'table'>('grid')
-  const [projectFilter, setProjectFilter] = useState<'all' | 'mine' | 'completed'>('mine')
+  const [projectFilter, setProjectFilter] = useState<'mine' | 'all'>('mine')
   const [taskStatusFilter, setTaskStatusFilter] = useState<'all' | 'pending' | 'completed'>('pending')
+  const [projectStatusFilter, setProjectStatusFilter] = useState<'all' | 'pending' | 'completed'>('all')
   
   const canManageProject = currentUser ? ['Manager', 'Admin'].includes(currentUser.role) : false
   const isSuperAdmin = currentUser?.role === 'Admin'
@@ -77,7 +78,9 @@ export function DashboardView() {
       ).length
     : 0
 
-  // Compute completed projects count
+  // Compute counts for "Semua Proyek" filter group
+  const allProjectsCount = projects.length
+  const pendingProjectsCount = projects.filter(p => p.currentStage !== 5).length
   const completedProjectsCount = projects.filter(p => p.currentStage === 5).length
 
   // Compute my pending/completed task counts for the task status filter
@@ -98,8 +101,8 @@ export function DashboardView() {
 
   // Filter projects based on selected filter
   const visibleProjects = useMemo(() => {
-    let filtered: typeof projects
     if (projectFilter === 'mine' && currentUser) {
+      let filtered: typeof projects
       filtered = projects.filter(p => 
         p.tasks.some(t => t.assignedTo === currentUser.id) || 
         p.managerId === currentUser.id
@@ -115,13 +118,17 @@ export function DashboardView() {
           !p.tasks.some(t => t.assignedTo === currentUser.id && t.status !== 'completed')
         )
       }
-    } else if (projectFilter === 'completed') {
-      filtered = projects.filter(p => p.currentStage === 5)
+      return filtered
     } else {
-      filtered = projects
+      // projectFilter === 'all' — "Semua Proyek" group
+      if (projectStatusFilter === 'pending') {
+        return projects.filter(p => p.currentStage !== 5)
+      } else if (projectStatusFilter === 'completed') {
+        return projects.filter(p => p.currentStage === 5)
+      }
+      return projects
     }
-    return filtered
-  }, [projectFilter, taskStatusFilter, currentUser, projects])
+  }, [projectFilter, taskStatusFilter, projectStatusFilter, currentUser, projects])
 
   const handleDeleteProject = (projectId: string) => {
     showConfirm(
@@ -265,17 +272,8 @@ export function DashboardView() {
             </Button>
           </div>
 
-          {/* Project Filter Toggle */}
+          {/* Project Filter — "Tugas Saya" (separate group) */}
           <div className="flex items-center gap-0.5 bg-white p-1 rounded-xl border border-slate-200 shadow-sm">
-            <Button
-              variant={projectFilter === 'all' ? 'default' : 'ghost'}
-              size="sm"
-              onClick={() => { setProjectFilter('all'); setTaskStatusFilter('all'); }}
-              className={cn("gap-1.5", projectFilter === 'all' && "bg-gradient-to-r from-slate-700 to-slate-800 hover:from-slate-800 hover:to-slate-900")}
-            >
-              <Users className="w-4 h-4" />
-              <span className="hidden sm:inline">Semua</span>
-            </Button>
             <Button
               variant={projectFilter === 'mine' ? 'default' : 'ghost'}
               size="sm"
@@ -291,17 +289,51 @@ export function DashboardView() {
                 {myProjectsCount}
               </span>
             </Button>
+          </div>
+
+          {/* Project Filter — "Semua Proyek" group (Semua / Belum / Selesai) */}
+          <div className="flex items-center gap-0.5 bg-white p-1 rounded-xl border border-slate-200 shadow-sm">
             <Button
-              variant={projectFilter === 'completed' ? 'default' : 'ghost'}
+              variant={projectFilter === 'all' && projectStatusFilter === 'all' ? 'default' : 'ghost'}
               size="sm"
-              onClick={() => { setProjectFilter('completed'); setTaskStatusFilter('all'); }}
-              className={cn("gap-1.5", projectFilter === 'completed' && "bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-700 hover:to-emerald-700")}
+              onClick={() => { setProjectFilter('all'); setProjectStatusFilter('all'); }}
+              className={cn("gap-1.5", projectFilter === 'all' && projectStatusFilter === 'all' && "bg-gradient-to-r from-slate-700 to-slate-800 hover:from-slate-800 hover:to-slate-900")}
+            >
+              <Users className="w-4 h-4" />
+              <span className="hidden sm:inline">Semua</span>
+              <span className={cn(
+                "text-[10px] font-bold px-1.5 py-0.5 rounded-full min-w-[18px] text-center",
+                projectFilter === 'all' && projectStatusFilter === 'all' ? "bg-white/25 text-white" : "bg-slate-100 text-slate-600"
+              )}>
+                {allProjectsCount}
+              </span>
+            </Button>
+            <Button
+              variant={projectFilter === 'all' && projectStatusFilter === 'pending' ? 'default' : 'ghost'}
+              size="sm"
+              onClick={() => { setProjectFilter('all'); setProjectStatusFilter('pending'); }}
+              className={cn("gap-1.5", projectFilter === 'all' && projectStatusFilter === 'pending' && "bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600")}
+            >
+              <Clock className="w-4 h-4" />
+              <span className="hidden sm:inline">Belum</span>
+              <span className={cn(
+                "text-[10px] font-bold px-1.5 py-0.5 rounded-full min-w-[18px] text-center",
+                projectFilter === 'all' && projectStatusFilter === 'pending' ? "bg-white/25 text-white" : "bg-amber-100 text-amber-700"
+              )}>
+                {pendingProjectsCount}
+              </span>
+            </Button>
+            <Button
+              variant={projectFilter === 'all' && projectStatusFilter === 'completed' ? 'default' : 'ghost'}
+              size="sm"
+              onClick={() => { setProjectFilter('all'); setProjectStatusFilter('completed'); }}
+              className={cn("gap-1.5", projectFilter === 'all' && projectStatusFilter === 'completed' && "bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-700 hover:to-emerald-700")}
             >
               <CircleCheckBig className="w-4 h-4" />
               <span className="hidden sm:inline">Selesai</span>
               <span className={cn(
                 "text-[10px] font-bold px-1.5 py-0.5 rounded-full min-w-[18px] text-center",
-                projectFilter === 'completed' ? "bg-white/25 text-white" : "bg-green-100 text-green-700"
+                projectFilter === 'all' && projectStatusFilter === 'completed' ? "bg-white/25 text-white" : "bg-green-100 text-green-700"
               )}>
                 {completedProjectsCount}
               </span>
@@ -383,7 +415,9 @@ export function DashboardView() {
                 ? 'Tidak ada tugas yang sudah selesai'
                 : projectFilter === 'mine'
                 ? 'Tidak ada tugas untuk Anda'
-                : projectFilter === 'completed'
+                : projectFilter === 'all' && projectStatusFilter === 'pending'
+                ? 'Tidak ada proyek yang sedang berjalan'
+                : projectFilter === 'all' && projectStatusFilter === 'completed'
                 ? 'Belum ada proyek selesai'
                 : 'Belum ada proyek'}
             </h3>
@@ -394,7 +428,9 @@ export function DashboardView() {
                 ? 'Belum ada tugas yang selesai Anda kerjakan.'
                 : projectFilter === 'mine'
                 ? 'Saat ini tidak ada proyek yang ditugaskan kepada Anda. Coba lihat semua proyek.'
-                : projectFilter === 'completed'
+                : projectFilter === 'all' && projectStatusFilter === 'pending'
+                ? 'Semua proyek sudah selesai dikerjakan.'
+                : projectFilter === 'all' && projectStatusFilter === 'completed'
                 ? 'Belum ada proyek yang telah selesai semua tahapannya.'
                 : canManageProject
                   ? 'Mulai dengan membuat proyek perencanaan baru.'
@@ -411,12 +447,12 @@ export function DashboardView() {
                 Lihat Semua Tugas Saya
               </Button>
             )}
-            {(projectFilter === 'mine' && taskStatusFilter === 'all' || projectFilter === 'completed') && (
+            {(projectFilter === 'mine' && taskStatusFilter === 'all' || (projectFilter === 'all' && projectStatusFilter !== 'all')) && (
               <Button
                 variant="outline"
                 size="sm"
                 className="mt-4 gap-2"
-                onClick={() => { setProjectFilter('all'); setTaskStatusFilter('all'); }}
+                onClick={() => { setProjectFilter('all'); setProjectStatusFilter('all'); }}
               >
                 <Users className="w-4 h-4" />
                 Lihat Semua Proyek
