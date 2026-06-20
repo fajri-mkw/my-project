@@ -29,9 +29,8 @@ const STAGE_GRADIENTS: Record<number, { from: string; to: string; border: string
   1: { from: 'from-violet-100', to: 'to-violet-50', border: 'border-violet-300', text: 'text-violet-700', bg: 'bg-violet-600' },
   2: { from: 'from-orange-100', to: 'to-orange-50', border: 'border-orange-300', text: 'text-orange-700', bg: 'bg-orange-500' },
   3: { from: 'from-blue-100', to: 'to-blue-50', border: 'border-blue-300', text: 'text-blue-700', bg: 'bg-blue-600' },
-  4: { from: 'from-purple-100', to: 'to-purple-50', border: 'border-purple-300', text: 'text-purple-700', bg: 'bg-purple-600' },
-  5: { from: 'from-green-100', to: 'to-green-50', border: 'border-green-300', text: 'text-green-700', bg: 'bg-green-600' },
-  6: { from: 'from-emerald-100', to: 'to-emerald-50', border: 'border-emerald-300', text: 'text-emerald-700', bg: 'bg-emerald-600' },
+  4: { from: 'from-green-100', to: 'to-green-50', border: 'border-green-300', text: 'text-green-700', bg: 'bg-green-600' },
+  5: { from: 'from-emerald-100', to: 'to-emerald-50', border: 'border-emerald-300', text: 'text-emerald-700', bg: 'bg-emerald-600' },
 }
 
 const DEFAULT_STAGE_GRADIENT = { from: 'from-slate-100', to: 'to-slate-50', border: 'border-slate-300', text: 'text-slate-700', bg: 'bg-slate-600' }
@@ -64,7 +63,7 @@ export function OverviewView() {
   const targetProjects = visibleProjects.filter(p => isDateInRange(p.createdAt, timeFilter))
   
   const totalProjects = targetProjects.length
-  const completedCount = targetProjects.filter(p => p.currentStage === 6).length
+  const completedCount = targetProjects.filter(p => p.currentStage === 5).length
   const activeCount = totalProjects - completedCount
 
   const handleSharePublic = async () => {
@@ -104,7 +103,7 @@ export function OverviewView() {
     
     // Progress per stage
     const stageProgress: Record<number, { total: number; completed: number }> = {}
-    for (let stage = 1; stage <= 5; stage++) {
+    for (let stage = 1; stage <= 4; stage++) {
       const stageTasks = project.tasks.filter(t => t.stage === stage)
       stageProgress[stage] = {
         total: stageTasks.length,
@@ -114,7 +113,7 @@ export function OverviewView() {
     
     // Team members per stage
     const teamByStage: Record<number, Array<{ userId: string | null; name: string; role: string; status: string }>> = {}
-    for (let stage = 1; stage <= 5; stage++) {
+    for (let stage = 1; stage <= 4; stage++) {
       teamByStage[stage] = project.tasks
         .filter(t => t.stage === stage)
         .map(t => ({
@@ -225,7 +224,7 @@ export function OverviewView() {
             <div className="space-y-4">
               {targetProjects.map(project => {
                 const { percentage, completedTasks, totalTasks, stageProgress, teamByStage } = getTaskProgress(project)
-                const isCompleted = project.currentStage === 6
+                const isCompleted = project.currentStage === 5
 
                 return (
                   <div
@@ -267,16 +266,16 @@ export function OverviewView() {
                     {/* Step Flow Progress with Worker Names Aligned Below */}
                     <div className="bg-slate-50 px-4 py-4 border-b border-slate-200">
                       <div className="flex items-start justify-between">
-                        {[1, 2, 3, 4, 5].map((stage, idx) => {
+                        {[1, 2, 3, 4].map((stage, idx) => {
                           const gradient = getStageGradient(stage)
                           const isStageCompleted = stage < project.currentStage
                           const isCurrent = stage === project.currentStage
                           const isPending = stage > project.currentStage
-                          const progress = stageProgress[stage]
+                          const progress = stageProgress[stage] || { total: 0, completed: 0 }
                           const stagePercent = progress.total > 0 
                             ? Math.round((progress.completed / progress.total) * 100) 
                             : 0
-                          const members = teamByStage[stage]
+                          const members = teamByStage[stage] || []
                           
                           return (
                             <div key={stage} className="flex items-start flex-1">

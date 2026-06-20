@@ -184,7 +184,7 @@ export async function POST(request: NextRequest) {
     } = body
 
     const projectId = `PRJ-${Date.now().toString().slice(-6)}`
-    const activeStage = isFastTrack ? 5 : 1
+    const activeStage = isFastTrack ? 4 : 1
     const ts = nowMs()
 
     // --- Build task records in JS (mirrors original Prisma nested-create logic) ---
@@ -192,8 +192,8 @@ export async function POST(request: NextRequest) {
       (t: { role: string; stage: number; assignedTo: string }) => {
         let status: 'pending' | 'completed' = 'pending'
         let data = '{}'
-        if (isFastTrack && t.stage < 5) {
-          // Fast Track: auto-complete stages 1-4
+        if (isFastTrack && t.stage < 4) {
+          // Fast Track: auto-complete stages 1-3
           status = 'completed'
           data = JSON.stringify({ fastTracked: true })
         } else if (isFastProduction && t.stage === 3) {
@@ -327,7 +327,7 @@ export async function POST(request: NextRequest) {
         bind(customOutput),
         JSON.stringify(workerOutputs || {}),
         JSON.stringify(workerCustomOutput || {}),
-        isFastTrack ? 5 : 1, // currentStage
+        isFastTrack ? 4 : 1, // currentStage
         isFastTrack ? 1 : 0,
         isFastProduction ? 1 : 0,
         managerId,
@@ -496,7 +496,7 @@ export async function POST(request: NextRequest) {
       customActivity: customActivity || '',
       outputNeeds: outputNeeds || [],
       customOutput: customOutput || '',
-      currentStage: isFastTrack ? 5 : 1,
+      currentStage: isFastTrack ? 4 : 1,
       isFastTrack: isFastTrack || false,
       isFastProduction: isFastProduction || false,
       managerId,
@@ -508,7 +508,7 @@ export async function POST(request: NextRequest) {
         status: t.status,
         assignedTo: t.assignedTo,
         data:
-          t.status === 'completed' && isFastTrack && t.stage < 5
+          t.status === 'completed' && isFastTrack && t.stage < 4
             ? { fastTracked: true }
             : t.data
               ? parseJSON(t.data, {})
@@ -604,9 +604,9 @@ export async function PUT(request: NextRequest) {
         })
       }
 
-      // Set project to stage 6 (completed)
+      // Set project to stage 5 (completed)
       stmts.push({
-        sql: `UPDATE projects SET currentStage = 6, updatedAt = ? WHERE id = ?`,
+        sql: `UPDATE projects SET currentStage = 5, updatedAt = ? WHERE id = ?`,
         args: [ts, id],
       })
 
@@ -630,7 +630,7 @@ export async function PUT(request: NextRequest) {
       return NextResponse.json({
         success: true,
         action: 'force-complete',
-        newStage: 6,
+        newStage: 5,
       })
     }
 

@@ -73,18 +73,16 @@ const STAGE_COLORS_DARK: Record<number, { bg: string; border: string; text: stri
   1: { bg: 'bg-violet-600', border: 'border-violet-400', text: 'text-violet-400' },
   2: { bg: 'bg-orange-500', border: 'border-orange-400', text: 'text-orange-400' },
   3: { bg: 'bg-blue-600', border: 'border-blue-400', text: 'text-blue-400' },
-  4: { bg: 'bg-purple-600', border: 'border-purple-400', text: 'text-purple-400' },
-  5: { bg: 'bg-teal-600', border: 'border-teal-400', text: 'text-teal-400' },
-  6: { bg: 'bg-emerald-600', border: 'border-emerald-400', text: 'text-emerald-400' },
+  4: { bg: 'bg-teal-600', border: 'border-teal-400', text: 'text-teal-400' },
+  5: { bg: 'bg-emerald-600', border: 'border-emerald-400', text: 'text-emerald-400' },
 }
 
 const STAGE_COLORS_LIGHT: Record<number, { bg: string; border: string; text: string }> = {
   1: { bg: 'bg-violet-600', border: 'border-violet-300', text: 'text-violet-700' },
   2: { bg: 'bg-orange-500', border: 'border-orange-300', text: 'text-orange-700' },
   3: { bg: 'bg-blue-600', border: 'border-blue-300', text: 'text-blue-700' },
-  4: { bg: 'bg-purple-600', border: 'border-purple-300', text: 'text-purple-700' },
-  5: { bg: 'bg-teal-600', border: 'border-teal-300', text: 'text-teal-700' },
-  6: { bg: 'bg-emerald-600', border: 'border-emerald-300', text: 'text-emerald-700' },
+  4: { bg: 'bg-teal-600', border: 'border-teal-300', text: 'text-teal-700' },
+  5: { bg: 'bg-emerald-600', border: 'border-emerald-300', text: 'text-emerald-700' },
 }
 
 const DEFAULT_STAGE_COLOR_DARK = { bg: 'bg-slate-600', border: 'border-slate-400', text: 'text-slate-400' }
@@ -340,7 +338,7 @@ export function PublicTrackerView({ onBack }: PublicTrackerViewProps) {
   useEffect(() => {
     let filtered = allProjects
     if (timeFilter === 'active') {
-      filtered = allProjects.filter(p => p.currentStage < 6)
+      filtered = allProjects.filter(p => p.currentStage < 5)
     }
     setProjects(filtered)
     setCurrentPage(0)
@@ -389,7 +387,7 @@ export function PublicTrackerView({ onBack }: PublicTrackerViewProps) {
     const percentage = totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 100) : 0
     
     const stageProgress: Record<number, { total: number; completed: number }> = {}
-    for (let stage = 1; stage <= 5; stage++) {
+    for (let stage = 1; stage <= 4; stage++) {
       const stageTasks = project.tasks.filter(t => t.stage === stage)
       stageProgress[stage] = {
         total: stageTasks.length,
@@ -398,7 +396,7 @@ export function PublicTrackerView({ onBack }: PublicTrackerViewProps) {
     }
     
     const teamByStage: Record<number, Array<{ name: string; status: string; avatar: string | null }>> = {}
-    for (let stage = 1; stage <= 5; stage++) {
+    for (let stage = 1; stage <= 4; stage++) {
       teamByStage[stage] = project.tasks
         .filter(t => t.stage === stage)
         .map(t => ({
@@ -770,7 +768,7 @@ export function PublicTrackerView({ onBack }: PublicTrackerViewProps) {
                     ))}
                   {currentProjects.map(project => {
                     const { percentage, stageProgress, teamByStage } = getTaskProgress(project)
-                    const isCompleted = project.currentStage === 6
+                    const isCompleted = project.currentStage === 5
 
                     return (
                       <div
@@ -798,16 +796,16 @@ export function PublicTrackerView({ onBack }: PublicTrackerViewProps) {
                         <div className="flex-1 px-2 sm:px-2.5 py-1.5 sm:py-2 overflow-hidden flex flex-col">
                           {/* Mobile: vertical stage list with workers */}
                           <div className="flex flex-col gap-1.5 sm:hidden overflow-y-auto flex-1">
-                            {[1, 2, 3, 4, 5].map((stage) => {
+                            {[1, 2, 3, 4].map((stage) => {
                               const colors = getStageColors(stage, isDark)
                               const isStageCompleted = stage < project.currentStage
                               const isCurrent = stage === project.currentStage
                               const isPending = stage > project.currentStage
-                              const progress = stageProgress[stage]
+                              const progress = stageProgress[stage] || { total: 0, completed: 0 }
                               const stagePercent = progress.total > 0 
                                 ? Math.round((progress.completed / progress.total) * 100) 
                                 : 0
-                              const members = teamByStage[stage]
+                              const members = teamByStage[stage] || []
                               
                               return (
                                 <div 
@@ -895,16 +893,16 @@ export function PublicTrackerView({ onBack }: PublicTrackerViewProps) {
 
                           {/* Desktop/Tablet: horizontal pipeline with workers below each stage */}
                           <div className="hidden sm:flex items-start justify-between gap-0 flex-1 min-h-0">
-                            {[1, 2, 3, 4, 5].map((stage, idx) => {
+                            {[1, 2, 3, 4].map((stage, idx) => {
                               const colors = getStageColors(stage, isDark)
                               const isStageCompleted = stage < project.currentStage
                               const isCurrent = stage === project.currentStage
                               const isPending = stage > project.currentStage
-                              const progress = stageProgress[stage]
+                              const progress = stageProgress[stage] || { total: 0, completed: 0 }
                               const stagePercent = progress.total > 0 
                                 ? Math.round((progress.completed / progress.total) * 100) 
                                 : 0
-                              const members = teamByStage[stage]
+                              const members = teamByStage[stage] || []
                               
                               return (
                                 <div key={stage} className="flex items-start flex-1 min-w-0">

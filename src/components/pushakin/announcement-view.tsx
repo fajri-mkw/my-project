@@ -595,10 +595,7 @@ Seluruh staff melihat dashboard, statistik, dan inbox yang sama:
 ### **Tahap 3 - Review**
 - **Reviewer**: Melakukan quality control terhadap seluruh hasil Tahap 2 (Pasca Produksi), termasuk template media sosial. Dapat menyetujui (lanjut ke Publikasi) atau menolak (kembali ke Tahap 2)
 
-### **Tahap 4 - Finalization**
-*(Tahap ini kini otomatis dilewati — Editor (Template Sosial Media) telah bekerja di Tahap 2, dan hasilnya ikut direview di Tahap 3)*
-
-### **Tahap 5 - Publikasi**
+### **Tahap 4 - Publikasi**
 - **Publisher Web**: Mendownload file final, menambahkan tautan publish ke platform web
 - **Publisher Social Media**: Mendownload file final, menambahkan tautan publish ke platform media sosial
 
@@ -659,20 +656,17 @@ Seluruh staff melihat dashboard, statistik, dan inbox yang sama:
 1. Reviewer menerima notifikasi
 2. Reviewer meninjau seluruh hasil Tahap 2 (Pasca Produksi), termasuk template media sosial
 3. Reviewer memilih:
-   - **Setujui** → Proyek naik ke Tahap 5 (Publikasi)
+   - **Setujui** → Proyek naik ke Tahap 4 (Publikasi)
    - **Tolak** → Proyek kembali ke Tahap 2, seluruh task Tahap 2 dan 3 di-reset ke status pending
 4. Jika ditolak, tim Tahap 2 harus memperbaiki dan mengupload ulang
 
-### **Tahap 4 - Finalization**
-*(Tahap ini kini otomatis dilewati — Editor (Template Sosial Media) telah bekerja di Tahap 2, dan hasilnya ikut direview di Tahap 3)*
-
-### **Tahap 5 - Publikasi**
+### **Tahap 4 - Publikasi**
 1. Publisher menerima notifikasi
 2. Publisher mendownload file final dari folder PASCA PRODUKSI (saat file tugas diteruskan oleh Reviewer)
 3. Publisher mempublikasikan ke platform yang ditentukan
 4. Publisher menambahkan tautan publish di task card
 5. Klik **"Selesai"** pada task card
-6. Setelah **semua task Tahap 5 selesai**, proyek otomatis berstatus **Selesai (Tahap 6)**
+6. Setelah **semua task Tahap 4 selesai**, proyek otomatis berstatus **Selesai (Tahap 5)**
 
 ---
 
@@ -682,7 +676,7 @@ Seluruh staff melihat dashboard, statistik, dan inbox yang sama:
 Setiap proyek memiliki 4 pilihan folder (PRODUKSI & PASCA PRODUKSI tercentang otomatis saat inisiasi):
 
 - **PRODUKSI (Berkas Mentah)**: File mentah dari tim produksi (Tahap 1)
-- **PASCA PRODUKSI (Draft & Editing)**: File hasil editing (Tahap 2-5)
+- **PASCA PRODUKSI (Draft & Editing)**: File hasil editing (Tahap 2-4)
 - **DESAIN FOLDER (Aset Visual)**: Aset desain grafis (opsional)
 - **Additional Asset (Tambahan Foto/Footage)**: Folder kustom tambahan selain file kebutuhan output utama (opsional)
 
@@ -747,7 +741,7 @@ Manager tetap dapat menyesuaikan akses secara manual di form pembuatan proyek.
 Hanya tersedia untuk **Manager** dan **Super Admin**
 
 ## 7.2 Konten Laporan
-- Menampilkan proyek yang telah **selesai (Tahap 6)**
+- Menampilkan proyek yang telah **selesai (Tahap 5)**
 - Detail per tahapan: peran, petugas, status, platform, tautan hasil produksi
 - Dokumen pendukung dari Manager
 - Tautan lampiran surat permohonan

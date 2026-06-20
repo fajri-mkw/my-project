@@ -9,7 +9,7 @@
 import { db } from './db'
 
 // Increment this when adding new migrations
-const SCHEMA_VERSION = 6
+const SCHEMA_VERSION = 7
 
 let syncPerformed = false
 let syncPromise: Promise<boolean> | null = null
@@ -168,6 +168,26 @@ async function syncSqlite(): Promise<void> {
     shiftSqliteStageWithCondition('surat_tugas', 'stage', 4, 2,
       "role = 'EditorTemplateSosialMedia' AND projectId IN (SELECT id FROM projects WHERE currentStage IN (1, 2))"),
   ])
+
+  // === Version 7: Hilangkan Tahap 4 (Finalization) yang kosong, renumber
+  // Tahap 5 (Publikasi) → 4, Tahap 6 (Selesai) → 5. Setelah Task 18 (v6),
+  // EditorTemplateSosialMedia sudah bekerja di Tahap 2 dan Tahap 4 (Finalization)
+  // kosong (auto-skip). Maka Tahap 4 dihapus dari penomoran dan Publikasi/Selesai
+  // digeser ke bawah agar nomor tahap berurutan (1-5).
+  //
+  // Migrasi: geser stage 5→4 LALU 6→5 (urutan PENTING: stage terendah dulu
+  // agar tidak kolisi). Jika 6→5 dilakukan dulu, row yang pindah dari 6 ke 5
+  // akan ikut tergeser lagi ke 4 pada langkah 5→4. Dengan 5→4 dulu, stage 5
+  // menjadi kosong, lalu 6→5 hanya memindahkan row asli stage 6.
+  // Berlaku untuk projects.currentStage, tasks.stage, surat_tugas.stage.
+  await shiftSqliteStage('projects', 'currentStage', 5, 4)
+  await shiftSqliteStage('projects', 'currentStage', 6, 5)
+  await Promise.all([
+    shiftSqliteStage('tasks', 'stage', 5, 4),
+    shiftSqliteStage('tasks', 'stage', 6, 5),
+    shiftSqliteStage('surat_tugas', 'stage', 5, 4),
+    shiftSqliteStage('surat_tugas', 'stage', 6, 5),
+  ])
 }
 
 async function addSqliteColumnIfNotExists(
@@ -276,6 +296,18 @@ async function syncPostgres(): Promise<void> {
       "role = 'EditorTemplateSosialMedia' AND projectId IN (SELECT id FROM projects WHERE currentStage IN (1, 2))"),
     shiftPostgresStageWithCondition('surat_tugas', 'stage', 4, 2,
       "role = 'EditorTemplateSosialMedia' AND projectId IN (SELECT id FROM projects WHERE currentStage IN (1, 2))"),
+  ])
+
+  // === Version 7: Hilangkan Tahap 4 (Finalization) yang kosong, renumber
+  // Tahap 5 (Publikasi) → 4, Tahap 6 (Selesai) → 5. (Lihat syncSqlite v7.)
+  // Urutan: 5→4 DULU, lalu 6→5, agar tidak kolisi.
+  await shiftPostgresStage('projects', 'currentStage', 5, 4)
+  await shiftPostgresStage('projects', 'currentStage', 6, 5)
+  await Promise.all([
+    shiftPostgresStage('tasks', 'stage', 5, 4),
+    shiftPostgresStage('tasks', 'stage', 6, 5),
+    shiftPostgresStage('surat_tugas', 'stage', 5, 4),
+    shiftPostgresStage('surat_tugas', 'stage', 6, 5),
   ])
 }
 

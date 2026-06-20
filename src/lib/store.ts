@@ -331,9 +331,8 @@ export const STAGES: Record<number, string> = {
   1: 'Produksi',
   2: 'Pasca Produksi',
   3: 'Review',
-  4: 'Finalization',
-  5: 'Publikasi',
-  6: 'Selesai'
+  4: 'Publikasi',
+  5: 'Selesai'
 }
 
 export const ROLES: Role[] = [
@@ -351,17 +350,16 @@ export const ROLE_CONFIG: Record<string, { stage: number; type: string; icon: st
   'EditorVideo': { stage: 2, type: 'download_upload', icon: 'FileVideo' },
   'EditorWebArticle': { stage: 2, type: 'download_upload', icon: 'FileText' },
   'EditorFoto': { stage: 2, type: 'download_upload', icon: 'FileImage' },
-  // Editor (Template Sosial Media) sekarang bekerja di Tahap 2 (Pasca Produksi),
+  // Editor (Template Sosial Media) bekerja di Tahap 2 (Pasca Produksi),
   // SETELAH Editor (Foto) menyelesaikan tugasnya. Lihat STAGE2_DEPENDENCY di bawah.
-  // Tahap 4 (Finalization) kini kosong (auto-skip). Lihat getStage2Dependency().
   'EditorTemplateSosialMedia': { stage: 2, type: 'download_upload', icon: 'FileImage' },
   'StreamingOperator': { stage: 2, type: 'paste_streaming', icon: 'PlayCircle' },
   'PodcastOperator': { stage: 2, type: 'paste_youtube', icon: 'FileAudio' },
   
   'Reviewer': { stage: 3, type: 'review', icon: 'AlertCircle' },
   
-  'PublisherWeb': { stage: 5, type: 'download_link', icon: 'Link' },
-  'PublisherSocialMedia': { stage: 5, type: 'download_link', icon: 'Link' },
+  'PublisherWeb': { stage: 4, type: 'download_link', icon: 'Link' },
+  'PublisherSocialMedia': { stage: 4, type: 'download_link', icon: 'Link' },
 }
 
 // ============================================================================
@@ -435,20 +433,18 @@ export const FOLDER_OPTIONS = [
 //   PASCA PRODUKSI (revised):
 //     T2 → Upload only  (editor upload hasil edit)
 //     T3 → Download + Upload (reviewer download untuk direview + upload review/annotasi)
-//     T4 → Download + Upload (finalization download untuk difinalisasi + upload hasil finalisasi)
-//     T5 → Download only (publisher download untuk dipublikasi)
+//     T4 → Download only (publisher download untuk dipublikasi)
 export const FOLDER_ACCESS_DEFAULTS: Record<string, Record<number, { download: boolean; upload: boolean }>> = {
   // PRODUKSI: T1 (UL only), T2 (DL only)
   raw: {
     1: { download: false, upload: true },
     2: { download: true, upload: false },
   },
-  // PASCA PRODUKSI: T2 (UL only), T3 (DL+UL), T4 (DL+UL), T5 (DL only)
+  // PASCA PRODUKSI: T2 (UL only), T3 (DL+UL), T4 (DL only)
   revised: {
     2: { download: false, upload: true },
     3: { download: true, upload: true },
-    4: { download: true, upload: true },
-    5: { download: true, upload: false },
+    4: { download: true, upload: false },
   },
 }
 
@@ -629,7 +625,7 @@ export const useAppStore = create<AppState>()(
         status: 'completed' as const,
         data: t.data || { forceCompleted: true }
       }))
-      return { ...p, tasks: updatedTasks, currentStage: 6 }
+      return { ...p, tasks: updatedTasks, currentStage: 5 }
     })
     return { projects: updatedProjects }
   }),
@@ -670,7 +666,7 @@ export const useAppStore = create<AppState>()(
         
         const allDone = updatedTasks.every(t => t.status === 'completed')
         if (allDone) {
-          return { ...p, tasks: updatedTasks, currentStage: 6 }
+          return { ...p, tasks: updatedTasks, currentStage: 5 }
         }
         // Keep currentStage at the lowest stage that still has pending tasks
         const pendingStages = updatedTasks.filter(t => t.status === 'pending').map(t => t.stage)
@@ -701,12 +697,12 @@ export const useAppStore = create<AppState>()(
       let nextStage = p.currentStage
       if (allCurrentDone) {
         nextStage = p.currentStage + 1
-        // Fast Track: skip stages 1-3, jump directly to stage 5 (Publikasi)
-        if (p.isFastTrack && nextStage < 5) {
-          nextStage = 5
-          // Auto-complete all tasks in skipped stages
+        // Fast Track: skip stages 1-3, jump directly to stage 4 (Publikasi)
+        if (p.isFastTrack && nextStage < 4) {
+          nextStage = 4
+          // Auto-complete all tasks in skipped stages (1-3)
           updatedTasks = updatedTasks.map(t => {
-            if (t.stage >= 1 && t.stage <= 4 && t.status === 'pending') {
+            if (t.stage >= 1 && t.stage <= 3 && t.status === 'pending') {
               return { ...t, status: 'completed' as const, data: { fastTracked: true } }
             }
             return t
@@ -714,7 +710,7 @@ export const useAppStore = create<AppState>()(
         }
         
         // Skip empty stages — advance to the next stage that has pending tasks
-        while (nextStage <= 5) {
+        while (nextStage <= 4) {
           const nextStageTasks = updatedTasks.filter(t => t.stage === nextStage)
           const pendingAtStage = nextStageTasks.filter(t => t.status === 'pending')
           if (pendingAtStage.length > 0) break
@@ -747,7 +743,7 @@ export const useAppStore = create<AppState>()(
           const stage3AllDone = stage3Tasks.length > 0 && stage3Tasks.every(t => t.status === 'completed')
           if (stage3AllDone) {
             nextStage = 4
-            while (nextStage <= 5) {
+            while (nextStage <= 4) {
               const nextTasks = updatedTasks.filter(t => t.stage === nextStage && t.status === 'pending')
               if (nextTasks.length > 0) break
               const nextCompleted = updatedTasks.filter(t => t.stage === nextStage && t.status === 'completed')
@@ -757,7 +753,7 @@ export const useAppStore = create<AppState>()(
           }
         }
         
-        if (nextStage > 5) nextStage = 6
+        if (nextStage > 4) nextStage = 5
       }
       
       return { ...p, tasks: updatedTasks, currentStage: nextStage }
@@ -784,7 +780,7 @@ export const useAppStore = create<AppState>()(
       if (p.id !== projectId) return p
       
       const updatedTasks = p.tasks.map(t => {
-        if (t.stage === 2 || t.stage === 3 || t.stage === 4) return { ...t, status: 'pending' as const, data: {} }
+        if (t.stage === 2 || t.stage === 3) return { ...t, status: 'pending' as const, data: {} }
         return t
       })
       
@@ -873,7 +869,7 @@ export const useAppStore = create<AppState>()(
   },
   getCompletedProjects: () => {
     const state = get()
-    return state.projects.filter(p => p.currentStage === 6)
+    return state.projects.filter(p => p.currentStage === 5)
   },
   getMySuratTugas: () => {
     const state = get()

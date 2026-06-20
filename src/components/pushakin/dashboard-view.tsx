@@ -43,9 +43,8 @@ const STAGE_GRADIENTS: Record<number, { from: string; to: string; border: string
   1: { from: 'from-violet-100', to: 'to-violet-50', border: 'border-violet-300', text: 'text-violet-700', bg: 'bg-violet-600', dot: 'bg-violet-500' },
   2: { from: 'from-orange-100', to: 'to-orange-50', border: 'border-orange-300', text: 'text-orange-700', bg: 'bg-orange-500', dot: 'bg-orange-500' },
   3: { from: 'from-blue-100', to: 'to-blue-50', border: 'border-blue-300', text: 'text-blue-700', bg: 'bg-blue-600', dot: 'bg-blue-500' },
-  4: { from: 'from-purple-100', to: 'to-purple-50', border: 'border-purple-300', text: 'text-purple-700', bg: 'bg-purple-600', dot: 'bg-purple-500' },
-  5: { from: 'from-green-100', to: 'to-green-50', border: 'border-green-300', text: 'text-green-700', bg: 'bg-green-600', dot: 'bg-green-500' },
-  6: { from: 'from-emerald-100', to: 'to-emerald-50', border: 'border-emerald-300', text: 'text-emerald-700', bg: 'bg-emerald-600', dot: 'bg-emerald-500' },
+  4: { from: 'from-green-100', to: 'to-green-50', border: 'border-green-300', text: 'text-green-700', bg: 'bg-green-600', dot: 'bg-green-500' },
+  5: { from: 'from-emerald-100', to: 'to-emerald-50', border: 'border-emerald-300', text: 'text-emerald-700', bg: 'bg-emerald-600', dot: 'bg-emerald-500' },
 }
 
 const DEFAULT_STAGE_GRADIENT = { from: 'from-slate-100', to: 'to-slate-50', border: 'border-slate-300', text: 'text-slate-700', bg: 'bg-slate-600', dot: 'bg-slate-500' }
@@ -79,7 +78,7 @@ export function DashboardView() {
     : 0
 
   // Compute completed projects count
-  const completedProjectsCount = projects.filter(p => p.currentStage === 6).length
+  const completedProjectsCount = projects.filter(p => p.currentStage === 5).length
 
   // Compute my pending/completed task counts for the task status filter
   const myPendingCount = useMemo(() => {
@@ -117,7 +116,7 @@ export function DashboardView() {
         )
       }
     } else if (projectFilter === 'completed') {
-      filtered = projects.filter(p => p.currentStage === 6)
+      filtered = projects.filter(p => p.currentStage === 5)
     } else {
       filtered = projects
     }
@@ -170,7 +169,7 @@ export function DashboardView() {
     
     // Progress per stage
     const stageProgress: Record<number, { total: number; completed: number }> = {}
-    for (let stage = 1; stage <= 5; stage++) {
+    for (let stage = 1; stage <= 4; stage++) {
       const stageTasks = project.tasks.filter(t => t.stage === stage)
       stageProgress[stage] = {
         total: stageTasks.length,
@@ -180,7 +179,7 @@ export function DashboardView() {
     
     // Team members per stage
     const teamByStage: Record<number, Array<{ userId: string | null; name: string; role: string; status: string }>> = {}
-    for (let stage = 1; stage <= 5; stage++) {
+    for (let stage = 1; stage <= 4; stage++) {
       teamByStage[stage] = project.tasks
         .filter(t => t.stage === stage)
         .map(t => ({
@@ -438,7 +437,7 @@ export function DashboardView() {
               >
                 {canManageProject && (
                   <div className="absolute top-3 right-3 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-all z-10">
-                    {isSuperAdmin && project.currentStage !== 6 && (
+                    {isSuperAdmin && project.currentStage !== 5 && (
                       <Button
                         variant="ghost"
                         size="icon"
@@ -495,16 +494,16 @@ export function DashboardView() {
                   {/* Step Flow Progress with Worker Names Aligned Below */}
                   <div className="bg-slate-50 px-4 py-4 border-b border-slate-200">
                     <div className="flex items-start justify-between">
-                      {[1, 2, 3, 4, 5].map((stage, idx) => {
+                      {[1, 2, 3, 4].map((stage, idx) => {
                         const gradient = getStageGradient(stage)
                         const isCompleted = stage < project.currentStage
                         const isCurrent = stage === project.currentStage
                         const isPending = stage > project.currentStage
-                        const progress = stageProgress[stage]
+                        const progress = stageProgress[stage] || { total: 0, completed: 0 }
                         const stagePercent = progress.total > 0 
                           ? Math.round((progress.completed / progress.total) * 100) 
                           : 0
-                        const members = teamByStage[stage]
+                        const members = teamByStage[stage] || []
                         
                         return (
                           <div key={stage} className="flex items-start flex-1">
@@ -707,8 +706,8 @@ export function DashboardView() {
                         <span className="text-xs font-bold text-slate-700">{percentage}%</span>
                       </div>
                     </TableCell>
-                    {[1, 2, 3, 4, 5].map((stage) => {
-                      const progress = stageProgress[stage]
+                    {[1, 2, 3, 4].map((stage) => {
+                      const progress = stageProgress[stage] || { total: 0, completed: 0 }
                       const stagePercent = progress.total > 0 
                         ? Math.round((progress.completed / progress.total) * 100) 
                         : 0
@@ -732,7 +731,7 @@ export function DashboardView() {
                     {canManageProject && (
                       <TableCell className="text-right">
                         <div className="flex items-center justify-end gap-1">
-                          {isSuperAdmin && project.currentStage !== 6 && (
+                          {isSuperAdmin && project.currentStage !== 5 && (
                             <Button
                               variant="ghost"
                               size="icon"

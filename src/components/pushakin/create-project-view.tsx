@@ -1121,7 +1121,7 @@ export function CreateProjectView() {
                   </div>
                   <p className="text-xs text-stone-500 mt-0.5">
                     {isFastTrack
-                      ? 'Lewati Produksi, Pasca Produksi, Review & Finalization — langsung ke Publisher'
+                      ? 'Lewati Produksi, Pasca Produksi & Review — langsung ke Publisher'
                       : 'Aktifkan untuk melewati alur produksi dan langsung ke Publisher'
                     }
                   </p>
@@ -1140,17 +1140,17 @@ export function CreateProjectView() {
               <div className="mt-3 space-y-2">
                 <div className="flex items-center gap-2 text-xs text-amber-700">
                   <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
-                  <span>Tahap Produksi (1), Pasca Produksi (2), Review (3), dan Finalization (4) akan otomatis dilewati. Publisher langsung mengerjakan.</span>
+                  <span>Tahap Produksi (1), Pasca Produksi (2), dan Review (3) akan otomatis dilewati. Publisher langsung mengerjakan.</span>
                 </div>
                 <div className="flex flex-wrap gap-1.5 mt-1">
-                  {[1, 2, 3, 4].map(stage => (
+                  {[1, 2, 3].map(stage => (
                     <Badge key={stage} variant="outline" className="bg-purple-50 text-purple-600 border-purple-200 text-[10px] line-through decoration-purple-400">
                       <SkipForward className="h-2.5 w-2.5 mr-0.5" />
                       {STAGES[stage]}
                     </Badge>
                   ))}
                   <Badge variant="outline" className="bg-emerald-50 text-emerald-600 border-emerald-200 text-[10px]">
-                    → {STAGES[5]}
+                    → {STAGES[4]}
                   </Badge>
                 </div>
               </div>
@@ -1561,7 +1561,7 @@ export function CreateProjectView() {
               </div>
             )}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              {[1, 2, 3, 4, 5].map(stage => {
+              {[1, 2, 3, 4].map(stage => {
                 const rolesInStage = Object.keys(ROLE_CONFIG).filter(r => ROLE_CONFIG[r].stage === stage)
                 if (rolesInStage.length === 0) return null
                 
@@ -1570,8 +1570,8 @@ export function CreateProjectView() {
                 const hasAvailableUsersInStage = rolesInStage.some(role => users.filter(u => u.role === role).length > 0)
                 const isStageMissing = !isFastTrack && !isFastProduction && hasAvailableUsersInStage && !hasWorkersInStage
                 
-                // Fast Track: only show stage 5 (Publisher)
-                if (isFastTrack && stage !== 5) {
+                // Fast Track: only show stage 4 (Publisher)
+                if (isFastTrack && stage !== 4) {
                   return (
                     <div key={stage} className="bg-stone-50/30 p-5 rounded-2xl border border-stone-200/30 opacity-50">
                       <h4 className="text-xs font-bold text-stone-400 uppercase tracking-wider mb-3 border-b border-stone-200 pb-2 line-through decoration-purple-400">
@@ -1590,7 +1590,7 @@ export function CreateProjectView() {
                   <div key={stage} className={`p-5 rounded-2xl border-2 ${
                     isStageMissing
                       ? 'bg-red-50/40 border-red-300 shadow-sm'
-                      : isFastTrack && stage === 5 
+                      : isFastTrack && stage === 4 
                         ? 'bg-amber-50/60 border-amber-300' 
                         : isFastProduction
                           ? 'bg-teal-50/40 border-teal-300'
@@ -1599,10 +1599,10 @@ export function CreateProjectView() {
                     <h4 className={`text-xs font-bold uppercase tracking-wider mb-4 border-b pb-2 flex items-center gap-1.5 ${
                       isStageMissing
                         ? 'text-red-600 border-red-200'
-                        : isFastTrack && stage === 5 ? 'text-amber-700 border-amber-200' : isFastProduction ? 'text-teal-700 border-teal-200' : 'text-stone-600 border-stone-200'
+                        : isFastTrack && stage === 4 ? 'text-amber-700 border-amber-200' : isFastProduction ? 'text-teal-700 border-teal-200' : 'text-stone-600 border-stone-200'
                     }`}>
                       {isStageMissing && <AlertTriangle className="h-3.5 w-3.5 text-red-500" />}
-                      {isFastTrack && stage === 5 && <Zap className="h-3 w-3 inline mr-1" />}
+                      {isFastTrack && stage === 4 && <Zap className="h-3 w-3 inline mr-1" />}
                       {isFastProduction && <Rocket className="h-3 w-3 inline mr-1" />}
                       Tahap {stage}: {STAGES[stage]}
                       {isStageMissing && (

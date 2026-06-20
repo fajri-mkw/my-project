@@ -23,10 +23,10 @@ export async function PUT(request: NextRequest) {
         return NextResponse.json({ error: 'Project not found' }, { status: 404 })
       }
       
-      // Update all stage 2, 3, and 4 tasks to pending
+      // Update all stage 2 and 3 tasks to pending
       const updatedTasks = await Promise.all(
         project.tasks
-          .filter(t => t.stage === 2 || t.stage === 3 || t.stage === 4)
+          .filter(t => t.stage === 2 || t.stage === 3)
           .map(t => db.task.update({
             where: { id: t.id },
             data: { status: 'pending', data: '{}' }
@@ -107,7 +107,7 @@ export async function PUT(request: NextRequest) {
     // Super Admin override: bypass stage gate entirely
     if (!proj?.isFastProduction && existingTask.stage !== proj?.currentStage && !isRevision && !isSuperAdmin) {
       const stageNames: Record<number, string> = {
-        0: 'Perencanaan', 1: 'Produksi', 2: 'Pasca Produksi', 3: 'Review', 4: 'Finalization', 5: 'Publikasi', 6: 'Selesai'
+        0: 'Perencanaan', 1: 'Produksi', 2: 'Pasca Produksi', 3: 'Review', 4: 'Publikasi', 5: 'Selesai'
       }
       const taskStageName = stageNames[existingTask.stage] || ''
       const projStageName = proj?.currentStage !== undefined ? (stageNames[proj.currentStage] || '') : ''
@@ -197,7 +197,7 @@ export async function PUT(request: NextRequest) {
       if (allDone) {
         await db.project.update({
           where: { id: projectId },
-          data: { currentStage: 6 }
+          data: { currentStage: 5 }
         })
       } else {
         // Update currentStage to the lowest stage with pending tasks (excluding completed stage 3)
@@ -301,11 +301,11 @@ export async function PUT(request: NextRequest) {
     if (allCurrentDone) {
       nextStage = task.project.currentStage + 1
       
-      // Fast Track: skip stages 1-4, jump directly to stage 5 (Publikasi)
-      if (project?.isFastTrack && nextStage < 5) {
-        nextStage = 5
-        // Auto-complete all tasks in skipped stages
-        const skippedTasks = projectTasks.filter(t => t.stage >= 1 && t.stage <= 4 && t.status === 'pending')
+      // Fast Track: skip stages 1-3, jump directly to stage 4 (Publikasi)
+      if (project?.isFastTrack && nextStage < 4) {
+        nextStage = 4
+        // Auto-complete all tasks in skipped stages (1-3)
+        const skippedTasks = projectTasks.filter(t => t.stage >= 1 && t.stage <= 3 && t.status === 'pending')
         await Promise.all(
           skippedTasks.map(t => db.task.update({
             where: { id: t.id },
@@ -318,7 +318,7 @@ export async function PUT(request: NextRequest) {
       // FIX: Skip empty stages — advance to the next stage that actually has pending tasks
       // This prevents projects from getting stuck at stages with no workers
       const freshTasks = await db.task.findMany({ where: { projectId } })
-      while (nextStage <= 5) {
+      while (nextStage <= 4) {
         const nextStageTasks = freshTasks.filter(t => t.stage === nextStage && t.status === 'pending')
         if (nextStageTasks.length > 0) {
           break // Found a stage with pending tasks
@@ -378,7 +378,7 @@ export async function PUT(request: NextRequest) {
             if (stage3AllDone) {
               // All review tasks done (auto-approved) — skip stage 3, advance to next non-empty stage
               nextStage = 4
-              while (nextStage <= 5) {
+              while (nextStage <= 4) {
                 const nextTasks = refreshedTasks2.filter(t => t.stage === nextStage && t.status === 'pending')
                 if (nextTasks.length > 0) break
                 const nextCompleted = refreshedTasks2.filter(t => t.stage === nextStage && t.status === 'completed')
@@ -394,9 +394,9 @@ export async function PUT(request: NextRequest) {
         }
       }
       
-      // If we've passed stage 5 with all tasks done, mark as completed
-      if (nextStage > 5) {
-        nextStage = 6
+      // If we've passed stage 4 with all tasks done, mark as completed
+      if (nextStage > 4) {
+        nextStage = 5
       }
       
       stageAdvanced = true
@@ -474,8 +474,8 @@ export async function PUT(request: NextRequest) {
         console.error('Failed to send stage advance notifications:', err)
  }
       
-      // If completed (stage 6), notify manager
-      if (nextStage === 6) {
+      // If completed (stage 5), notify manager
+      if (nextStage === 5) {
         await db.notification.create({
           data: {
             userId: task.project.managerId,

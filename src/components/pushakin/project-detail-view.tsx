@@ -176,12 +176,11 @@ export function ProjectDetailView() {
       1: 'Tahap 1 — Produksi',
       2: 'Tahap 2 — Pasca Produksi',
       3: 'Tahap 3 — Review',
-      4: 'Tahap 4 — Finalisasi',
-      5: 'Tahap 5 — Publikasi',
+      4: 'Tahap 4 — Publikasi',
     }
 
     let workerText = ''
-    for (const stage of [1, 2, 3, 4, 5]) {
+    for (const stage of [1, 2, 3, 4]) {
       const stageTasks = project.tasks.filter(t => t.stage === stage)
       if (stageTasks.length === 0) continue
       workerText += `\n📋 ${stageLabels[stage]}\n`
@@ -210,7 +209,7 @@ export function ProjectDetailView() {
 🕒 Pelaksanaan: ${formatDateTime(project.executionTime)}
 👤 PIC: ${project.picName || '-'}
 📱 WhatsApp PIC: ${project.picWhatsApp || '-'}
-🎯 Tahap: ${STAGES[project.currentStage] || '-'}${project.currentStage === 6 ? ' ✅' : ''}
+🎯 Tahap: ${STAGES[project.currentStage] || '-'}${project.currentStage === 5 ? ' ✅' : ''}
 
 📝 Jenis Kegiatan: ${activityTypes || '-'}
 📦 Kebutuhan Output: ${outputNeeds || '-'}
@@ -715,19 +714,19 @@ Pushakin Flows — Sistem Manajemen Produksi`
               ) : (
                 <div 
                   className="absolute left-0 top-1/2 -translate-y-1/2 h-1 bg-indigo-500 rounded-full z-0 transition-all duration-500" 
-                  style={{ width: `${((project.currentStage - 1) / 5) * 100}%` }}
+                  style={{ width: `${((project.currentStage - 1) / 4) * 100}%` }}
                 />
               )}
               
-              {[1, 2, 3, 4, 5, 6].map((stageNum) => {
+              {[1, 2, 3, 4, 5].map((stageNum) => {
                 const isCompleted = stageNum < project.currentStage
                 const isCurrent = stageNum === project.currentStage
-                const isFastTracked = project.isFastTrack && stageNum >= 1 && stageNum <= 4
-                const isFastProduction = project.isFastProduction && stageNum >= 1 && stageNum <= 5
+                const isFastTracked = project.isFastTrack && stageNum >= 1 && stageNum <= 3
+                const isFastProduction = project.isFastProduction && stageNum >= 1 && stageNum <= 4
                 // Fast Production: stage 3 (Review) is auto-approved
                 const isFPAutoApproved = project.isFastProduction && stageNum === 3
                 
-                // Fast Production: stages 1-5 are all "active" (teal), stage 3 is auto-approved, stage 6 is pending until all done
+                // Fast Production: stages 1-4 are all "active" (teal), stage 3 is auto-approved, stage 5 is pending until all done
                 const isFPActive = isFastProduction && !isCompleted && !isFPAutoApproved
                 
                 return (
@@ -790,13 +789,13 @@ Pushakin Flows — Sistem Manajemen Produksi`
               )}
             </h3>
             {/* Desktop: horizontal columns aligned with timeline stages */}
-            <div className="hidden sm:grid sm:grid-cols-6 gap-3">
-              {[1, 2, 3, 4, 5, 6].map(stageNum => {
+            <div className="hidden sm:grid sm:grid-cols-5 gap-3">
+              {[1, 2, 3, 4, 5].map(stageNum => {
                 const stageTasks = project.tasks.filter(t => t.stage === stageNum)
                 const isCompleted = stageNum < project.currentStage
                 const isCurrent = stageNum === project.currentStage
                 const isFPAutoApproved = project.isFastProduction && stageNum === 3
-                const isFPActive = project.isFastProduction && stageNum >= 1 && stageNum <= 5 && !isCompleted && !isFPAutoApproved
+                const isFPActive = project.isFastProduction && stageNum >= 1 && stageNum <= 4 && !isCompleted && !isFPAutoApproved
                 
                 return (
                   <div key={stageNum} className="flex flex-col gap-2">
@@ -896,12 +895,12 @@ Pushakin Flows — Sistem Manajemen Produksi`
             </div>
             {/* Mobile: vertical list grouped by stage */}
             <div className="sm:hidden space-y-4">
-              {[1, 2, 3, 4, 5, 6].map(stageNum => {
+              {[1, 2, 3, 4, 5].map(stageNum => {
                 const stageTasks = project.tasks.filter(t => t.stage === stageNum)
                 const isCompleted = stageNum < project.currentStage
                 const isCurrent = stageNum === project.currentStage
                 const isFPAutoApproved = project.isFastProduction && stageNum === 3
-                const isFPActive = project.isFastProduction && stageNum >= 1 && stageNum <= 5 && !isCompleted && !isFPAutoApproved
+                const isFPActive = project.isFastProduction && stageNum >= 1 && stageNum <= 4 && !isCompleted && !isFPAutoApproved
                 
                 if (stageTasks.length === 0) return null
                 
@@ -1250,13 +1249,12 @@ Pushakin Flows — Sistem Manajemen Produksi`
             const workerCustomMap: Record<string, string> = project.workerCustomOutput || {}
             
             // Build a structured list: group tasks by stage, then show each worker + their outputs
-            const stagesToShow = [1, 2, 3, 4, 5]
+            const stagesToShow = [1, 2, 3, 4]
             const stageConfig: Record<number, { label: string; color: string; bg: string; border: string }> = {
               1: { label: 'Tahap 1 — Produksi', color: 'text-violet-700', bg: 'bg-violet-50', border: 'border-violet-200' },
               2: { label: 'Tahap 2 — Pasca Produksi', color: 'text-orange-700', bg: 'bg-orange-50', border: 'border-orange-200' },
               3: { label: 'Tahap 3 — Review', color: 'text-amber-700', bg: 'bg-amber-50', border: 'border-amber-200' },
-              4: { label: 'Tahap 4 — Finalisasi', color: 'text-cyan-700', bg: 'bg-cyan-50', border: 'border-cyan-200' },
-              5: { label: 'Tahap 5 — Publikasi', color: 'text-green-700', bg: 'bg-green-50', border: 'border-green-200' },
+              4: { label: 'Tahap 4 — Publikasi', color: 'text-green-700', bg: 'bg-green-50', border: 'border-green-200' },
             }
             
             // Group tasks by stage
@@ -1284,7 +1282,7 @@ Pushakin Flows — Sistem Manajemen Produksi`
             if (!hasWorkerData) return null
             
             // Count totals
-            const totalWorkers = project.tasks.filter(t => t.stage >= 1 && t.stage <= 5).length
+            const totalWorkers = project.tasks.filter(t => t.stage >= 1 && t.stage <= 4).length
             const totalWithOutputs = Object.keys(workerOutputsMap).filter(uid => 
               workerOutputsMap[uid] && workerOutputsMap[uid].length > 0
             ).length

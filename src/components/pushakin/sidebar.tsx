@@ -37,7 +37,7 @@ function viewUrl(viewId: string): string {
 export function Sidebar({ isOpen = false, onNavigate, onClose }: SidebarProps) {
   const { currentUser, activeView, setActiveView, setCurrentUser, projects, suratTugas, isImpersonating, originalUser, stopImpersonate } = useAppStore()
   const router = useRouter()
-  const completedCount = projects.filter(p => p.currentStage === 6).length
+  const completedCount = projects.filter(p => p.currentStage === 5).length
   const unreadSuratCount = currentUser ? suratTugas.filter(s => s.userId === currentUser.id && !s.read).length : 0
 
   if (!currentUser) return null

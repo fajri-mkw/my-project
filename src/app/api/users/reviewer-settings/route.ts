@@ -103,14 +103,14 @@ export async function PUT(request: NextRequest) {
         if (stage3AllDone) {
           // Find the next stage with pending tasks (skip stage 3)
           let nextStage = 4
-          while (nextStage <= 5) {
+          while (nextStage <= 4) {
             const nextTasks = projectTasks.filter(t => t.stage === nextStage && t.status === 'pending')
             if (nextTasks.length > 0) break
             const nextCompleted = projectTasks.filter(t => t.stage === nextStage && t.status === 'completed')
             if (nextCompleted.length > 0) { nextStage++; continue }
             nextStage++
           }
-          if (nextStage > 5) nextStage = 6
+          if (nextStage > 4) nextStage = 5
           
           await db.project.update({
             where: { id: task.projectId },

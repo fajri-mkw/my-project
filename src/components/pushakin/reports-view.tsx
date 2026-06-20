@@ -101,7 +101,7 @@ export function ReportsView() {
   }
 
   // Filter completed projects based on selected user and date range
-  const completedProjects = projects.filter(p => p.currentStage === 6)
+  const completedProjects = projects.filter(p => p.currentStage === 5)
   
   const filteredProjects = completedProjects.filter(p => {
     // User filter
@@ -1246,7 +1246,7 @@ export function ReportsView() {
             <h2 className="text-2xl font-bold text-slate-800">Laporan & Rekap Kegiatan</h2>
           </div>
           <p className="text-stone-500">
-            Daftar arsip proyek yang telah selesai (Tahap 5) dan siap diunduh untuk kebutuhan pelaporan manajerial.
+            Daftar arsip proyek yang telah selesai (Tahap 4) dan siap diunduh untuk kebutuhan pelaporan manajerial.
           </p>
         </CardContent>
       </Card>

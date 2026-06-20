@@ -53,7 +53,7 @@ export async function GET(request: NextRequest) {
     
     // Calculate statistics
     const totalProjects = projects.length
-    const completedProjects = projects.filter(p => p.currentStage === 6).length
+    const completedProjects = projects.filter(p => p.currentStage === 5).length
     const activeProjects = totalProjects - completedProjects
     
     return NextResponse.json({ 
