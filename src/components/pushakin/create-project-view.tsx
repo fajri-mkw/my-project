@@ -10,12 +10,13 @@ import { Badge } from '@/components/ui/badge'
 import { Switch } from '@/components/ui/switch'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { useAppStore, ROLES, ROLE_CONFIG, FOLDER_OPTIONS, FOLDER_ACCESS_DEFAULTS, STAGES, getRoleDisplayName } from '@/lib/store'
-import { 
-  Rocket, 
-  Users, 
-  Folder, 
+import {
+  Rocket,
+  Users,
+  Folder,
   Loader2,
   FileText,
+  FileImage,
   Upload,
   X,
   ChevronDown,
@@ -62,6 +63,12 @@ export function CreateProjectView() {
   const [driveCreatingStatus, setDriveCreatingStatus] = useState<string | null>(null)
   const [isFastTrack, setIsFastTrack] = useState(false)
   const [isFastProduction, setIsFastProduction] = useState(false)
+  // Fitur khusus Tahap 2 (Pasca Produksi) — manager bisa memilih saat inisiasi
+  // apakah akan menjalankan Editor (Foto) dan/atau Editor (Template Sosial Media).
+  // Default: keduanya aktif (kompabilitas mundur). Jika salah satu nonaktif,
+  // task untuk role tersebut tidak dibuat, dan dependency intra-stage menyesuaikan.
+  const [enableFotoEditor, setEnableFotoEditor] = useState(true)
+  const [enableTemplateEditor, setEnableTemplateEditor] = useState(true)
 
   // Custom folder state
   const [customFolders, setCustomFolders] = useState<Array<{id: string; name: string; desc: string}>>([])
@@ -263,6 +270,27 @@ export function CreateProjectView() {
     })
   }, [selectedUsers])
 
+  // Clean up selectedUsers when a feature flag is toggled off.
+  // Jika manager menonaktifkan Editor (Foto) atau Editor (Template Sosial Media)
+  // setelah sebelumnya memilih petugas untuk role tersebut, hapus pilihan itu
+  // agar tidak ada task yang dibuat untuk role yang dinonaktifkan.
+  useEffect(() => {
+    if (!enableFotoEditor && (selectedUsers['EditorFoto'] || []).length > 0) {
+      setSelectedUsers(prev => {
+        const next = { ...prev }
+        delete next['EditorFoto']
+        return next
+      })
+    }
+    if (!enableTemplateEditor && (selectedUsers['EditorTemplateSosialMedia'] || []).length > 0) {
+      setSelectedUsers(prev => {
+        const next = { ...prev }
+        delete next['EditorTemplateSosialMedia']
+        return next
+      })
+    }
+  }, [enableFotoEditor, enableTemplateEditor]) // eslint-disable-line react-hooks/exhaustive-deps
+
   const toggleFolder = (folderId: string) => {
     if (selectedFolders.includes(folderId)) {
       setSelectedFolders(selectedFolders.filter(id => id !== folderId))
@@ -354,13 +382,22 @@ export function CreateProjectView() {
     }
 
     // Normal mode: require workers in every stage that has available users
-    // This prevents workflow from getting stuck when a stage has no workers
+    // This prevents workflow from getting stuck when a stage has no workers.
+    // PENTING: Untuk Tahap 2, role yang dinonaktifkan via feature flag
+    // (enableFotoEditor/enableTemplateEditor=false) dikecualikan dari pengecekan.
     if (!isFastTrack && !isFastProduction) {
       const currentMissingStages = [1, 2, 3, 4, 5].filter(stage => {
-        // Check if there are users available for this stage
-        const rolesInStage = Object.keys(ROLE_CONFIG).filter(r => ROLE_CONFIG[r].stage === stage)
+        // Check if there are users available for this stage (excluding disabled roles)
+        let rolesInStage = Object.keys(ROLE_CONFIG).filter(r => ROLE_CONFIG[r].stage === stage)
+        if (stage === 2) {
+          rolesInStage = rolesInStage.filter(r => {
+            if (r === 'EditorFoto' && !enableFotoEditor) return false
+            if (r === 'EditorTemplateSosialMedia' && !enableTemplateEditor) return false
+            return true
+          })
+        }
         const hasAvailableUsers = rolesInStage.some(role => users.filter(u => u.role === role).length > 0)
-        // Check if any workers are assigned to this stage
+        // Check if any workers are assigned to this stage (among enabled roles only)
         const hasAssignedWorkers = activeRoles.some(role => {
           const config = ROLE_CONFIG[role]
           return config?.stage === stage && (selectedUsers[role] || []).length > 0
@@ -623,6 +660,8 @@ export function CreateProjectView() {
           driveFolders: generatedFolders,
           isFastTrack,
           isFastProduction,
+          enableFotoEditor,
+          enableTemplateEditor,
           ...(preFillFromSurat ? { suratId: preFillFromSurat.id } : {})
         })
       })
@@ -889,19 +928,28 @@ export function CreateProjectView() {
   const activeRolesForAssignment = Object.keys(selectedUsers).filter(k => selectedUsers[k].length > 0)
 
   // Compute which stages have available users (users in the system with roles for that stage)
-  // and which stages currently have workers assigned
+  // and which stages currently have workers assigned.
+  // PENTING: Untuk Tahap 2, role yang dinonaktifkan via feature flag dikecualikan.
   const stagesWithAvailableUsers = new Set<number>()
   const stagesWithAssignedWorkers = new Set<number>()
-  
-  // Check which stages have users available in the system
+
+  // Helper: is a role enabled (considering feature flags for Tahap 2)?
+  const isRoleEnabled = (role: string): boolean => {
+    if (role === 'EditorFoto' && !enableFotoEditor) return false
+    if (role === 'EditorTemplateSosialMedia' && !enableTemplateEditor) return false
+    return true
+  }
+
+  // Check which stages have users available in the system (among enabled roles only)
   for (const role of Object.keys(ROLE_CONFIG)) {
+    if (!isRoleEnabled(role)) continue
     const stage = ROLE_CONFIG[role].stage
     const usersWithRole = users.filter(u => u.role === role)
     if (usersWithRole.length > 0) {
       stagesWithAvailableUsers.add(stage)
     }
   }
-  
+
   // Check which stages currently have workers assigned
   activeRolesForAssignment.forEach(role => {
     const config = ROLE_CONFIG[role]
@@ -909,7 +957,7 @@ export function CreateProjectView() {
       stagesWithAssignedWorkers.add(config.stage)
     }
   })
-  
+
   // For normal (non-fast) mode: find stages that have available users but no assigned workers
   const missingStages = !isFastTrack && !isFastProduction
     ? [1, 2, 3, 4, 5].filter(stage => stagesWithAvailableUsers.has(stage) && !stagesWithAssignedWorkers.has(stage))
@@ -1213,6 +1261,114 @@ export function CreateProjectView() {
             )}
           </div>
 
+          {/* 📸 Fitur Khusus Tahap 2 (Pasca Produksi) — Pilih Editor yang aktif */}
+          {!isFastTrack && (
+            <div className={`rounded-xl border-2 p-4 transition-all duration-300 ${
+              (!enableFotoEditor || !enableTemplateEditor)
+                ? 'border-violet-300 bg-violet-50/40 shadow-inner'
+                : 'border-dashed border-stone-200 bg-stone-50/50'
+            }`}>
+              <div className="flex items-center gap-2 mb-3 border-b border-stone-200 pb-2">
+                <FileImage className="w-4 h-4 text-violet-600" />
+                <h3 className="text-sm font-semibold text-stone-800">
+                  Fitur Khusus Tahap 2 (Pasca Produksi)
+                </h3>
+              </div>
+              <p className="text-xs text-stone-500 mb-4">
+                Pilih editor mana yang akan menjalankan tahap ini. Tidak semua proyek memerlukan kedua editor —
+                sesuaikan dengan kebutuhan. Editor (Template Sosial Media) akan menunggu Editor (Foto) selesai
+                jika keduanya aktif.
+              </p>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {/* Editor (Foto) toggle */}
+                <div className={`p-3 rounded-xl border transition-all ${
+                  enableFotoEditor
+                    ? 'bg-white border-violet-300 shadow-sm'
+                    : 'bg-stone-50/50 border-stone-200/60 opacity-60'
+                }`}>
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="flex items-center gap-2">
+                      <div className={`rounded-lg p-1.5 transition-colors ${
+                        enableFotoEditor ? 'bg-violet-100 text-violet-700' : 'bg-stone-200 text-stone-400'
+                      }`}>
+                        <FileImage className="h-4 w-4" />
+                      </div>
+                      <div>
+                        <div className="text-sm font-bold text-stone-700">Editor (Foto)</div>
+                        <div className="text-[10px] text-stone-500">
+                          {enableFotoEditor ? 'Aktif — edit foto hasil produksi' : 'Nonaktif — tidak ada editing foto'}
+                        </div>
+                      </div>
+                    </div>
+                    <Switch
+                      checked={enableFotoEditor}
+                      onCheckedChange={setEnableFotoEditor}
+                      aria-label="Toggle Editor Foto"
+                    />
+                  </div>
+                  {enableFotoEditor && (
+                    <div className="text-[10px] text-violet-600 flex items-center gap-1">
+                      <CheckCircle2 className="h-3 w-3" />
+                      <span>Petugas Editor (Foto) akan ditugaskan &amp; mengerjakan tahap ini</span>
+                    </div>
+                  )}
+                </div>
+
+                {/* Editor (Template Sosial Media) toggle */}
+                <div className={`p-3 rounded-xl border transition-all ${
+                  enableTemplateEditor
+                    ? 'bg-white border-violet-300 shadow-sm'
+                    : 'bg-stone-50/50 border-stone-200/60 opacity-60'
+                }`}>
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="flex items-center gap-2">
+                      <div className={`rounded-lg p-1.5 transition-colors ${
+                        enableTemplateEditor ? 'bg-violet-100 text-violet-700' : 'bg-stone-200 text-stone-400'
+                      }`}>
+                        <FileImage className="h-4 w-4" />
+                      </div>
+                      <div>
+                        <div className="text-sm font-bold text-stone-700">Editor (Template Sosial Media)</div>
+                        <div className="text-[10px] text-stone-500">
+                          {enableTemplateEditor
+                            ? (enableFotoEditor ? 'Aktif — bekerja setelah Editor (Foto) selesai' : 'Aktif — bekerja langsung (tanpa menunggu)')
+                            : 'Nonaktif — tidak ada pembuatan template'}
+                        </div>
+                      </div>
+                    </div>
+                    <Switch
+                      checked={enableTemplateEditor}
+                      onCheckedChange={setEnableTemplateEditor}
+                      aria-label="Toggle Editor Template Sosial Media"
+                    />
+                  </div>
+                  {enableTemplateEditor && enableFotoEditor && (
+                    <div className="text-[10px] text-amber-600 flex items-center gap-1">
+                      <AlertTriangle className="h-3 w-3" />
+                      <span>Menunggu Editor (Foto) selesai lebih dulu (dependency intra-stage)</span>
+                    </div>
+                  )}
+                  {enableTemplateEditor && !enableFotoEditor && (
+                    <div className="text-[10px] text-emerald-600 flex items-center gap-1">
+                      <CheckCircle2 className="h-3 w-3" />
+                      <span>Bekerja langsung tanpa menunggu (Editor Foto nonaktif)</span>
+                    </div>
+                  )}
+                </div>
+              </div>
+              {(!enableFotoEditor || !enableTemplateEditor) && (
+                <div className="mt-3 p-2 rounded-lg bg-violet-50 border border-violet-200 text-[10px] text-violet-700 flex items-start gap-1.5">
+                  <AlertTriangle className="h-3 w-3 shrink-0 mt-0.5" />
+                  <span>
+                    {(enableFotoEditor || enableTemplateEditor)
+                      ? 'Salah satu editor dinonaktifkan — tahap akan berjalan dengan editor yang aktif saja.'
+                      : 'Kedua editor dinonaktifkan — Tahap 2 hanya akan berisi editor lain (Editor Video/Web/Streaming/Podcast) jika ada yang ditugaskan.'}
+                  </span>
+                </div>
+              )}
+            </div>
+          )}
+
           {/* Basic Info */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div className="md:col-span-2">
@@ -1222,7 +1378,7 @@ export function CreateProjectView() {
                 required
                 value={title}
                 onChange={e => setTitle(e.target.value)}
-                
+
                 className="mt-1"
               />
             </div>
@@ -1562,7 +1718,15 @@ export function CreateProjectView() {
             )}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               {[1, 2, 3, 4].map(stage => {
-                const rolesInStage = Object.keys(ROLE_CONFIG).filter(r => ROLE_CONFIG[r].stage === stage)
+                let rolesInStage = Object.keys(ROLE_CONFIG).filter(r => ROLE_CONFIG[r].stage === stage)
+                // Filter out roles disabled by feature flags (Tahap 2)
+                if (stage === 2) {
+                  rolesInStage = rolesInStage.filter(r => {
+                    if (r === 'EditorFoto' && !enableFotoEditor) return false
+                    if (r === 'EditorTemplateSosialMedia' && !enableTemplateEditor) return false
+                    return true
+                  })
+                }
                 if (rolesInStage.length === 0) return null
                 
                 // Check if this stage has workers assigned (for normal mode validation)

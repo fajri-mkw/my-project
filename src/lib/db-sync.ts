@@ -9,7 +9,7 @@
 import { db } from './db'
 
 // Increment this when adding new migrations
-const SCHEMA_VERSION = 7
+const SCHEMA_VERSION = 8
 
 let syncPerformed = false
 let syncPromise: Promise<boolean> | null = null
@@ -97,6 +97,8 @@ async function syncSqlite(): Promise<void> {
   await Promise.all([
     addSqliteColumnIfNotExists('projects', 'isFastTrack', 'BOOLEAN DEFAULT 0'),
     addSqliteColumnIfNotExists('projects', 'isFastProduction', 'BOOLEAN DEFAULT 0'),
+    addSqliteColumnIfNotExists('projects', 'enableFotoEditor', 'BOOLEAN DEFAULT 1'),
+    addSqliteColumnIfNotExists('projects', 'enableTemplateEditor', 'BOOLEAN DEFAULT 1'),
     addSqliteColumnIfNotExists('projects', 'publicToken', 'TEXT'),
     addSqliteColumnIfNotExists('projects', 'documents', 'TEXT DEFAULT \'[]\''),
     addSqliteColumnIfNotExists('users', 'notifWaEnabled', 'BOOLEAN DEFAULT 1'),
@@ -237,6 +239,8 @@ async function syncPostgres(): Promise<void> {
     // Projects table
     addPostgresColumnIfNotExists('projects', 'isFastTrack', 'BOOLEAN DEFAULT false'),
     addPostgresColumnIfNotExists('projects', 'isFastProduction', 'BOOLEAN DEFAULT false'),
+    addPostgresColumnIfNotExists('projects', 'enableFotoEditor', 'BOOLEAN DEFAULT true'),
+    addPostgresColumnIfNotExists('projects', 'enableTemplateEditor', 'BOOLEAN DEFAULT true'),
     addPostgresColumnIfNotExists('projects', 'publicToken', 'TEXT UNIQUE'),
     addPostgresColumnIfNotExists('projects', 'documents', 'TEXT DEFAULT \'[]\''),
     // Tasks table

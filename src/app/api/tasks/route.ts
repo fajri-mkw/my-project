@@ -120,10 +120,16 @@ export async function PUT(request: NextRequest) {
     // Editor (Template Sosial Media) hanya bisa mengerjakan setelah Editor (Foto)
     // menyelesaikan tugasnya di tahap & project yang sama. Fast Production &
     // Super Admin override bypass gate ini (mode override/bypass).
+    //
+    // PENTING: Jika manager menonaktifkan fitur Editor (Foto) saat inisiasi
+    // (enableFotoEditor=false), maka tidak ada task EditorFoto yang dibuat,
+    // dan ETSM TIDAK perlu menunggu — dependency otomatis terpenuhi.
+    // Gate ini hanya berlaku jika ada task EditorFoto yang masih pending.
     if (!proj?.isFastProduction
         && !isSuperAdmin
         && existingTask.stage === 2
-        && existingTask.role === 'EditorTemplateSosialMedia') {
+        && existingTask.role === 'EditorTemplateSosialMedia'
+        && proj?.enableFotoEditor !== false) {
       const fotoTasks = await db.task.findMany({
         where: { projectId, stage: 2, role: 'EditorFoto' },
       })

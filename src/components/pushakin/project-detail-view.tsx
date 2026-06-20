@@ -694,6 +694,35 @@ Pushakin Flows — Sistem Manajemen Produksi`
             </div>
           </div>
 
+          {/* Fitur Khusus Tahap 2 (Pasca Produksi) — tampilkan jika ada flag non-default */}
+          {project.currentStage !== 5 && (project.enableFotoEditor === false || project.enableTemplateEditor === false) && (
+            <div className="mt-3 p-3 rounded-xl bg-violet-50 border border-violet-200 flex items-start gap-2">
+              <FileImage className="h-4 w-4 text-violet-600 shrink-0 mt-0.5" />
+              <div className="text-xs text-violet-700">
+                <span className="font-semibold">Fitur Tahap 2 (Pasca Produksi):</span>{' '}
+                {project.enableFotoEditor === false && (
+                  <span className="inline-flex items-center gap-1 mr-2">
+                    <span className="line-through text-stone-400">Editor (Foto)</span>
+                    <span className="text-[10px] text-stone-500">(dinonaktifkan)</span>
+                  </span>
+                )}
+                {project.enableTemplateEditor === false && (
+                  <span className="inline-flex items-center gap-1">
+                    <span className="line-through text-stone-400">Editor (Template Sosial Media)</span>
+                    <span className="text-[10px] text-stone-500">(dinonaktifkan)</span>
+                  </span>
+                )}
+                <span className="block mt-1 text-violet-600">
+                  {project.enableFotoEditor === false && project.enableTemplateEditor === false
+                    ? 'Kedua editor tidak diaktifkan untuk proyek ini. Tahap 2 hanya berisi editor lain jika ada.'
+                    : project.enableTemplateEditor === false
+                      ? 'Editor (Template Sosial Media) tidak diperlukan. Editor (Foto) bekerja langsung.'
+                      : 'Editor (Foto) tidak diperlukan. Editor (Template Sosial Media) bekerja langsung tanpa menunggu.'}
+                </span>
+              </div>
+            </div>
+          )}
+
           {/* Timeline */}
           <div className="mt-8">
             <h3 className="text-xs font-bold text-stone-400 uppercase tracking-wider mb-4 flex items-center gap-2">

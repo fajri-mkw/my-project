@@ -37,7 +37,8 @@ export const GET = withEdgeCache(async (request: NextRequest) => {
       sql: `SELECT id, title, description, requesterUnit, location, executionTime,
                    picName, picWhatsApp, activityTypes, customActivity,
                    outputNeeds, customOutput, workerOutputs, workerCustomOutput,
-                   currentStage, isFastTrack, isFastProduction, managerId,
+                   currentStage, isFastTrack, isFastProduction,
+                   enableFotoEditor, enableTemplateEditor, managerId,
                    documents, createdAt
             FROM projects
             ORDER BY createdAt DESC`,
@@ -104,6 +105,8 @@ export const GET = withEdgeCache(async (request: NextRequest) => {
         currentStage: Number(p.currentStage ?? 1),
         isFastTrack: toBool(p.isFastTrack),
         isFastProduction: toBool(p.isFastProduction),
+        enableFotoEditor: p.enableFotoEditor === undefined ? true : toBool(p.enableFotoEditor),
+        enableTemplateEditor: p.enableTemplateEditor === undefined ? true : toBool(p.enableTemplateEditor),
         managerId: String(p.managerId ?? ''),
         createdAt: toDateISO(p.createdAt),
         tasks: tasks.map((t) => ({
@@ -181,14 +184,26 @@ export async function POST(request: NextRequest) {
       driveFolders,
       isFastTrack,
       isFastProduction,
+      enableFotoEditor = true,
+      enableTemplateEditor = true,
     } = body
 
     const projectId = `PRJ-${Date.now().toString().slice(-6)}`
     const activeStage = isFastTrack ? 4 : 1
     const ts = nowMs()
 
+    // --- Filter tasks based on feature flags (inisiasi manager) ---
+    // Jika enableFotoEditor=false, task EditorFoto tidak dibuat.
+    // Jika enableTemplateEditor=false, task EditorTemplateSosialMedia tidak dibuat.
+    // Ini memungkinkan manager memilih hanya salah satu (atau keduanya, atau tidak sama sekali).
+    const filteredTasks = (tasks || []).filter((t: { role: string; stage: number; assignedTo: string }) => {
+      if (t.role === 'EditorFoto' && !enableFotoEditor) return false
+      if (t.role === 'EditorTemplateSosialMedia' && !enableTemplateEditor) return false
+      return true
+    })
+
     // --- Build task records in JS (mirrors original Prisma nested-create logic) ---
-    const taskRecords = (tasks || []).map(
+    const taskRecords = filteredTasks.map(
       (t: { role: string; stage: number; assignedTo: string }) => {
         let status: 'pending' | 'completed' = 'pending'
         let data = '{}'
@@ -310,8 +325,10 @@ export async function POST(request: NextRequest) {
             (id, title, description, requesterUnit, location, executionTime,
              picName, picWhatsApp, activityTypes, customActivity, outputNeeds,
              customOutput, workerOutputs, workerCustomOutput, currentStage,
-             isFastTrack, isFastProduction, managerId, documents, createdAt, updatedAt)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '[]', ?, ?)`,
+             isFastTrack, isFastProduction,
+             enableFotoEditor, enableTemplateEditor,
+             managerId, documents, createdAt, updatedAt)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '[]', ?, ?)`,
       args: [
         projectId,
         title,
@@ -330,6 +347,8 @@ export async function POST(request: NextRequest) {
         isFastTrack ? 4 : 1, // currentStage
         isFastTrack ? 1 : 0,
         isFastProduction ? 1 : 0,
+        enableFotoEditor ? 1 : 0,
+        enableTemplateEditor ? 1 : 0,
         managerId,
         ts,
         ts,
@@ -499,6 +518,8 @@ export async function POST(request: NextRequest) {
       currentStage: isFastTrack ? 4 : 1,
       isFastTrack: isFastTrack || false,
       isFastProduction: isFastProduction || false,
+      enableFotoEditor: enableFotoEditor !== false,
+      enableTemplateEditor: enableTemplateEditor !== false,
       managerId,
       createdAt: new Date(ts).toISOString(),
       tasks: taskRecords.map((t) => ({
@@ -669,7 +690,9 @@ export async function PUT(request: NextRequest) {
       sql: `SELECT id, title, description, requesterUnit, location, executionTime,
                    picName, picWhatsApp, activityTypes, customActivity, outputNeeds,
                    customOutput, workerOutputs, workerCustomOutput, currentStage,
-                   isFastTrack, isFastProduction, managerId, publicToken, documents,
+                   isFastTrack, isFastProduction,
+                   enableFotoEditor, enableTemplateEditor,
+                   managerId, publicToken, documents,
                    createdAt, updatedAt
             FROM projects WHERE id = ?`,
       args: [id],
@@ -700,6 +723,8 @@ export async function PUT(request: NextRequest) {
       currentStage: Number(p.currentStage ?? 1),
       isFastTrack: toBool(p.isFastTrack),
       isFastProduction: toBool(p.isFastProduction),
+      enableFotoEditor: p.enableFotoEditor === undefined ? true : toBool(p.enableFotoEditor),
+      enableTemplateEditor: p.enableTemplateEditor === undefined ? true : toBool(p.enableTemplateEditor),
       managerId: String(p.managerId ?? ''),
       publicToken: p.publicToken === null ? null : String(p.publicToken),
       documents: String(p.documents ?? '[]'),

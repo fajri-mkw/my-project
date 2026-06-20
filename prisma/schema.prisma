@@ -52,6 +52,13 @@ model Project {
   currentStage      Int      @default(1)
   isFastTrack       Boolean  @default(false)
   isFastProduction  Boolean  @default(false)
+  // Fitur khusus Tahap 2 (Pasca Produksi) — manager bisa memilih saat inisiasi:
+  // - enableFotoEditor: aktifkan task Editor (Foto)
+  // - enableTemplateEditor: aktifkan task Editor (Template Sosial Media)
+  // Jika salah satu false, task untuk role tersebut TIDAK dibuat saat inisiasi,
+  // dan dependency intra-stage menyesuaikan (ETSM tidak perlu nunggu EFoto jika EFoto tidak ada).
+  enableFotoEditor      Boolean  @default(true)
+  enableTemplateEditor  Boolean  @default(true)
   managerId         String
   publicToken     String?  @unique
   documents       String?  @default("[]")

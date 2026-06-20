@@ -110,6 +110,11 @@ export interface Project {
   currentStage: number
   isFastTrack: boolean
   isFastProduction: boolean
+  // Fitur khusus Tahap 2 (Pasca Produksi) — ditentukan manager saat inisiasi.
+  // Jika false, task untuk role tersebut tidak dibuat, dan dependency intra-stage
+  // menyesuaikan (ETSM tidak perlu nunggu EFoto jika EFoto tidak ada).
+  enableFotoEditor: boolean
+  enableTemplateEditor: boolean
   managerId: string
   createdAt: string
   documents?: Array<{
