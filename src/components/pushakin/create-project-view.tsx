@@ -30,7 +30,7 @@ import {
   ClipboardList,
   CheckCircle2
 } from 'lucide-react'
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { cn } from '@/lib/utils'
 
 const OPSI_KEGIATAN = ['Peliputan', 'Pemberitaan', 'Live Streaming', 'Podcast', 'Desain', 'Lainnya']
@@ -69,6 +69,11 @@ export function CreateProjectView() {
   // task untuk role tersebut tidak dibuat, dan dependency intra-stage menyesuaikan.
   const [enableFotoEditor, setEnableFotoEditor] = useState(true)
   const [enableTemplateEditor, setEnableTemplateEditor] = useState(true)
+  // Refs untuk mencegah auto-check berulang kali setelah manager manual deselect.
+  // Saat fitur ON: auto-check sekali (jika belum). Saat fitur OFF: reset ref agar
+  // fitur bisa auto-check lagi saat di-ON-kan kembali.
+  const hasAutoCheckedFotoRef = useRef(false)
+  const hasAutoCheckedTemplateRef = useRef(false)
 
   // Custom folder state
   const [customFolders, setCustomFolders] = useState<Array<{id: string; name: string; desc: string}>>([])
@@ -270,26 +275,57 @@ export function CreateProjectView() {
     })
   }, [selectedUsers])
 
-  // Clean up selectedUsers when a feature flag is toggled off.
-  // Jika manager menonaktifkan Editor (Foto) atau Editor (Template Sosial Media)
-  // setelah sebelumnya memilih petugas untuk role tersebut, hapus pilihan itu
-  // agar tidak ada task yang dibuat untuk role yang dinonaktifkan.
+  // Sinkronisasi selectedUsers dengan feature flag Fitur Khusus Tahap 2.
+  // - Saat fitur OFF: hapus petugas yang dipilih untuk role tersebut (cleanup).
+  // - Saat fitur ON (atau initial mount): auto-centang petugas pertama yang
+  //   tersedia untuk role tersebut, agar manager tidak perlu mencentang ulang
+  //   di bagian "Pembagian Tim & Penugasan" dan terhindar dari keliru lupa
+  //   memilih petugas. Manager tetap bisa mengganti pilihan secara manual
+  //   setelah auto-check — ref mencegah auto-check berulang kali.
   useEffect(() => {
-    if (!enableFotoEditor && (selectedUsers['EditorFoto'] || []).length > 0) {
-      setSelectedUsers(prev => {
-        const next = { ...prev }
-        delete next['EditorFoto']
-        return next
-      })
+    if (!enableFotoEditor) {
+      // Fitur dimatikan → reset ref + bersihkan pilihan.
+      hasAutoCheckedFotoRef.current = false
+      if ((selectedUsers['EditorFoto'] || []).length > 0) {
+        setSelectedUsers(prev => {
+          const next = { ...prev }
+          delete next['EditorFoto']
+          return next
+        })
+      }
+    } else if (enableFotoEditor && !hasAutoCheckedFotoRef.current) {
+      // Fitur aktif & belum pernah auto-check → centang petugas pertama.
+      const firstEditorFoto = users.find(u => u.role === 'EditorFoto')
+      if (firstEditorFoto) {
+        hasAutoCheckedFotoRef.current = true
+        setSelectedUsers(prev => {
+          // Jangan override pilihan manual manager.
+          if ((prev['EditorFoto'] || []).length > 0) return prev
+          return { ...prev, EditorFoto: [firstEditorFoto.id] }
+        })
+      }
     }
-    if (!enableTemplateEditor && (selectedUsers['EditorTemplateSosialMedia'] || []).length > 0) {
-      setSelectedUsers(prev => {
-        const next = { ...prev }
-        delete next['EditorTemplateSosialMedia']
-        return next
-      })
+
+    if (!enableTemplateEditor) {
+      hasAutoCheckedTemplateRef.current = false
+      if ((selectedUsers['EditorTemplateSosialMedia'] || []).length > 0) {
+        setSelectedUsers(prev => {
+          const next = { ...prev }
+          delete next['EditorTemplateSosialMedia']
+          return next
+        })
+      }
+    } else if (enableTemplateEditor && !hasAutoCheckedTemplateRef.current) {
+      const firstEditorTemplate = users.find(u => u.role === 'EditorTemplateSosialMedia')
+      if (firstEditorTemplate) {
+        hasAutoCheckedTemplateRef.current = true
+        setSelectedUsers(prev => {
+          if ((prev['EditorTemplateSosialMedia'] || []).length > 0) return prev
+          return { ...prev, EditorTemplateSosialMedia: [firstEditorTemplate.id] }
+        })
+      }
     }
-  }, [enableFotoEditor, enableTemplateEditor]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [enableFotoEditor, enableTemplateEditor, users]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const toggleFolder = (folderId: string) => {
     if (selectedFolders.includes(folderId)) {
@@ -1309,7 +1345,7 @@ export function CreateProjectView() {
                   {enableFotoEditor && (
                     <div className="text-[10px] text-violet-600 flex items-center gap-1">
                       <CheckCircle2 className="h-3 w-3" />
-                      <span>Petugas Editor (Foto) akan ditugaskan &amp; mengerjakan tahap ini</span>
+                      <span>Petugas akan otomatis tercentang di &laquo;Pembagian Tim &amp; Penugasan&raquo;</span>
                     </div>
                   )}
                 </div>
