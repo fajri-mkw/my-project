@@ -2,13 +2,25 @@ import { db, ensureDbConnection } from '@/lib/db'
 import { NextRequest, NextResponse } from 'next/server'
 import { invalidateCache } from '@/lib/edge-cache'
 
-// One-time restore endpoint: restores lost surat records that were not
-// migrated to Turso during the Cloudflare Workers migration.
-// Admin-only. Idempotent (uses upsert — safe to re-run).
+// One-time restore endpoint: restores ALL 24 real surat records that were
+// originally created by the administrator in the Vercel/Neon Postgres database
+// but lost during the Cloudflare Workers + Turso migration.
+//
+// Source: Neon Postgres (original Vercel production database)
+//   postgresql://neondb_owner:***@ep-red-snow-a1oj1lru-pooler.ap-southeast-1.aws.neon.tech/neondb
+//
+// All 24 records are REAL administrator input (not reconstructed):
+//   - 24x jenisSurat = "Surat Masuk"
+//   - 23x kategori = "Permohonan" (forwarded to manager)
+//   - 1x  kategori = "Undangan" (pure surat masuk, status diterima, NOT forwarded)
+//   - Status: 20 selesai, 2 diproses, 1 diterima, 1 diteruskan
+//
+// Admin-only. Idempotent (skips existing by id OR nomorSurat).
+// Also PURGES previously-reconstructed fake records (nomorSurat starting with "SM-")
+// that were created by an earlier flawed reconstruction attempt.
 
-// The 4 surat records recovered from local SQLite (db/custom.db).
-// All referenced projects & users verified to exist in production Turso.
-const LOST_SURAT_RECORDS = [
+const REAL_SURAT_RECORDS = [
+  // 1. B-075/Un.14/V.2/PP.06/04/2026 | Permohonan | selesai | Undangan Sosialisasi dan penandatangan SPK Penelitian Litapdimas tahun
   {
     id: 'cmnzmg1210002ia04i5evwekl',
     nomorSurat: 'B-075/Un.14/V.2/PP.06/04/2026',
@@ -34,6 +46,7 @@ const LOST_SURAT_RECORDS = [
     createdAt: new Date(1776231619417),
     updatedAt: new Date(1776232191777),
   },
+  // 2. B-075/Un.14/III.4/PP.09/04/2026 | Permohonan | selesai | Mohon Live streaming dan meliput acara
   {
     id: 'cmo0ptvuf0000l1047li2gnnj',
     nomorSurat: 'B-075/Un.14/III.4/PP.09/04/2026',
@@ -59,6 +72,7 @@ const LOST_SURAT_RECORDS = [
     createdAt: new Date(1776297770872),
     updatedAt: new Date(1776316461403),
   },
+  // 3. B-340/Un.14/III.3/PP.09/04/2026 | Permohonan | selesai | Mohon Liputan
   {
     id: 'cmo0pyjyg0000jp04526ch8nf',
     nomorSurat: 'B-340/Un.14/III.3/PP.09/04/2026',
@@ -71,19 +85,20 @@ const LOST_SURAT_RECORDS = [
     deskripsi: 'mohon liputan acara yudisium',
     status: 'selesai',
     catatan: null,
-    documents: '[{"id":"DOC-1776298003428-jtwg913ekz","name":"Surat_FUH_Mohon Liputan.pdf","originalName":"FUH-UNDANGAN LIPUTAN HUMAS.pdf","mimeType":"application/pdf","size":565827,"driveFileId":"198W6WP_X-15_JtJ2s0LxXWMQRaT2S0Ok","webViewLink":"https://drive.google.com/file/d/198W6WP_X-15_JtJ2s0LxXWMQRaT2S0Ok/view?usp=drivesdk","downloadUrl":"https://drive.google.com/uc?export=download&id=198W6WP_X-15_JtJ2s0Ok","uploadedAt":"2026-04-16T00:06:43.428Z"}]',
+    documents: '[{"id":"DOC-1776298003428-jtwg913ekz","name":"Surat_FUH_Mohon Liputan.pdf","originalName":"FUH-UNDANGAN LIPUTAN HUMAS.pdf","mimeType":"application/pdf","size":565827,"driveFileId":"198W6WP_X-15_JtJ2s0LxXWMQRaT2S0Ok","webViewLink":"https://drive.google.com/file/d/198W6WP_X-15_JtJ2s0LxXWMQRaT2S0Ok/view?usp=drivesdk","downloadUrl":"https://drive.google.com/uc?export=download&id=198W6WP_X-15_JtJ2s0LxXWMQRaT2S0Ok","uploadedAt":"2026-04-16T00:06:43.428Z"}]',
     driveFolderId: '1gnhiMzv0-qJ9mJiUrR5WFWF3b0deYbYj',
     driveFolderLink: 'https://drive.google.com/drive/folders/1gnhiMzv0-qJ9mJiUrR5WFWF3b0deYbYj',
     location: 'Auditorium Mastur Jashri',
     executionTime: '2026-04-20T08:05',
     picName: 'Nurul',
-    picWhatsApp: '087515958807',
+    picWhatsApp: '087815958807',
     administratorId: 'cmns1gyyo000dl40437riwp5y',
     managerId: 'cmns1gp450001l4048a80ygbs',
     projectId: 'PRJ-716418',
     createdAt: new Date(1776297988745),
     updatedAt: new Date(1776316780042),
   },
+  // 4. B-765/Un.14/I.1/HM.03/04/2026 | Permohonan | selesai | Apel Kesadaran Nasional
   {
     id: 'cmo13gr0v0000js04q5xtrsky',
     nomorSurat: 'B-765/Un.14/I.1/HM.03/04/2026',
@@ -109,7 +124,526 @@ const LOST_SURAT_RECORDS = [
     createdAt: new Date(1776320672719),
     updatedAt: new Date(1776321499743),
   },
-]
+  // 5. B-86/Un.14/VIII.4/PP.09/04/2026 | Permohonan | selesai | Mohon liputan kegiatan
+  {
+    id: 'cmo7zxdmq0000kz04o382vh0s',
+    nomorSurat: 'B-86/Un.14/VIII.4/PP.09/04/2026',
+    jenisSurat: 'Surat Masuk',
+    kategori: 'Permohonan',
+    tanggalSurat: new Date(1776643200000),
+    pengirim: 'FDIK',
+    penerima: null,
+    perihal: 'Mohon liputan kegiatan',
+    deskripsi: 'mohon meliput',
+    status: 'selesai',
+    catatan: null,
+    documents: '[]',
+    driveFolderId: null,
+    driveFolderLink: null,
+    location: 'Aula Zafry Zamzam',
+    executionTime: '2026-04-22T08:00',
+    picName: 'Mardhiatunnisa',
+    picWhatsApp: '085345262906',
+    administratorId: 'cmns1gyyo000dl40437riwp5y',
+    managerId: 'cmns1gp450001l4048a80ygbs',
+    projectId: 'PRJ-142447',
+    createdAt: new Date(1776737993282),
+    updatedAt: new Date(1776752203222),
+  },
+  // 6. B-103/Un.14/V.2/HM.01/04/2026 | Permohonan | selesai | Liputan
+  {
+    id: 'cmo9qrids0000l404z01cqql8',
+    nomorSurat: 'B-103/Un.14/V.2/HM.01/04/2026',
+    jenisSurat: 'Surat Masuk',
+    kategori: 'Permohonan',
+    tanggalSurat: new Date(1776729600000),
+    pengirim: 'LP2M',
+    penerima: null,
+    perihal: 'Liputan',
+    deskripsi: 'peliputan',
+    status: 'selesai',
+    catatan: null,
+    documents: '[{"id":"DOC-1776843548240-wa5dh2jbaim","name":"Surat_LP2M_Liputan.pdf","originalName":"202604210935284. Mohon Peliputan Pembekalan KKN.pdf","mimeType":"application/pdf","size":697474,"driveFileId":"1VzpqaT5ixUPnH6l21t-argRR2JlJeM4i","webViewLink":"https://drive.google.com/file/d/1VzpqaT5ixUPnH6l21t-argRR2JlJeM4i/view?usp=drivesdk","downloadUrl":"https://drive.google.com/uc?export=download&id=1VzpqaT5ixUPnH6l21t-argRR2JlJeM4i","uploadedAt":"2026-04-22T07:39:08.240Z"}]',
+    driveFolderId: '1JVTAIp2JCpVA3Hko3VCvk5tSqSe5MZ95',
+    driveFolderLink: 'https://drive.google.com/drive/folders/1JVTAIp2JCpVA3Hko3VCvk5tSqSe5MZ95',
+    location: 'Aula FTK',
+    executionTime: '2026-04-23T08:30',
+    picName: 'Lia',
+    picWhatsApp: '081346830270',
+    administratorId: 'cmns1gyyo000dl40437riwp5y',
+    managerId: 'cmns1gp450001l4048a80ygbs',
+    projectId: 'PRJ-135054',
+    createdAt: new Date(1776843535313),
+    updatedAt: new Date(1776848196181),
+  },
+  // 7. B-161/Un.14/V.1/HM.01/04/2026 | Permohonan | selesai | Peliputan
+  {
+    id: 'cmoavycvz0000l104nhpudyyr',
+    nomorSurat: 'B-161/Un.14/V.1/HM.01/04/2026',
+    jenisSurat: 'Surat Masuk',
+    kategori: 'Permohonan',
+    tanggalSurat: new Date(1776816000000),
+    pengirim: 'LPM',
+    penerima: null,
+    perihal: 'Peliputan',
+    deskripsi: 'Mohon Liputan',
+    status: 'selesai',
+    catatan: '4 Mei di Aula Zafry Zamzam dan 5s.d 6 di Auditorium Mastur Jahri pukul 09.30 sampai selesai',
+    documents: '[{"id":"DOC-1776913083216-rpd8fzcelu","name":"Surat_LPM_Peliputan.jpeg","originalName":"4-LPM.jpeg","mimeType":"image/jpeg","size":71985,"driveFileId":"1Z1xf7nnS3EJr3Ay4C63TOda3VV_Zxh-e","webViewLink":"https://drive.google.com/file/d/1Z1xf7nnS3EJr3Ay4C63TOda3VV_Zxh-e/view?usp=drivesdk","downloadUrl":"https://drive.google.com/uc?export=download&id=1Z1xf7nnS3EJr3Ay4C63TOda3VV_Zxh-e","uploadedAt":"2026-04-23T02:58:03.216Z"}]',
+    driveFolderId: '1dOY8worthCodA1fJLrzQB3a8rLUKcbnc',
+    driveFolderLink: 'https://drive.google.com/drive/folders/1dOY8worthCodA1fJLrzQB3a8rLUKcbnc',
+    location: 'Aula Zafry Zamzam',
+    executionTime: '2026-05-04T09:00',
+    picName: 'Dr. Ridha Darmawaty',
+    picWhatsApp: '081233570757',
+    administratorId: 'cmns1gyyo000dl40437riwp5y',
+    managerId: 'cmns1gp450001l4048a80ygbs',
+    projectId: 'PRJ-060355',
+    createdAt: new Date(1776912719039),
+    updatedAt: new Date(1777341114957),
+  },
+  // 8. B-801/Un.14/III.5/KP.09/04/2026 | Permohonan | selesai | Peliputan
+  {
+    id: 'cmoawb2if0000ld05rztf0sn1',
+    nomorSurat: 'B-801/Un.14/III.5/KP.09/04/2026',
+    jenisSurat: 'Surat Masuk',
+    kategori: 'Permohonan',
+    tanggalSurat: new Date(1776729600000),
+    pengirim: 'FEBI',
+    penerima: null,
+    perihal: 'Peliputan',
+    deskripsi: 'Mohon Liputan',
+    status: 'selesai',
+    catatan: null,
+    documents: '[{"id":"DOC-1776913324961-xf7vfg1oj6","name":"Surat_FEBI_Peliputan.jpeg","originalName":"4-FEBI.jpeg","mimeType":"image/jpeg","size":53791,"driveFileId":"1vr0M-ulktJOeEUwRSB1iY8DE-cWDy4-g","webViewLink":"https://drive.google.com/file/d/1vr0M-ulktJOeEUwRSB1iY8DE-cWDy4-g/view?usp=drivesdk","downloadUrl":"https://drive.google.com/uc?export=download&id=1vr0M-ulktJOeEUwRSB1iY8DE-cWDy4-g","uploadedAt":"2026-04-23T03:02:04.961Z"}]',
+    driveFolderId: '1Ale3mUMi8xssdWnpUSx-FIZUG5jenf1t',
+    driveFolderLink: 'https://drive.google.com/drive/folders/1Ale3mUMi8xssdWnpUSx-FIZUG5jenf1t',
+    location: 'Auditorium Mastur Jashri',
+    executionTime: '2026-04-27T09:00',
+    picName: 'Dr. Zaki Mubarak',
+    picWhatsApp: '081347746670',
+    administratorId: 'cmns1gyyo000dl40437riwp5y',
+    managerId: 'cmns1gp450001l4048a80ygbs',
+    projectId: 'PRJ-634180',
+    createdAt: new Date(1776913312120),
+    updatedAt: new Date(1777341705746),
+  },
+  // 9. B-864/Un.14/II.2/HM.01/04/2026 | Undangan | diterima | Undangan Menghadiri Audiensi dan Penerimaan kunjungan Penasihat Pendid
+  {
+    id: 'cmoktgsw50000jl04kunbgqh2',
+    nomorSurat: 'B-864/Un.14/II.2/HM.01/04/2026',
+    jenisSurat: 'Surat Masuk',
+    kategori: 'Undangan',
+    tanggalSurat: new Date(1777420800000),
+    pengirim: null,
+    penerima: null,
+    perihal: 'Undangan Menghadiri Audiensi dan Penerimaan kunjungan Penasihat Pendidikan Keduataan Besar Malaysia Jakarta',
+    deskripsi: null,
+    status: 'diterima',
+    catatan: null,
+    documents: '[{"id":"DOC-1777513286372-bt24sg475rc","name":"Surat_Pengirim_Undangan Menghadiri Audiensi dan Penerimaan kunjungan Penasihat Pendidikan Keduataan Besar Malaysia Jakarta.pdf","originalName":"4-Undangan Audiensi dengan Kedutaan Malaysia.pdf","mimeType":"application/pdf","size":596669,"driveFileId":"10Kb5g82x4zf7Vjc5yh7kuVYeRQ5sp-Q1","webViewLink":"https://drive.google.com/file/d/10Kb5g82x4zf7Vjc5yh7kuVYeRQ5sp-Q1/view?usp=drivesdk","downloadUrl":"https://drive.google.com/uc?export=download&id=10Kb5g82x4zf7Vjc5yh7kuVYeRQ5sp-Q1","uploadedAt":"2026-04-30T01:41:26.372Z"}]',
+    driveFolderId: '1w1-rYNcL0RSeeef_2uV-neZfkcYbq4X9',
+    driveFolderLink: 'https://drive.google.com/drive/folders/1w1-rYNcL0RSeeef_2uV-neZfkcYbq4X9',
+    location: null,
+    executionTime: null,
+    picName: null,
+    picWhatsApp: null,
+    administratorId: 'cmns1gyyo000dl40437riwp5y',
+    managerId: null,
+    projectId: null,
+    createdAt: new Date(1777513202501),
+    updatedAt: new Date(1777513286373),
+  },
+  // 10. B-340/Un.14/III.1.r/PP.09/04/2026 | Permohonan | selesai | Mohon Liputan Workshop Visi Misi FTK
+  {
+    id: 'cmoqh1yuu0000le049p2dg0yq',
+    nomorSurat: 'B-340/Un.14/III.1.r/PP.09/04/2026',
+    jenisSurat: 'Surat Masuk',
+    kategori: 'Permohonan',
+    tanggalSurat: new Date(1779840000000),
+    pengirim: 'FTK UIN Antasari',
+    penerima: null,
+    perihal: 'Mohon Liputan Workshop Visi Misi FTK',
+    deskripsi: 'Mohon Liputan',
+    status: 'selesai',
+    catatan: null,
+    documents: '[{"id":"DOC-1777855166898-r3peqq6lfw","name":"Surat_FTK UIN Antasari_Mohon Liputan Workshop Visi Misi FTK.pdf","originalName":"4 -Mohon Publikasi Kegiatan Workshop Visi Misi FTK docx.pdf","mimeType":"application/pdf","size":327746,"driveFileId":"1lprj7L0hT5qUNbyBwkhQwIpFcONPR0iz","webViewLink":"https://drive.google.com/file/d/1lprj7L0hT5qUNbyBwkhQwIpFcONPR0iz/view?usp=drivesdk","downloadUrl":"https://drive.google.com/uc?export=download&id=1lprj7L0hT5qUNbyBwkhQwIpFcONPR0iz","uploadedAt":"2026-05-04T00:39:26.898Z"}]',
+    driveFolderId: '18yAe6HXoCEnmUFQLPe-ixp-Nb5IkWyDo',
+    driveFolderLink: 'https://drive.google.com/drive/folders/18yAe6HXoCEnmUFQLPe-ixp-Nb5IkWyDo',
+    location: 'Aula Zafry Zamzam',
+    executionTime: '2026-05-04T13:00',
+    picName: 'Sari Indriyani',
+    picWhatsApp: '085787364388',
+    administratorId: 'cmns1gyyo000dl40437riwp5y',
+    managerId: 'cmns1gp450001l4048a80ygbs',
+    projectId: 'PRJ-874564',
+    createdAt: new Date(1777855151834),
+    updatedAt: new Date(1778037936480),
+  },
+  // 11. B-115/Un.14/III.1.s/PP.00.9/05/2026 | Permohonan | selesai | Keterampilan Keagamaan mahasiswa FTK
+  {
+    id: 'cmowdsgij0000jl04n6gz3ye9',
+    nomorSurat: 'B-115/Un.14/III.1.s/PP.00.9/05/2026',
+    jenisSurat: 'Surat Masuk',
+    kategori: 'Permohonan',
+    tanggalSurat: new Date(1778112000000),
+    pengirim: 'LKK',
+    penerima: null,
+    perihal: 'Keterampilan Keagamaan mahasiswa FTK',
+    deskripsi: 'Mohon Liputan',
+    status: 'selesai',
+    catatan: null,
+    documents: '[{"id":"DOC-1778212479155-6b9wkf735qc","name":"Surat_LKK_Keterampilan Keagamaan mahasiswa FTK.pdf","originalName":"15. Surat Permohonan Peliputan Kegiatan Keterampilan Keagamaan Mahasiswa.pdf","mimeType":"application/pdf","size":232639,"driveFileId":"1AbuVkznhQqTmMSfJUpctvIl3IblIBTzR","webViewLink":"https://drive.google.com/file/d/1AbuVkznhQqTmMSfJUpctvIl3IblIBTzR/view?usp=drivesdk","downloadUrl":"https://drive.google.com/uc?export=download&id=1AbuVkznhQqTmMSfJUpctvIl3IblIBTzR","uploadedAt":"2026-05-08T03:54:39.156Z"}]',
+    driveFolderId: '1S-0GwCFBAwtnKgNwt0EflnAUpXnofVtD',
+    driveFolderLink: 'https://drive.google.com/drive/folders/1S-0GwCFBAwtnKgNwt0EflnAUpXnofVtD',
+    location: 'Auditorium Mastur Jahri',
+    executionTime: '2026-05-09T07:30',
+    picName: 'Husaini, M.Pd.I.',
+    picWhatsApp: '085248710287',
+    administratorId: 'cmns1gyyo000dl40437riwp5y',
+    managerId: 'cmns1gp450001l4048a80ygbs',
+    projectId: 'PRJ-514852',
+    createdAt: new Date(1778212466588),
+    updatedAt: new Date(1779156577987),
+  },
+  // 12. B-74/Un.14/VI.4/PP.00.9/05/2026 | Permohonan | selesai | Penutupan Kegiatan Ma'had
+  {
+    id: 'cmowe53e00000l70446w3obwr',
+    nomorSurat: 'B-74/Un.14/VI.4/PP.00.9/05/2026',
+    jenisSurat: 'Surat Masuk',
+    kategori: 'Permohonan',
+    tanggalSurat: new Date(1778112000000),
+    pengirim: 'Ma\'had al-Jamiah',
+    penerima: null,
+    perihal: 'Penutupan Kegiatan Ma\'had',
+    deskripsi: 'Mohon Liputan',
+    status: 'selesai',
+    catatan: null,
+    documents: '[{"id":"DOC-1778213069084-0c02v849vagr","name":"Surat_Ma\'had al-Jamiah_Penutupan Kegiatan Ma\'had.pdf","originalName":"20260507064128mhn peliputan bjb.pdf","mimeType":"application/pdf","size":539346,"driveFileId":"1dGn1hJF12G16GsT2pX6w1grTwYr5y8Qm","webViewLink":"https://drive.google.com/file/d/1dGn1hJF12G16GsT2pX6w1grTwYr5y8Qm/view?usp=drivesdk","downloadUrl":"https://drive.google.com/uc?export=download&id=1dGn1hJF12G16GsT2pX6w1grTwYr5y8Qm","uploadedAt":"2026-05-08T04:04:29.085Z"}]',
+    driveFolderId: '1P1HPf3XMLRfgeVIFMgJdnch_3LgdC2jH',
+    driveFolderLink: 'https://drive.google.com/drive/folders/1P1HPf3XMLRfgeVIFMgJdnch_3LgdC2jH',
+    location: 'Masjid Kampus 2 di Banjarbaru',
+    executionTime: '2026-05-11T16:00',
+    picName: 'Muhammad Syamsudin Noor',
+    picWhatsApp: '085821872725',
+    administratorId: 'cmns1gyyo000dl40437riwp5y',
+    managerId: 'cmns1gp450001l4048a80ygbs',
+    projectId: 'PRJ-834127',
+    createdAt: new Date(1778213056105),
+    updatedAt: new Date(1779155895162),
+  },
+  // 13. B-146/Un.14/I.3/KP.00.3/05/2026 | Permohonan | selesai | Pelantikan dan pengambilan sumpah jabatan PNS
+  {
+    id: 'cmpc743fq0000jp042pvbmqht',
+    nomorSurat: 'B-146/Un.14/I.3/KP.00.3/05/2026',
+    jenisSurat: 'Surat Masuk',
+    kategori: 'Permohonan',
+    tanggalSurat: new Date(1779062400000),
+    pengirim: 'Biro AUPKK',
+    penerima: null,
+    perihal: 'Pelantikan dan pengambilan sumpah jabatan PNS',
+    deskripsi: null,
+    status: 'selesai',
+    catatan: null,
+    documents: '[{"id":"DOC-1779168723985-hnga1v7b0ol","name":"Surat_Biro AUPKK_Penutupan Kegiatan Ma\'had.pdf","originalName":"20260518161554Mohon Peliputan Pelantikan dan Pengambilan Sumpah.pdf","mimeType":"application/pdf","size":163536,"driveFileId":"1DUFSokNIeUsxuX0cKKonQ4lU-mkmsgTe","webViewLink":"https://drive.google.com/file/d/1DUFSokNIeUsxuX0cKKonQ4lU-mkmsgTe/view?usp=drivesdk","downloadUrl":"https://drive.google.com/uc?export=download&id=1DUFSokNIeUsxuX0cKKonQ4lU-mkmsgTe","uploadedAt":"2026-05-19T05:32:03.985Z"}]',
+    driveFolderId: '1HyXqUrBqxB__xOEdPYIDd-t_wqZSch04',
+    driveFolderLink: 'https://drive.google.com/drive/folders/1HyXqUrBqxB__xOEdPYIDd-t_wqZSch04',
+    location: 'Aula Zafry Zamzam',
+    executionTime: '2026-05-21T10:00',
+    picName: null,
+    picWhatsApp: null,
+    administratorId: 'cmns1gyyo000dl40437riwp5y',
+    managerId: 'cmns1gp450001l4048a80ygbs',
+    projectId: 'PRJ-587031',
+    createdAt: new Date(1779168711015),
+    updatedAt: new Date(1779263657818),
+  },
+  // 14. 000.4/136/Perpust/DARPUSDA | Permohonan | selesai | Audiensi
+  {
+    id: 'cmpunqlek0000jr04q78xxulo',
+    nomorSurat: '000.4/136/Perpust/DARPUSDA',
+    jenisSurat: 'Surat Masuk',
+    kategori: 'Permohonan',
+    tanggalSurat: new Date(1779667200000),
+    pengirim: 'Dinas Arsip dan Perpustakaan Daerah Kota Banjarbaru',
+    penerima: null,
+    perihal: 'Audiensi',
+    deskripsi: 'Permohonan Audiensi dengan Rektor UIN Antasari',
+    status: 'selesai',
+    catatan: null,
+    documents: '[{"id":"DOC-1780285194307-ihwro5hoqcd","name":"Surat_Dinas Arsip dan Perpustakaan Daerah Kota Banjarbaru_Audiensi.pdf","originalName":"dIspersip BJB.pdf","mimeType":"application/pdf","size":257188,"driveFileId":"1yi1hD78ieSm4fgaIaY80g7lwfQpQRchU","webViewLink":"https://drive.google.com/file/d/1yi1hD78ieSm4fgaIaY80g7lwfQpQRchU/view?usp=drivesdk","downloadUrl":"https://drive.google.com/uc?export=download&id=1yi1hD78ieSm4fgaIaY80g7lwfQpQRchU","uploadedAt":"2026-06-01T03:39:54.307Z"}]',
+    driveFolderId: '1pLBfDS_06ZP0FuKXsAjLKpVTZNu096C-',
+    driveFolderLink: 'https://drive.google.com/drive/folders/1pLBfDS_06ZP0FuKXsAjLKpVTZNu096C-',
+    location: 'Ruang Tamu Rektor',
+    executionTime: '2026-06-02T10:00',
+    picName: 'Asep Saputra, S.Kom., M.M.',
+    picWhatsApp: null,
+    administratorId: 'cmns1gyyo000dl40437riwp5y',
+    managerId: 'cmpl1arkc0003jf04wg0gbime',
+    projectId: 'PRJ-877028',
+    createdAt: new Date(1780285025756),
+    updatedAt: new Date(1780362938844),
+  },
+  // 15. B-1058/Un.14/I.1/HM.03/04/2026 | Permohonan | diproses | Upacara Peringatan Hari Lahir Pancasila
+  {
+    id: 'cmpunz3ma0001jr04p8ylyzdt',
+    nomorSurat: 'B-1058/Un.14/I.1/HM.03/04/2026',
+    jenisSurat: 'Surat Masuk',
+    kategori: 'Permohonan',
+    tanggalSurat: new Date(1780099200000),
+    pengirim: 'Biro AUPKK',
+    penerima: null,
+    perihal: 'Upacara Peringatan Hari Lahir Pancasila',
+    deskripsi: 'Apel Peringatan Hari Lahir Pancasila',
+    status: 'diproses',
+    catatan: null,
+    documents: '[{"id":"DOC-1780285435919-zrlfd25ioy","name":"Surat_Biro AUPKK_Upacara Peringatan Hari Lahir Pancasila.pdf","originalName":"5-UNDANGAN PERINGATAN HARI LAHIR PANCASILA.pdf","mimeType":"application/pdf","size":547374,"driveFileId":"1mwz3adXVoAOqawslFbjRguhu_QznQtBg","webViewLink":"https://drive.google.com/file/d/1mwz3adXVoAOqawslFbjRguhu_QznQtBg/view?usp=drivesdk","downloadUrl":"https://drive.google.com/uc?export=download&id=1mwz3adXVoAOqawslFbjRguhu_QznQtBg","uploadedAt":"2026-06-01T03:43:55.920Z"}]',
+    driveFolderId: '19iYhgHvCWudIZodJjVuzjOC5o1dqvXT2',
+    driveFolderLink: 'https://drive.google.com/drive/folders/19iYhgHvCWudIZodJjVuzjOC5o1dqvXT2',
+    location: 'Halaman PSB',
+    executionTime: '2026-06-01T08:00',
+    picName: null,
+    picWhatsApp: null,
+    administratorId: 'cmns1gyyo000dl40437riwp5y',
+    managerId: 'cmpl1arkc0003jf04wg0gbime',
+    projectId: null,
+    createdAt: new Date(1780285422611),
+    updatedAt: new Date(1780357581065),
+  },
+  // 16. 908/Un.14/III.1/PP.00.9/06/2026 | Permohonan | selesai | Pembukaan dan Penutupan AL Prodi IPII
+  {
+    id: 'cmpxqsxj40000l804cyuvxr53',
+    nomorSurat: '908/Un.14/III.1/PP.00.9/06/2026',
+    jenisSurat: 'Surat Masuk',
+    kategori: 'Permohonan',
+    tanggalSurat: new Date(1780358400000),
+    pengirim: 'Hamdan',
+    penerima: null,
+    perihal: 'Pembukaan dan Penutupan AL Prodi IPII',
+    deskripsi: null,
+    status: 'selesai',
+    catatan: null,
+    documents: '[{"id":"DOC-1780471587804-xyjvpv2yky","name":"Surat_Pengirim_Pembukaan dan Penutupan AL Prodi IPII.pdf","originalName":"IPII-Mohon Liputan.pdf","mimeType":"application/pdf","size":331317,"driveFileId":"1WOJyZgGdFWA5GYLQPwbDpQVrXp1rddeZ","webViewLink":"https://drive.google.com/file/d/1WOJyZgGdFWA5GYLQPwbDpQVrXp1rddeZ/view?usp=drivesdk","downloadUrl":"https://drive.google.com/uc?export=download&id=1WOJyZgGdFWA5GYLQPwbDpQVrXp1rddeZ","uploadedAt":"2026-06-03T07:26:27.804Z"}]',
+    driveFolderId: '1NcW4hzM2a63b3C-M35PWJ6RmM-OcWpB_',
+    driveFolderLink: 'https://drive.google.com/drive/folders/1NcW4hzM2a63b3C-M35PWJ6RmM-OcWpB_',
+    location: 'Gedung Rektorat Kampus 2',
+    executionTime: '2026-06-04T08:00',
+    picName: null,
+    picWhatsApp: null,
+    administratorId: 'cmns1gyyo000dl40437riwp5y',
+    managerId: 'cmpl1arkc0003jf04wg0gbime',
+    projectId: 'PRJ-611470',
+    createdAt: new Date(1780471572161),
+    updatedAt: new Date(1780472687758),
+  },
+  // 17. B-189/Un.14/I/KP.01/06/2026 | Permohonan | selesai | Pembinaan SDM : Pengembangan Kelembagaan dan SDM UIN Antasari Banjarma
+  {
+    id: 'cmpxrr8fn000ajr04vo3dzz8y',
+    nomorSurat: 'B-189/Un.14/I/KP.01/06/2026',
+    jenisSurat: 'Surat Masuk',
+    kategori: 'Permohonan',
+    tanggalSurat: new Date(1780358400000),
+    pengirim: 'Kepala Biro AUPKK',
+    penerima: null,
+    perihal: 'Pembinaan SDM : Pengembangan Kelembagaan dan SDM UIN Antasari Banjarmasin di Era Digital',
+    deskripsi: null,
+    status: 'selesai',
+    catatan: null,
+    documents: '[{"id":"DOC-1780473183604-pvf17t59qte","name":"Surat_Kepala Biro AUPKK_Pembinaan SDM - Pengembangan Kelembagaan dan SDM UIN Antasari Banjarmasin di Era Digital.jpeg","originalName":"WhatsApp Image 2026-06-03 at 15.43.34.jpeg","mimeType":"image/jpeg","size":76924,"driveFileId":"1DiQ43Ae9Njmf8SIIZJJMvCbW64-gTAAy","webViewLink":"https://drive.google.com/file/d/1DiQ43Ae9Njmf8SIIZJJMvCbW64-gTAAy/view?usp=drivesdk","downloadUrl":"https://drive.google.com/uc?export=download&id=1DiQ43Ae9Njmf8SIIZJJMvCbW64-gTAAy","uploadedAt":"2026-06-03T07:53:03.604Z"}]',
+    driveFolderId: '1BEU6Le0KgJFEz8DdATNbq4v38OKoAxpd',
+    driveFolderLink: 'https://drive.google.com/drive/folders/1BEU6Le0KgJFEz8DdATNbq4v38OKoAxpd',
+    location: null,
+    executionTime: '2026-06-06T08:30',
+    picName: null,
+    picWhatsApp: null,
+    administratorId: 'cmns1gyyo000dl40437riwp5y',
+    managerId: 'cmpl1arkc0003jf04wg0gbime',
+    projectId: 'PRJ-247085',
+    createdAt: new Date(1780473172595),
+    updatedAt: new Date(1780680309416),
+  },
+  // 18. B-553/uN.35/R/HM.00/06/2026 | Permohonan | selesai | Permohonan Ucapan Selamat Milad UIN Sultanah Nahrasiyah Lhokseumaew ke
+  {
+    id: 'cmq0m6k0t000ll804dbgs2gjz',
+    nomorSurat: 'B-553/uN.35/R/HM.00/06/2026',
+    jenisSurat: 'Surat Masuk',
+    kategori: 'Permohonan',
+    tanggalSurat: new Date(1780358400000),
+    pengirim: 'Danial',
+    penerima: null,
+    perihal: 'Permohonan Ucapan Selamat Milad UIN Sultanah Nahrasiyah Lhokseumaew ke-57',
+    deskripsi: 'Mohon ucapan selamat dalam bentuk video pendek',
+    status: 'selesai',
+    catatan: null,
+    documents: '[{"id":"DOC-1780645223528-bzqt4jvlqzp","name":"Surat_Danial_Permohonan Ucapan Selamat Milad UIN Sultanah Nahrasiyah Lhokseumaew ke-57.pdf","originalName":"Surat Ucapan Selamat Milad UIN 2026 Seluruh Rektor PTKIN (1).pdf","mimeType":"application/pdf","size":1581246,"driveFileId":"1dCauawXZ0yxViKzMo7IQ8jzrvLkys1jz","webViewLink":"https://drive.google.com/file/d/1dCauawXZ0yxViKzMo7IQ8jzrvLkys1jz/view?usp=drivesdk","downloadUrl":"https://drive.google.com/uc?export=download&id=1dCauawXZ0yxViKzMo7IQ8jzrvLkys1jz","uploadedAt":"2026-06-05T07:40:23.528Z"}]',
+    driveFolderId: '1dnhfZl3D7JfJxDsSjYWEZbruJMfe5vup',
+    driveFolderLink: 'https://drive.google.com/drive/folders/1dnhfZl3D7JfJxDsSjYWEZbruJMfe5vup',
+    location: null,
+    executionTime: null,
+    picName: 'Zul Afrizal, S.Pd.I., M.A.',
+    picWhatsApp: '085260105077',
+    administratorId: 'cmns1gyyo000dl40437riwp5y',
+    managerId: 'cmpl1arkc0003jf04wg0gbime',
+    projectId: 'PRJ-337188',
+    createdAt: new Date(1780645208285),
+    updatedAt: new Date(1781194365348),
+  },
+  // 19. B-1087/Un.14/I.1/HM.03/05/2026 | Permohonan | diproses | Apel Pagi Senin
+  {
+    id: 'cmq4i9ub60000ju04dppdfs3h',
+    nomorSurat: 'B-1087/Un.14/I.1/HM.03/05/2026',
+    jenisSurat: 'Surat Masuk',
+    kategori: 'Permohonan',
+    tanggalSurat: new Date(1780876800000),
+    pengirim: 'Kepala Biro AUPKK',
+    penerima: null,
+    perihal: 'Apel Pagi Senin',
+    deskripsi: null,
+    status: 'diproses',
+    catatan: null,
+    documents: '[{"id":"DOC-1780880520758-pl9hdupsmh","name":"Surat_Kepala Biro AUPKK_Apel Pagi Senin.pdf","originalName":"20260607062423Undangan_Apel.pdf","mimeType":"application/pdf","size":581327,"driveFileId":"1MKjST_tcfDxj-LDlm9wexFMUhtbh5Eta","webViewLink":"https://drive.google.com/file/d/1MKjST_tcfDxj-LDlm9wexFMUhtbh5Eta/view?usp=drivesdk","downloadUrl":"https://drive.google.com/uc?export=download&id=1MKjST_tcfDxj-LDlm9wexFMUhtbh5Eta","uploadedAt":"2026-06-08T01:02:00.758Z"}]',
+    driveFolderId: '1jjO7JqxEq5Ja1JGWbiJbZ-l5u9QkXLpl',
+    driveFolderLink: 'https://drive.google.com/drive/folders/1jjO7JqxEq5Ja1JGWbiJbZ-l5u9QkXLpl',
+    location: 'Halaman Gedung PSB',
+    executionTime: '2026-06-08T07:01',
+    picName: null,
+    picWhatsApp: null,
+    administratorId: 'cmns1gyyo000dl40437riwp5y',
+    managerId: 'cmpl1arkc0003jf04wg0gbime',
+    projectId: null,
+    createdAt: new Date(1780880507827),
+    updatedAt: new Date(1780886001559),
+  },
+  // 20. B-478/PMB-PTKIN/VI/2026 | Permohonan | selesai | Pelaksanaan Monitoring SSE UM-PTKIN TAHUN 2026
+  {
+    id: 'cmq4ifisu0005ju04sfso412c',
+    nomorSurat: 'B-478/PMB-PTKIN/VI/2026',
+    jenisSurat: 'Surat Masuk',
+    kategori: 'Permohonan',
+    tanggalSurat: new Date(1780704000000),
+    pengirim: 'Ketua Panitia Nasional Penerimaan Mahasiswa Baru PTKIN',
+    penerima: null,
+    perihal: 'Pelaksanaan Monitoring SSE UM-PTKIN TAHUN 2026',
+    deskripsi: null,
+    status: 'selesai',
+    catatan: null,
+    documents: '[{"id":"DOC-1780880783706-djlgkd4xe0v","name":"Surat_Ketua Panitia Nasional Penerimaan Mahasiswa Baru PTKIN_Pelaksanaan Monitoring SSE UM-PTKIN TAHUN 2026.pdf","originalName":"478_Undangan Pemberitahuan Rektor UIN Antasari Banjarmasin_Pelaksanaan Monitoring Ujian SSE UM-PTKIN Tahun 2026.pdf","mimeType":"application/pdf","size":316545,"driveFileId":"12mCOVmuJXEl9H1JooihYPoGXY7U5okIQ","webViewLink":"https://drive.google.com/file/d/12mCOVmuJXEl9H1JooihYPoGXY7U5okIQ/view?usp=drivesdk","downloadUrl":"https://drive.google.com/uc?export=download&id=12mCOVmuJXEl9H1JooihYPoGXY7U5okIQ","uploadedAt":"2026-06-08T01:06:23.706Z"}]',
+    driveFolderId: '1gqNvIXHjPPRsZ8OMqMJyfYZO_LfHJ09X',
+    driveFolderLink: 'https://drive.google.com/drive/folders/1gqNvIXHjPPRsZ8OMqMJyfYZO_LfHJ09X',
+    location: 'UIN Antasari',
+    executionTime: '2026-06-09T08:00',
+    picName: 'Abd. Aziz',
+    picWhatsApp: null,
+    administratorId: 'cmns1gyyo000dl40437riwp5y',
+    managerId: 'cmpl1arkc0003jf04wg0gbime',
+    projectId: 'PRJ-164225',
+    createdAt: new Date(1780880772846),
+    updatedAt: new Date(1780886198297),
+  },
+  // 21. B-1157/Un.14/II.2/HM.01/06/2026 | Permohonan | selesai | Sosialisasi reseach grant Sumitomo foundation sekaligus Penandatangana
+  {
+    id: 'cmqa6zawc0000l404qlt5lhpd',
+    nomorSurat: 'B-1157/Un.14/II.2/HM.01/06/2026',
+    jenisSurat: 'Surat Masuk',
+    kategori: 'Permohonan',
+    tanggalSurat: new Date(1781049600000),
+    pengirim: 'Dr. Irfan Noor, M.Hum',
+    penerima: null,
+    perihal: 'Sosialisasi reseach grant Sumitomo foundation sekaligus Penandatanganan Dokumen Kerja Sama',
+    deskripsi: null,
+    status: 'selesai',
+    catatan: null,
+    documents: '[{"id":"DOC-1781224349936-lbtysv620i","name":"Surat_Dr. Irfan Noor, M.Hum_Sosialisasi reseach grant Sumitomo foundation sekaligus Penandatanganan Dokumen Kerja Sama.pdf","originalName":"20260611114948UNDANGAN MoU 15 Juni 2026.pdf","mimeType":"application/pdf","size":578430,"driveFileId":"1tHXoKW47k4hjCd3ZVoS8o2jl8ihtewY9","webViewLink":"https://drive.google.com/file/d/1tHXoKW47k4hjCd3ZVoS8o2jl8ihtewY9/view?usp=drivesdk","downloadUrl":"https://drive.google.com/uc?export=download&id=1tHXoKW47k4hjCd3ZVoS8o2jl8ihtewY9","uploadedAt":"2026-06-12T00:32:29.936Z"}]',
+    driveFolderId: '1XR2HysJ2fWc1ue4PkVtdZCddyrvl5Llt',
+    driveFolderLink: 'https://drive.google.com/drive/folders/1XR2HysJ2fWc1ue4PkVtdZCddyrvl5Llt',
+    location: 'Aula Zafry Zamzam',
+    executionTime: '2026-06-15T13:00',
+    picName: null,
+    picWhatsApp: null,
+    administratorId: 'cmns1gyyo000dl40437riwp5y',
+    managerId: 'cmpl1arkc0003jf04wg0gbime',
+    projectId: 'PRJ-549125',
+    createdAt: new Date(1781224337389),
+    updatedAt: new Date(1781338591132),
+  },
+  // 22. 925/Un.14/III.1.d/PP.00.9/06/2026 | Permohonan | selesai | Tasyakuran Ilmiah
+  {
+    id: 'cmqa7euh60004ld04oecykya9',
+    nomorSurat: '925/Un.14/III.1.d/PP.00.9/06/2026',
+    jenisSurat: 'Surat Masuk',
+    kategori: 'Permohonan',
+    tanggalSurat: new Date(1780876800000),
+    pengirim: 'Dr. Nuryadin',
+    penerima: null,
+    perihal: 'Tasyakuran Ilmiah',
+    deskripsi: null,
+    status: 'selesai',
+    catatan: null,
+    documents: '[{"id":"DOC-1781225073998-tde8oz6uxi","name":"Surat_Dr. Nuryadin_Tasyakuran Ilmiah.pdf","originalName":"UNDANGAN TASYAKURAN ILMIAH (KEPALA HUMAS)-1.pdf","mimeType":"application/pdf","size":665811,"driveFileId":"175-zLQfjGC1MumcaDvYRjQUk2pWAeYbz","webViewLink":"https://drive.google.com/file/d/175-zLQfjGC1MumcaDvYRjQUk2pWAeYbz/view?usp=drivesdk","downloadUrl":"https://drive.google.com/uc?export=download&id=175-zLQfjGC1MumcaDvYRjQUk2pWAeYbz","uploadedAt":"2026-06-12T00:44:33.998Z"}]',
+    driveFolderId: '16zcDRImjomMAHaAihCS4eeFOVwYbUvza',
+    driveFolderLink: 'https://drive.google.com/drive/folders/16zcDRImjomMAHaAihCS4eeFOVwYbUvza',
+    location: 'Aula FTK',
+    executionTime: '2026-06-13T08:00',
+    picName: 'Dr. Nuryadin',
+    picWhatsApp: '08195165512',
+    administratorId: 'cmns1gyyo000dl40437riwp5y',
+    managerId: 'cmpl1arkc0003jf04wg0gbime',
+    projectId: 'PRJ-036741',
+    createdAt: new Date(1781225062603),
+    updatedAt: new Date(1781338075776),
+  },
+  // 23. B-262/Un.14/V.1/HM.01/06/202626 | Permohonan | selesai | Mohon Peliputan workshop metodologi pembelajaran
+  {
+    id: 'cmqkhe1fg0000jy04473ti5oi',
+    nomorSurat: 'B-262/Un.14/V.1/HM.01/06/202626',
+    jenisSurat: 'Surat Masuk',
+    kategori: 'Permohonan',
+    tanggalSurat: new Date(1781827200000),
+    pengirim: 'Ridha Darmawaty',
+    penerima: null,
+    perihal: 'Mohon Peliputan workshop metodologi pembelajaran',
+    deskripsi: null,
+    status: 'selesai',
+    catatan: null,
+    documents: '[{"id":"DOC-1781846496037-2y7z6p9j9jt","name":"Surat_Ridha Darmawaty_Mohon Peliputan workshop metodologi pembelajaran.pdf","originalName":"6 - LPM-Mohon Peliputan.pdf","mimeType":"application/pdf","size":236089,"driveFileId":"19yTjUljfap8iERNY-ZfMxSQ6gmpcM1QG","webViewLink":"https://drive.google.com/file/d/19yTjUljfap8iERNY-ZfMxSQ6gmpcM1QG/view?usp=drivesdk","downloadUrl":"https://drive.google.com/uc?export=download&id=19yTjUljfap8iERNY-ZfMxSQ6gmpcM1QG","uploadedAt":"2026-06-19T05:21:36.037Z"}]',
+    driveFolderId: '1WhEeHIL-ScGiUaXyRKb2mNgHLhW8dQqc',
+    driveFolderLink: 'https://drive.google.com/drive/folders/1WhEeHIL-ScGiUaXyRKb2mNgHLhW8dQqc',
+    location: 'Auditorium Mastur Jahri',
+    executionTime: '2026-06-23T08:30',
+    picName: 'Ridha Darmawaty',
+    picWhatsApp: '081233570757',
+    administratorId: 'cmns1gyyo000dl40437riwp5y',
+    managerId: 'cmpl1arkc0003jf04wg0gbime',
+    projectId: 'PRJ-269777',
+    createdAt: new Date(1781846482877),
+    updatedAt: new Date(1781854362483),
+  },
+  // 24. B-492/Un.14/III.1/PP.00.9/06/202 | Permohonan | diteruskan | Permohonan fasilitasi perangkat dokumentasi
+  {
+    id: 'cmqkhla830000jp04xm8j4ym4',
+    nomorSurat: 'B-492/Un.14/III.1/PP.00.9/06/202',
+    jenisSurat: 'Surat Masuk',
+    kategori: 'Permohonan',
+    tanggalSurat: new Date(1781740800000),
+    pengirim: 'FTK',
+    penerima: null,
+    perihal: 'Permohonan fasilitasi perangkat dokumentasi',
+    deskripsi: null,
+    status: 'diteruskan',
+    catatan: null,
+    documents: '[{"id":"DOC-1781846834085-p0kw4losr6j","name":"Surat_FTK_Permohonan fasilitasi perangkat dokumentasi.jpeg","originalName":"WhatsApp Image 2026-06-19 at 12.07.26.jpeg","mimeType":"image/jpeg","size":107045,"driveFileId":"10fDC6OowSNAGJgbmfsGA5gHSpzeqyjQW","webViewLink":"https://drive.google.com/file/d/10fDC6OowSNAGJgbmfsGA5gHSpzeqyjQW/view?usp=drivesdk","downloadUrl":"https://drive.google.com/uc?export=download&id=10fDC6OowSNAGJgbmfsGA5gHSpzeqyjQW","uploadedAt":"2026-06-19T05:27:14.085Z"}]',
+    driveFolderId: '1MUWvXhnuMGu1Hr2wStAPzgy_oryVxBFD',
+    driveFolderLink: 'https://drive.google.com/drive/folders/1MUWvXhnuMGu1Hr2wStAPzgy_oryVxBFD',
+    location: null,
+    executionTime: null,
+    picName: null,
+    picWhatsApp: null,
+    administratorId: 'cmns1gyyo000dl40437riwp5y',
+    managerId: 'cmpl1arkc0003jf04wg0gbime',
+    projectId: null,
+    createdAt: new Date(1781846820867),
+    updatedAt: new Date(1781846862359),
+  },]
 
 export async function POST(request: NextRequest) {
   // Admin-only
@@ -127,11 +661,31 @@ export async function POST(request: NextRequest) {
     // Check current count
     const beforeCount = await db.surat.count()
 
+    // === PURGE: Remove previously-reconstructed fake records (SM-XXX/YYYY) ===
+    // These were created by an earlier flawed reconstruction attempt and are NOT
+    // real administrator input. They must be removed before restoring real data.
+    let purged = 0
+    try {
+      const fakeRecords = await db.surat.findMany({
+        where: { nomorSurat: { startsWith: 'SM-' } },
+        select: { id: true },
+      })
+      if (fakeRecords.length > 0) {
+        await db.surat.deleteMany({
+          where: { id: { in: fakeRecords.map(r => r.id) } },
+        })
+        purged = fakeRecords.length
+      }
+    } catch (e) {
+      // Non-fatal — continue with restore
+      console.error('Purge error (non-fatal):', e)
+    }
+
     let restored = 0
     let skipped = 0
     const errors: string[] = []
 
-    for (const record of LOST_SURAT_RECORDS) {
+    for (const record of REAL_SURAT_RECORDS) {
       try {
         // Check if record already exists (by id or nomorSurat)
         const existing = await db.surat.findFirst({
@@ -153,100 +707,6 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // === PHASE 2: Reconstruct surat for projects created from surat permohonan ===
-    // The original surat records were lost during Vercel→Turso migration.
-    // Projects created from surat have copied fields (title←perihal, requesterUnit←pengirim, etc.)
-    // We reverse-engineer the surat from the project data.
-    let reconstructed = 0
-    let reconSkipped = 0
-
-    // Fetch all projects (filter non-null requesterUnit in JS — libsql adapter quirk)
-    const allProjects = await db.project.findMany({
-      select: {
-        id: true,
-        title: true,
-        description: true,
-        requesterUnit: true,
-        location: true,
-        executionTime: true,
-        picName: true,
-        picWhatsApp: true,
-        managerId: true,
-        documents: true,
-        createdAt: true,
-      },
-    })
-
-    // Get project IDs that already have surat
-    const existingSuratProjectIds = await db.surat.findMany({
-      select: { projectId: true },
-    })
-    const existingProjectIdSet = new Set(
-      existingSuratProjectIds.map(s => s.projectId).filter(Boolean) as string[]
-    )
-
-    // The administrator who creates surat: Jamal Rifani (Administrator)
-    const ADMINISTRATOR_ID = 'cmns1gyyo000dl40437riwp5y'
-
-    // Find the next SM number for this year
-    const currentYear = new Date().getFullYear()
-    const existingSMAmount = await db.surat.count({
-      where: {
-        nomorSurat: { startsWith: `SM-` },
-      },
-    })
-    let smCounter = existingSMAmount
-
-    for (const project of allProjects) {
-      // Skip if project already has a surat
-      if (existingProjectIdSet.has(project.id)) {
-        reconSkipped++
-        continue
-      }
-
-      // Skip if project has no meaningful requesterUnit
-      if (!project.requesterUnit || !project.requesterUnit.trim()) {
-        reconSkipped++
-        continue
-      }
-
-      try {
-        smCounter++
-        const nomorSurat = `SM-${String(smCounter).padStart(3, '0')}/${currentYear}`
-        const createdAt = project.createdAt || new Date()
-
-        await db.surat.create({
-          data: {
-            nomorSurat,
-            jenisSurat: 'Surat Masuk',
-            kategori: 'Permohonan',
-            tanggalSurat: createdAt,
-            pengirim: project.requesterUnit || null,
-            penerima: null,
-            perihal: project.title || '(tanpa perihal)',
-            deskripsi: project.description || null,
-            status: 'selesai',
-            catatan: null,
-            documents: '[]',
-            driveFolderId: null,
-            driveFolderLink: null,
-            location: project.location || null,
-            executionTime: project.executionTime || null,
-            picName: project.picName || null,
-            picWhatsApp: project.picWhatsApp || null,
-            administratorId: ADMINISTRATOR_ID,
-            managerId: project.managerId || null,
-            projectId: project.id,
-            createdAt: createdAt,
-            updatedAt: createdAt,
-          },
-        })
-        reconstructed++
-      } catch (e) {
-        errors.push(`RECON ${project.id}: ${e instanceof Error ? e.message : 'Unknown error'}`)
-      }
-    }
-
     const afterCount = await db.surat.count()
 
     // Invalidate surat cache so the frontend sees restored data immediately
@@ -255,11 +715,11 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({
       success: true,
       beforeCount,
+      purged,
       restored,
       skipped,
-      reconstructed,
-      reconSkipped,
       afterCount,
+      totalRealRecords: REAL_SURAT_RECORDS.length,
       errors: errors.length > 0 ? errors : undefined,
     })
   } catch (error) {
