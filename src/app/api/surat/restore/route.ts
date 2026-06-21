@@ -153,6 +153,99 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    // === PHASE 2: Reconstruct surat for projects created from surat permohonan ===
+    // The original surat records were lost during Vercel→Turso migration.
+    // Projects created from surat have copied fields (title←perihal, requesterUnit←pengirim, etc.)
+    // We reverse-engineer the surat from the project data.
+    let reconstructed = 0
+    let reconSkipped = 0
+
+    const allProjects = await db.project.findMany({
+      where: { requesterUnit: { not: null } },
+      select: {
+        id: true,
+        title: true,
+        description: true,
+        requesterUnit: true,
+        location: true,
+        executionTime: true,
+        picName: true,
+        picWhatsApp: true,
+        managerId: true,
+        documents: true,
+        createdAt: true,
+      },
+    })
+
+    // Get project IDs that already have surat
+    const existingSuratProjectIds = await db.surat.findMany({
+      where: { projectId: { not: null } },
+      select: { projectId: true },
+    })
+    const existingProjectIdSet = new Set(existingSuratProjectIds.map(s => s.projectId))
+
+    // The administrator who creates surat: Jamal Rifani (Administrator)
+    const ADMINISTRATOR_ID = 'cmns1gyyo000dl40437riwp5y'
+
+    // Find the next SM number for this year
+    const currentYear = new Date().getFullYear()
+    const existingSMAmount = await db.surat.count({
+      where: {
+        nomorSurat: { startsWith: `SM-` },
+      },
+    })
+    let smCounter = existingSMAmount
+
+    for (const project of allProjects) {
+      // Skip if project already has a surat
+      if (existingProjectIdSet.has(project.id)) {
+        reconSkipped++
+        continue
+      }
+
+      // Skip if project has no meaningful requesterUnit
+      if (!project.requesterUnit || !project.requesterUnit.trim()) {
+        reconSkipped++
+        continue
+      }
+
+      try {
+        smCounter++
+        const nomorSurat = `SM-${String(smCounter).padStart(3, '0')}/${currentYear}`
+        const createdAt = project.createdAt || new Date()
+
+        await db.surat.create({
+          data: {
+            nomorSurat,
+            jenisSurat: 'Surat Masuk',
+            kategori: 'Permohonan',
+            tanggalSurat: createdAt,
+            pengirim: project.requesterUnit || null,
+            penerima: null,
+            perihal: project.title || '(tanpa perihal)',
+            deskripsi: project.description || null,
+            status: 'selesai',
+            catatan: null,
+            documents: '[]',
+            driveFolderId: null,
+            driveFolderLink: null,
+            location: project.location || null,
+            executionTime: project.executionTime || null,
+            picName: project.picName || null,
+            picWhatsApp: project.picWhatsApp || null,
+            administratorId: ADMINISTRATOR_ID,
+            managerId: project.managerId || null,
+            projectId: project.id,
+            createdAt: createdAt,
+            updatedAt: createdAt,
+          },
+        })
+        reconstructed++
+      } catch (e) {
+        errors.push(`RECON ${project.id}: ${e instanceof Error ? e.message : 'Unknown error'}`)
+      }
+    }
+
     const afterCount = await db.surat.count()
 
     // Invalidate surat cache so the frontend sees restored data immediately
@@ -163,6 +256,8 @@ export async function POST(request: NextRequest) {
       beforeCount,
       restored,
       skipped,
+      reconstructed,
+      reconSkipped,
       afterCount,
       errors: errors.length > 0 ? errors : undefined,
     })
