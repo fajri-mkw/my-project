@@ -160,8 +160,8 @@ export async function POST(request: NextRequest) {
     let reconstructed = 0
     let reconSkipped = 0
 
+    // Fetch all projects (filter non-null requesterUnit in JS — libsql adapter quirk)
     const allProjects = await db.project.findMany({
-      where: { requesterUnit: { not: null } },
       select: {
         id: true,
         title: true,
@@ -179,10 +179,11 @@ export async function POST(request: NextRequest) {
 
     // Get project IDs that already have surat
     const existingSuratProjectIds = await db.surat.findMany({
-      where: { projectId: { not: null } },
       select: { projectId: true },
     })
-    const existingProjectIdSet = new Set(existingSuratProjectIds.map(s => s.projectId))
+    const existingProjectIdSet = new Set(
+      existingSuratProjectIds.map(s => s.projectId).filter(Boolean) as string[]
+    )
 
     // The administrator who creates surat: Jamal Rifani (Administrator)
     const ADMINISTRATOR_ID = 'cmns1gyyo000dl40437riwp5y'
