@@ -189,6 +189,59 @@ export async function getAccessToken(serviceAccountKey: string): Promise<string>
   return token.token
 }
 
+// ---------------------------------------------------------------------------
+// Module-level token cache (per-isolate).
+//
+// Google OAuth access tokens are valid for 1 hour. Re-signing a JWT with
+// RSA-256 + making an OAuth HTTP request on EVERY chunk upload is extremely
+// wasteful (a 143 MB file with 1 MB chunks = 144 JWT signings). This cache
+// ensures each isolate only obtains a fresh token once every 50 minutes.
+//
+// On Cloudflare Workers, each isolate handles many requests, so this cache
+// is shared across chunk uploads within the same isolate. Different isolates
+// will each fetch their own token, but that's still a massive reduction.
+// ---------------------------------------------------------------------------
+
+interface CachedToken {
+  token: string
+  expiresAt: number // epoch millis
+}
+
+let cachedAccessToken: CachedToken | null = null
+const TOKEN_CACHE_TTL_MS = 50 * 60 * 1000 // 50 minutes (Google tokens last 60 min)
+
+/**
+ * Get a cached Google API access token.
+ *
+ * Returns the cached token if it's still valid (with a 5-minute safety margin).
+ * Otherwise, fetches a new token and caches it.
+ *
+ * This is critical for chunked uploads: without caching, each 1 MB chunk of a
+ * large file triggers a full OAuth handshake (JWT signing + HTTP request),
+ * which frequently exceeds the Cloudflare Workers CPU/wall-clock limits.
+ */
+export async function getCachedAccessToken(serviceAccountKey: string): Promise<string> {
+  const now = Date.now()
+  const safetyMargin = 5 * 60 * 1000 // refresh 5 min before expiry
+
+  if (cachedAccessToken && cachedAccessToken.expiresAt - safetyMargin > now) {
+    return cachedAccessToken.token
+  }
+
+  // Fetch a new token (this does JWT signing + OAuth HTTP request)
+  const token = await getAccessToken(serviceAccountKey)
+  cachedAccessToken = { token, expiresAt: now + TOKEN_CACHE_TTL_MS }
+  return token
+}
+
+/**
+ * Clear the cached access token. Useful when a token is rejected by Google
+ * (e.g. revoked) and we need to force a refresh on the next call.
+ */
+export function clearCachedAccessToken(): void {
+  cachedAccessToken = null
+}
+
 /**
  * Share a file or folder with "anyone who has the link".
  * Uses fetch directly to avoid googleapis stream quirks (defensive —

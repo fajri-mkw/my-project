@@ -1,16 +1,27 @@
-import { db, ensureDbConnection } from '@/lib/db'
+import { db } from '@/lib/db'
 import { NextRequest, NextResponse } from 'next/server'
-import { checkMaintenanceMode } from '@/lib/maintenance-check'
-import { google } from 'googleapis'
-import { parseServiceAccountKey, validateServiceAccountCredentials } from '@/lib/drive-service'
+import { getCachedAccessToken, clearCachedAccessToken, shareWithAnyone } from '@/lib/drive-service'
 
-const CHUNK_SIZE = 1 * 1024 * 1024 // 1MB per chunk (well under Vercel's 4.5MB limit)
+/**
+ * Chunked upload endpoint — forwards file chunks to Google Drive's resumable
+ * upload session URL.
+ *
+ * CRITICAL PERFORMANCE NOTES:
+ * This endpoint is called once per chunk (e.g. 18 times for a 143 MB file with
+ * 8 MB chunks). To stay within Cloudflare Workers' CPU/wall-clock limits, this
+ * endpoint is intentionally lightweight:
+ *
+ *   1. NO checkMaintenanceMode()  — maintenance mode must not block in-progress uploads
+ *   2. NO ensureDbConnection()    — schema sync is unnecessary; we only read the settings row
+ *   3. CACHED access token        — avoids re-signing a JWT (RSA-256) on every chunk
+ *   4. Direct fetch for sharing   — avoids googleapis overhead on the final chunk
+ *
+ * The chunk size MUST match the frontend (file-upload.tsx). Both are set to 8 MB.
+ */
+const CHUNK_SIZE = 8 * 1024 * 1024 // 8 MB — must match frontend file-upload.tsx
 
 export async function POST(request: NextRequest) {
-  const maintenanceBlock = await checkMaintenanceMode(request)
-  if (maintenanceBlock) return maintenanceBlock
   try {
-    await ensureDbConnection()
     const formData = await request.formData()
     const uploadUrl = formData.get('uploadUrl') as string
     const chunkIndex = parseInt(formData.get('chunkIndex') as string, 10)
@@ -21,24 +32,27 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Parameter tidak lengkap' }, { status: 400 })
     }
 
-    // Get service account access token
+    // Lightweight settings fetch — no schema sync, no maintenance check.
+    // The settings row always exists (created during initial migration).
     const settings = await db.settings.findUnique({ where: { id: 'main' } })
     if (!settings?.driveServiceAccountKey) {
       return NextResponse.json({ error: 'Google Drive belum dikonfigurasi' }, { status: 400 })
     }
 
-    const credentials = parseServiceAccountKey(settings.driveServiceAccountKey)
-    validateServiceAccountCredentials(credentials)
-    const auth = new google.auth.GoogleAuth({
-      credentials,
-      scopes: ['https://www.googleapis.com/auth/drive']
-    })
-    const authClient = await auth.getClient()
-    const accessToken = (await authClient.getAccessToken()).token as string
+    // Use CACHED access token — eliminates JWT signing on all but the first chunk.
+    // This is the single most important optimization for large file uploads.
+    let accessToken: string
+    try {
+      accessToken = await getCachedAccessToken(settings.driveServiceAccountKey)
+    } catch {
+      // If token fetch fails, try once more with a fresh token (clear cache first)
+      clearCachedAccessToken()
+      accessToken = await getCachedAccessToken(settings.driveServiceAccountKey)
+    }
 
     // Calculate byte range for this chunk
     const start = chunkIndex * CHUNK_SIZE
-    const chunkData = Buffer.from(await chunk.arrayBuffer())
+    const chunkData = new Uint8Array(await chunk.arrayBuffer())
     const end = start + chunkData.length - 1
 
     // Forward chunk to Google Drive resumable upload session
@@ -54,33 +68,41 @@ export async function POST(request: NextRequest) {
     })
 
     // 308 = Resume Incomplete (more chunks needed)
-    // 200/201 = Upload Complete
     if (driveResponse.status === 308) {
       return NextResponse.json({
         complete: false,
-        nextChunk: chunkIndex + 1
+        nextChunk: chunkIndex + 1,
       })
     }
 
+    // 200/201 = Upload Complete (this was the final chunk)
     if (driveResponse.status === 200 || driveResponse.status === 201) {
       let fileData: Record<string, string | undefined> = {}
       try {
         fileData = await driveResponse.json()
       } catch {
-        // Response might be empty
+        // Response body might be empty — that's OK, we'll fetch metadata below
       }
 
-      // Share the file
+      // Share the file with "anyone with the link" using direct fetch.
+      // We use the cached token + shareWithAnyone helper (no googleapis overhead).
       if (fileData?.id) {
-        try {
-          const drive = google.drive({ version: 'v3', auth })
-          await drive.permissions.create({
-            fileId: fileData.id,
-            requestBody: { type: 'anyone', role: 'writer', allowFileDiscovery: false },
-            supportsAllDrives: true
-          })
-        } catch (shareErr) {
-          console.error('[UPLOAD-CHUNK] Share failed (non-critical):', shareErr)
+        await shareWithAnyone(accessToken, fileData.id, 'writer')
+
+        // If webViewLink is missing, try to fetch file metadata
+        if (!fileData.webViewLink) {
+          try {
+            const metaResp = await fetch(
+              `https://www.googleapis.com/drive/v3/files/${fileData.id}?fields=id,name,webViewLink,webContentLink&supportsAllDrives=true`,
+              { headers: { 'Authorization': `Bearer ${accessToken}` } },
+            )
+            if (metaResp.ok) {
+              const metaData = await metaResp.json()
+              fileData = { ...fileData, ...metaData }
+            }
+          } catch {
+            // Non-critical — the file was uploaded successfully
+          }
         }
       }
 
@@ -91,22 +113,26 @@ export async function POST(request: NextRequest) {
           name: fileData.name,
           webViewLink: fileData.webViewLink,
           webContentLink: fileData.webContentLink,
-        }
+        },
       })
     }
 
-    // Unexpected status
+    // Unexpected status from Google
     const errorText = await driveResponse.text()
     console.error('[UPLOAD-CHUNK] Google API error:', driveResponse.status, errorText)
+
+    // 401/403 = token expired or revoked — clear cache so next chunk gets a fresh token
+    if (driveResponse.status === 401 || driveResponse.status === 403) {
+      clearCachedAccessToken()
+    }
+
     return NextResponse.json(
       { error: `Upload gagal: HTTP ${driveResponse.status}` },
-      { status: 502 }
+      { status: 502 },
     )
   } catch (error) {
     console.error('[UPLOAD-CHUNK] Error:', error)
-    return NextResponse.json(
-      { error: error instanceof Error ? error.message : 'Gagal mengupload chunk' },
-      { status: 500 }
-    )
+    const msg = error instanceof Error ? error.message : 'Gagal mengupload chunk'
+    return NextResponse.json({ error: msg }, { status: 500 })
   }
 }

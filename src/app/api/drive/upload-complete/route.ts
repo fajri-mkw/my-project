@@ -1,8 +1,7 @@
 import { db, ensureDbConnection } from '@/lib/db'
 import { NextRequest, NextResponse } from 'next/server'
 import { checkMaintenanceMode } from '@/lib/maintenance-check'
-import { google } from 'googleapis'
-import { parseServiceAccountKey, validateServiceAccountCredentials } from '@/lib/drive-service'
+import { getCachedAccessToken, shareWithAnyone } from '@/lib/drive-service'
 
 export async function POST(request: NextRequest) {
   const maintenanceBlock = await checkMaintenanceMode(request)
@@ -20,48 +19,40 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Google Drive belum dikonfigurasi' }, { status: 400 })
     }
 
-    const credentials = parseServiceAccountKey(settings.driveServiceAccountKey)
-    validateServiceAccountCredentials(credentials)
-    const auth = new google.auth.GoogleAuth({
-      credentials,
-      scopes: ['https://www.googleapis.com/auth/drive']
-    })
+    // Use cached access token
+    const accessToken = await getCachedAccessToken(settings.driveServiceAccountKey)
 
-    const drive = google.drive({ version: 'v3', auth })
+    // Get file metadata via direct fetch
+    const metaResp = await fetch(
+      `https://www.googleapis.com/drive/v3/files/${fileId}?fields=id,name,webViewLink,webContentLink&supportsAllDrives=true`,
+      { headers: { 'Authorization': `Bearer ${accessToken}` } },
+    )
 
-    // Get file metadata
-    const file = await drive.files.get({
-      fileId,
-      fields: 'id, name, webViewLink, webContentLink',
-      supportsAllDrives: true
-    })
-
-    // Share with anyone (writer access)
-    try {
-      await drive.permissions.create({
-        fileId,
-        requestBody: { type: 'anyone', role: 'writer', allowFileDiscovery: false },
-        supportsAllDrives: true
-      })
-    } catch (shareError) {
-      console.error('[UPLOAD-COMPLETE] Failed to share file:', shareError)
-      // Don't fail the entire request just because sharing failed
+    if (!metaResp.ok) {
+      const errText = await metaResp.text()
+      console.error('[UPLOAD-COMPLETE] Failed to get file metadata:', metaResp.status, errText)
+      return NextResponse.json({ error: 'Gagal mendapatkan metadata file' }, { status: 502 })
     }
+
+    const fileData = await metaResp.json()
+
+    // Share with anyone (writer access) using direct fetch
+    await shareWithAnyone(accessToken, fileId, 'writer')
 
     return NextResponse.json({
       success: true,
       file: {
-        id: file.data.id,
-        name: file.data.name,
-        webViewLink: file.data.webViewLink,
-        webContentLink: file.data.webContentLink
-      }
+        id: fileData.id,
+        name: fileData.name,
+        webViewLink: fileData.webViewLink,
+        webContentLink: fileData.webContentLink,
+      },
     })
   } catch (error) {
     console.error('[UPLOAD-COMPLETE] Error:', error)
     return NextResponse.json(
       { error: 'Gagal menyelesaikan upload' },
-      { status: 500 }
+      { status: 500 },
     )
   }
 }

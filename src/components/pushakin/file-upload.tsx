@@ -40,7 +40,16 @@ interface UploadingFile {
   abortController?: AbortController
 }
 
-const CHUNK_SIZE = 1 * 1024 * 1024 // 1MB per chunk
+// Chunk size for resumable uploads. Must match the backend constant in
+// src/app/api/drive/upload-chunk/route.ts (CHUNK_SIZE).
+// 8 MB is well under Cloudflare Workers' 100 MB request body limit and reduces
+// a 143 MB video upload from 144 requests to 18 — dramatically cutting OAuth
+// token generation overhead and wall-clock time.
+const CHUNK_SIZE = 8 * 1024 * 1024 // 8 MB per chunk
+
+// Maximum retry attempts for a failed chunk upload.
+// Retries help with transient Cloudflare Workers CPU-limit / network errors.
+const MAX_CHUNK_RETRIES = 2
 
 // Extract real Google Drive folder ID from URL (reject constructed/mock IDs)
 function extractFolderId(url: string): string | null {
@@ -163,24 +172,79 @@ export function FileUpload({ folderLink, projectId, onUploadComplete, className,
         chunkFormData.append('totalSize', totalSize.toString())
         chunkFormData.append('chunk', chunkBlob, file.name)
 
-        const chunkResponse = await fetch('/api/drive/upload-chunk', {
-          method: 'POST',
-          body: chunkFormData,
-          signal: abortController.signal
-        })
+        // Retry loop for transient failures (CF Workers CPU spikes, network blips).
+        // 4xx errors fail fast (client/validation error — won't fix on retry).
+        // 5xx + network errors retry up to MAX_CHUNK_RETRIES times.
+        let chunkResult: { complete: boolean; nextChunk: number; file?: { id?: string; name?: string; webViewLink?: string; webContentLink?: string } } | null = null
+        let chunkError: Error | null = null
 
-        if (!chunkResponse.ok) {
-          let errorMsg = `Gagal upload chunk ${chunkIndex + 1}/${totalChunks}`
-          try {
-            const errData = await chunkResponse.json()
-            errorMsg = errData.error || errorMsg
-          } catch {
-            errorMsg = `Server error (${chunkResponse.status})`
+        for (let attempt = 0; attempt <= MAX_CHUNK_RETRIES; attempt++) {
+          if (abortController.signal.aborted) {
+            throw new Error('Upload dibatalkan')
           }
-          throw new Error(errorMsg)
+
+          try {
+            const chunkResponse = await fetch('/api/drive/upload-chunk', {
+              method: 'POST',
+              body: chunkFormData,
+              signal: abortController.signal
+            })
+
+            if (chunkResponse.ok) {
+              chunkResult = await chunkResponse.json()
+              chunkError = null
+              break
+            }
+
+            // Non-OK response — try to parse error JSON
+            let errorMsg = `Gagal upload chunk ${chunkIndex + 1}/${totalChunks}`
+            let isTransient = false
+            try {
+              const errData = await chunkResponse.json()
+              errorMsg = errData.error || errorMsg
+              // 5xx errors are transient (server errors, CF CPU limits)
+              isTransient = chunkResponse.status >= 500
+            } catch {
+              // Response body is not JSON (likely a CF error page)
+              errorMsg = `Server error (${chunkResponse.status})`
+              isTransient = chunkResponse.status >= 500 || chunkResponse.status === 0
+            }
+
+            if (!isTransient || attempt === MAX_CHUNK_RETRIES) {
+              chunkError = new Error(errorMsg)
+              break
+            }
+
+            // Show retry status in the UI
+            updateFile(fileId, f => ({
+              ...f,
+              error: `Percobaan ulang #${attempt + 1} untuk chunk ${chunkIndex + 1}/${totalChunks}...`
+            }))
+            // Exponential backoff: 1s, 2s
+            await new Promise(r => setTimeout(r, 1000 * (attempt + 1)))
+          } catch (fetchErr) {
+            // Network error (fetch threw)
+            if (abortController.signal.aborted) {
+              throw new Error('Upload dibatalkan')
+            }
+            if (attempt === MAX_CHUNK_RETRIES) {
+              chunkError = fetchErr instanceof Error ? fetchErr : new Error('Gagal mengupload chunk')
+              break
+            }
+            // Retry on network errors
+            updateFile(fileId, f => ({
+              ...f,
+              error: `Percobaan ulang #${attempt + 1} untuk chunk ${chunkIndex + 1}/${totalChunks}...`
+            }))
+            await new Promise(r => setTimeout(r, 1000 * (attempt + 1)))
+          }
         }
 
-        const chunkResult = await chunkResponse.json()
+        if (chunkError) throw chunkError
+        if (!chunkResult) throw new Error('Gagal mengupload chunk — tidak ada respons')
+
+        // Clear any retry status message
+        updateFile(fileId, f => ({ ...f, error: undefined }))
 
         // Update progress: map chunk progress to 5%–95% range
         const pct = Math.round(5 + (chunkResult.nextChunk / totalChunks) * 90)
@@ -188,7 +252,7 @@ export function FileUpload({ folderLink, projectId, onUploadComplete, className,
 
         if (chunkResult.complete) {
           uploadComplete = true
-          uploadedFile = chunkResult.file
+          uploadedFile = chunkResult.file ?? null
         } else {
           chunkIndex = chunkResult.nextChunk
         }
