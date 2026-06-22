@@ -855,7 +855,6 @@ Pushakin Flows — Sistem Manajemen Produksi`
                                     : "text-stone-400"
                     )}>
                       {STAGES[stageNum]}
-                      {isFPAutoApproved && <span className="block text-emerald-400 text-[8px]">auto-approve</span>}
                       {isFastProduction && isFPActive && <span className="block text-teal-400 text-[8px]">aktif</span>}
                       {isFastTracked && isCompleted && <span className="block text-purple-400 text-[8px]">skipped</span>}
                       {isInProgress && <span className="block text-amber-500 text-[8px]">{completedInStage}/{stageTasks.length} selesai</span>}
@@ -903,7 +902,6 @@ Pushakin Flows — Sistem Manajemen Produksi`
                               : "text-stone-300 border-stone-100"
                     )}>
                       {STAGES[stageNum]}
-                      {isFPAutoApproved && <span className="block text-emerald-400 text-[8px]">auto-approve</span>}
                     </div>
                     {/* Team members in this stage */}
                     {stageTasks.length === 0 ? (
@@ -1023,7 +1021,6 @@ Pushakin Flows — Sistem Manajemen Produksi`
                         {isFPAutoApproved ? '✓' : isCompleted && !isFPActive ? '✓' : stageNum}
                       </span>
                       {STAGES[stageNum]}
-                      {isFPAutoApproved && <span className="text-emerald-400 text-[8px] ml-1">auto-approve</span>}
                     </div>
                     <div className="space-y-2 ml-6">
                       {stageTasks.map(task => {
@@ -2217,11 +2214,6 @@ function TaskCard({
                     <SkipForward className="h-2.5 w-2.5 mr-0.5" />FAST TRACK
                   </Badge>
                 )}
-                {task.data?.autoApproved && (
-                  <Badge className="bg-teal-100 text-teal-600 border-teal-200 text-[9px] px-1.5 py-0">
-                    <CheckCircle2 className="h-2.5 w-2.5 mr-0.5" />AUTO-APPROVE
-                  </Badge>
-                )}
               </h4>
               <div className="text-xs font-medium text-stone-500 mt-0.5">
                 Tahap {task.stage}: {STAGES[task.stage]}
@@ -2230,12 +2222,6 @@ function TaskCard({
                 <div className="flex items-center gap-1 text-[10px] text-purple-500 mt-1">
                   <Zap className="h-3 w-3" />
                   <span>Dilewati (Fast Track) — tugas otomatis selesai</span>
-                </div>
-              )}
-              {task.data?.autoApproved && (
-                <div className="flex items-center gap-1 text-[10px] text-teal-500 mt-1">
-                  <CheckCircle2 className="h-3 w-3" />
-                  <span>Auto-Approve — review otomatis disetujui (Fast Production)</span>
                 </div>
               )}
               {canManageProject && !isAssignedToMe && task.status === 'pending' && (
@@ -2321,6 +2307,13 @@ function TaskCard({
                     <LinkIcon className="w-4 h-4" />
                     <span>{task.data.link}</span>
                   </a>
+                ) : task.data?.autoApproved ? (
+                  <div className="flex items-start gap-2 text-emerald-700">
+                    <CheckCircle2 className="w-4 h-4 mt-0.5 shrink-0" />
+                    <span className="italic">
+                      Review telah dilakukan oleh reviewer dan hasil diteruskan ke tahap berikutnya.
+                    </span>
+                  </div>
                 ) : (
                   <span className="text-stone-500 italic">
                     Diselesaikan tanpa tautan spesifik (Telah diunggah ke Drive / Diteruskan).
