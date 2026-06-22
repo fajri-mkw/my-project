@@ -25,6 +25,7 @@ import {
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import { useAppStore, STAGES, ROLE_CONFIG, getRoleDisplayName, getStage2Dependency } from '@/lib/store'
+import { chunkedUploadFile } from '@/lib/chunked-upload'
 import { FileUpload } from '@/components/pushakin/file-upload'
 import { 
   ArrowLeft, 
@@ -458,6 +459,8 @@ Pushakin Flows — Sistem Manajemen Produksi`
   }
 
   // Upload document from project detail view (Manager only)
+  // Uses chunked resumable upload to support files of ANY size (up to Google Drive's 5 TB limit).
+  // The old multipart path loaded the entire file into memory, causing OOM on CF Workers for >40MB files.
   const handleDocUploadFromDetail = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files
     if (!files || files.length === 0) return
@@ -466,28 +469,50 @@ Pushakin Flows — Sistem Manajemen Produksi`
 
     for (const file of Array.from(files)) {
       try {
-        const formData = new FormData()
-        formData.append('file', file)
-        formData.append('projectId', project.id)
-        formData.append('label', 'Dokumen Pendukung')
-
-        const res = await fetch('/api/projects/upload-document', {
+        // Step 1: Get the upload folder ID
+        const prepRes = await fetch('/api/projects/prepare-upload', {
           method: 'POST',
-          body: formData,
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ projectId: project.id }),
+        })
+        if (!prepRes.ok) {
+          showAlert('Gagal menyiapkan folder upload: ' + file.name)
+          continue
+        }
+        const { folderId } = await prepRes.json()
+
+        // Step 2: Upload file via chunked resumable upload (supports ANY file size)
+        const uploadedFile = await chunkedUploadFile({ file, folderId })
+
+        // Step 3: Register document metadata to project
+        const docMeta = {
+          id: `DOC-${Date.now()}`,
+          name: uploadedFile.name,
+          mimeType: file.type || 'application/octet-stream',
+          size: file.size,
+          driveFileId: uploadedFile.id,
+          webViewLink: uploadedFile.webViewLink,
+          uploadedAt: new Date().toISOString(),
+        }
+
+        const regRes = await fetch('/api/projects/register-document', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ projectId: project.id, document: docMeta, label: 'Dokumen Pendukung' }),
         })
 
-        if (res.ok) {
-          const data = await res.json()
+        if (regRes.ok) {
+          const data = await regRes.json()
           if (data.success && data.document) {
             const updatedDocs = [...(project.documents || []), data.document]
             updateProject({ ...project, documents: updatedDocs })
           }
         } else {
-          showAlert('Gagal mengunggah: ' + file.name)
+          showAlert('Gagal mendaftarkan dokumen: ' + file.name)
         }
       } catch (err) {
         console.error('[DOC UPLOAD DETAIL] Failed:', err)
-        showAlert('Terjadi kesalahan saat mengunggah dokumen.')
+        showAlert('Terjadi kesalahan saat mengunggah dokumen: ' + (err instanceof Error ? err.message : ''))
       }
     }
 

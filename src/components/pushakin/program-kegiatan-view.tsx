@@ -18,6 +18,7 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { useAppStore, type ProgramKegiatan } from '@/lib/store'
+import { chunkedUploadFile } from '@/lib/chunked-upload'
 import {
   Plus,
   Edit,
@@ -193,35 +194,80 @@ export function ProgramKegiatanView() {
     const pendingDocs = docs.filter((d: any) => d.file && !d.webViewLink)
     if (pendingDocs.length === 0) return { finalDocs: docs, docLinks: [] as string[] }
 
+    // Step 1: Prepare upload folder (get folderId from server)
+    let folderId: string
+    try {
+      updateStep('upload-docs', 'loading', 'Menyiapkan folder Google Drive...')
+      const prepRes = await fetch('/api/program-kegiatan/prepare-upload', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ kegiatanId }),
+      })
+      if (!prepRes.ok) {
+        let errorMsg = 'Gagal menyiapkan folder upload'
+        try { const err = await prepRes.json(); errorMsg = err.error || errorMsg } catch {}
+        throw new Error(errorMsg)
+      }
+      const prepData = await prepRes.json()
+      folderId = prepData.folderId
+      if (!folderId) throw new Error('Folder ID tidak ditemukan')
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Gagal menyiapkan folder'
+      console.error('[KEGIATAN UPLOAD] Prepare failed:', msg)
+      setUploadingDocs(prev => prev.map(d => (d as any).file ? { ...d, status: 'error', error: msg } : d))
+      return { finalDocs: docs.filter((d: any) => !d.file || !!d.webViewLink), docLinks: [] }
+    }
+
+    // Step 2: Upload each file using chunked resumable upload (supports ANY file size)
     const uploadedDocs: any[] = []
     const docLinks: string[] = []
     for (const doc of pendingDocs) {
       const file = doc.file as File
       try {
-        setUploadingDocs(prev => prev.map(d => d.id === doc.id ? { ...d, progress: 50 } : d))
         // Build auto-rename: use berkasName from manager, fallback to original name
         const safeBerkasName = (doc.berkasName || doc.originalName || 'Dokumen').trim().replace(/[/\\?%*:|"<>]/g, '-')
         const ext = doc.originalName?.split('.').pop() || ''
         const renamed = safeBerkasName + (ext ? '.' + ext : '')
         updateStep('upload-docs', 'loading', `Mengupload "${renamed}"...`)
-        const uploadForm = new FormData()
-        uploadForm.append('file', file)
-        uploadForm.append('kegiatanId', kegiatanId)
-        uploadForm.append('fileName', renamed)
-        const res = await fetch('/api/program-kegiatan/upload-document', { method: 'POST', body: uploadForm })
-        if (res.ok) {
-          const result = await res.json()
-          if (result.document) {
-            uploadedDocs.push(result.document)
-            if (result.document.webViewLink) docLinks.push(result.document.webViewLink)
-            setUploadingDocs(prev => prev.map(d => d.id === doc.id ? { ...d, progress: 100, status: 'success', webViewLink: result.document.webViewLink } : d))
-          }
+
+        // Use chunked upload — supports files of ANY size (up to Google Drive's 5 TB limit)
+        const uploadedFile = await chunkedUploadFile({
+          file,
+          folderId,
+          onProgress: (pct) => {
+            setUploadingDocs(prev => prev.map(d => d.id === doc.id ? { ...d, progress: pct } : d))
+          },
+        })
+
+        // Build document metadata
+        const docMeta = {
+          id: `DOC-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+          name: renamed,
+          originalName: doc.originalName || file.name,
+          mimeType: file.type || 'application/octet-stream',
+          size: file.size,
+          driveFileId: uploadedFile.id,
+          webViewLink: uploadedFile.webViewLink,
+          downloadUrl: `https://drive.google.com/uc?export=download&id=${uploadedFile.id}`,
+          uploadedAt: new Date().toISOString(),
+        }
+
+        // Register document metadata to kegiatan
+        const regRes = await fetch('/api/program-kegiatan/register-document', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ kegiatanId, document: docMeta }),
+        })
+
+        if (regRes.ok) {
+          const result = await regRes.json()
+          const finalDoc = result.document || docMeta
+          uploadedDocs.push(finalDoc)
+          if (finalDoc.webViewLink) docLinks.push(finalDoc.webViewLink)
+          setUploadingDocs(prev => prev.map(d => d.id === doc.id ? { ...d, progress: 100, status: 'success', webViewLink: finalDoc.webViewLink } : d))
         } else {
-          let errorMsg = 'Upload gagal'
-          try {
-            const err = await res.json()
-            errorMsg = err.error || errorMsg
-          } catch { /* ignore parse error */ }
+          let errorMsg = 'Gagal mendaftarkan dokumen'
+          try { const err = await regRes.json(); errorMsg = err.error || errorMsg } catch {}
           console.error(`[KEGIATAN UPLOAD] Failed "${renamed}":`, errorMsg)
           setUploadingDocs(prev => prev.map(d => d.id === doc.id ? { ...d, status: 'error', error: errorMsg } : d))
         }

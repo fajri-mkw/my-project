@@ -26,6 +26,7 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { useAppStore, type Surat, SURAT_KATEGORI_OPTIONS, SURAT_STATUS_CONFIG } from '@/lib/store'
+import { chunkedUploadFile } from '@/lib/chunked-upload'
 import {
   Plus,
   Mail,
@@ -244,8 +245,33 @@ export function SuratManagementView() {
     const pendingDocs = docs.filter((d: any) => d._pendingFile)
     if (pendingDocs.length === 0) return { finalDocs: docs, docLinks: [] as string[] }
 
+    // Step 1: Prepare upload folder (get folderId from server)
+    let folderId: string
+    try {
+      updateStep('upload-docs', 'loading', 'Menyiapkan folder Google Drive...')
+      const prepRes = await fetch('/api/surat/prepare-upload', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ suratId }),
+      })
+      if (!prepRes.ok) {
+        const err = await safeJsonParse(prepRes)
+        throw new Error(err?.error || 'Gagal menyiapkan folder upload')
+      }
+      const prepData = await prepRes.json()
+      folderId = prepData.folderId
+      if (!folderId) throw new Error('Folder ID tidak ditemukan')
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Gagal menyiapkan folder'
+      console.error('[SURAT UPLOAD] Prepare failed:', msg)
+      setUploadingDocs(prev => prev.map(d => (d as any)._pendingFile ? { ...d, status: 'error', error: msg } : d))
+      return { finalDocs: docs.filter((d: any) => !d._pendingFile), docLinks: [] }
+    }
+
+    // Step 2: Upload each file using chunked resumable upload (supports ANY file size)
     const uploadedDocs: any[] = []
     const docLinks: string[] = []
+
     for (const doc of pendingDocs) {
       const file = doc._pendingFile as File
       const MAX_UPLOAD_RETRIES = 2
@@ -254,44 +280,59 @@ export function SuratManagementView() {
 
       for (let attempt = 0; attempt <= MAX_UPLOAD_RETRIES; attempt++) {
         try {
-          setUploadingDocs(prev => prev.map(d => d.id === doc.id ? { ...d, progress: 50 } : d))
           if (attempt === 0) {
             updateStep('upload-docs', 'loading', `Mengupload "${doc.name}"...`)
           } else {
             updateStep('upload-docs', 'loading', `Percobaan ulang #${attempt} untuk "${doc.name}"...`)
           }
 
-          const uploadForm = new FormData()
-          uploadForm.append('file', file)
-          uploadForm.append('suratId', suratId)
-          uploadForm.append('fileName', doc.name) // Send renamed filename to server
-          const res = await fetch('/api/surat/upload-document', { method: 'POST', body: uploadForm })
+          // Use chunked upload — supports files of ANY size (up to Google Drive's 5 TB limit)
+          const uploadedFile = await chunkedUploadFile({
+            file,
+            folderId,
+            onProgress: (pct, status) => {
+              setUploadingDocs(prev => prev.map(d => d.id === doc.id ? { ...d, progress: pct, ...(status ? { error: undefined } : {}) } : d))
+            },
+          })
 
-          if (res.ok) {
-            const result = await safeJsonParse(res)
-            if (result?.document) {
-              uploadedDocs.push(result.document)
-              if (result.document.webViewLink) docLinks.push(result.document.webViewLink)
-              setUploadingDocs(prev => prev.map(d => d.id === doc.id ? { ...d, progress: 100, status: 'success', webViewLink: result.document.webViewLink } : d))
-              uploadSuccess = true
-              break
-            } else {
-              lastErrorMsg = 'Respon server tidak valid'
-            }
+          // Build document metadata
+          const docMeta = {
+            id: `DOC-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+            name: uploadedFile.name,
+            originalName: file.name !== uploadedFile.name ? file.name : undefined,
+            mimeType: file.type || 'application/octet-stream',
+            size: file.size,
+            driveFileId: uploadedFile.id,
+            webViewLink: uploadedFile.webViewLink,
+            downloadUrl: `https://drive.google.com/uc?export=download&id=${uploadedFile.id}`,
+            uploadedAt: new Date().toISOString(),
+          }
+
+          // Register document metadata to surat
+          const regRes = await fetch('/api/surat/register-document', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ suratId, document: docMeta }),
+          })
+
+          if (regRes.ok) {
+            const regResult = await safeJsonParse(regRes)
+            const finalDoc = regResult?.document || docMeta
+            uploadedDocs.push(finalDoc)
+            if (finalDoc.webViewLink) docLinks.push(finalDoc.webViewLink)
+            setUploadingDocs(prev => prev.map(d => d.id === doc.id ? { ...d, progress: 100, status: 'success', webViewLink: finalDoc.webViewLink } : d))
+            uploadSuccess = true
+            break
           } else {
-            const err = await safeJsonParse(res)
-            lastErrorMsg = err?.error || `Upload gagal (HTTP ${res.status})`
-            // 4xx errors are not retryable (validation/client error)
-            if (res.status >= 400 && res.status < 500) {
-              break
-            }
+            const err = await safeJsonParse(regRes)
+            lastErrorMsg = err?.error || `Gagal mendaftarkan dokumen (HTTP ${regRes.status})`
+            if (regRes.status >= 400 && regRes.status < 500) break
           }
         } catch (err) {
           lastErrorMsg = err instanceof Error ? err.message : 'Upload gagal'
           console.error(`[SURAT UPLOAD] Attempt ${attempt + 1} error for "${doc.name}":`, lastErrorMsg)
         }
 
-        // Retry delay: 800ms, 1600ms
         if (attempt < MAX_UPLOAD_RETRIES) {
           await new Promise(r => setTimeout(r, 800 * (attempt + 1)))
         }

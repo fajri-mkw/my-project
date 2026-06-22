@@ -1,6 +1,5 @@
-import { db, ensureDbConnection } from '@/lib/db'
+import { db } from '@/lib/db'
 import { NextRequest, NextResponse } from 'next/server'
-import { checkMaintenanceMode } from '@/lib/maintenance-check'
 import { getCachedAccessToken } from '@/lib/drive-service'
 
 /**
@@ -55,10 +54,7 @@ function buildAutoFileName(
 }
 
 export async function POST(request: NextRequest) {
-  const maintenanceBlock = await checkMaintenanceMode(request)
-  if (maintenanceBlock) return maintenanceBlock
   try {
-    await ensureDbConnection()
     const { fileName, mimeType, folderId, autoNameMeta } = await request.json()
 
     if (!fileName || !folderId) {
