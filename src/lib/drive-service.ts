@@ -169,3 +169,164 @@ export function validateServiceAccountKeyString(
     }
   }
 }
+
+/**
+ * Get a Google API access token using service account credentials.
+ * Uses googleapis internally — auth-only operations work fine in Cloudflare Workers.
+ */
+export async function getAccessToken(serviceAccountKey: string): Promise<string> {
+  const credentials = parseServiceAccountKey(serviceAccountKey)
+  validateServiceAccountCredentials(credentials)
+  const auth = new google.auth.GoogleAuth({
+    credentials,
+    scopes: ['https://www.googleapis.com/auth/drive'],
+  })
+  const authClient = await auth.getClient()
+  const token = await authClient.getAccessToken()
+  if (!token || !token.token) {
+    throw new Error('Failed to obtain Google API access token')
+  }
+  return token.token
+}
+
+/**
+ * Share a file or folder with "anyone who has the link".
+ * Uses fetch directly to avoid googleapis stream quirks (defensive —
+ * drive.permissions.create is JSON-only and usually works, but we keep
+ * the option to use this helper if needed).
+ */
+export async function shareWithAnyone(
+  accessToken: string,
+  fileId: string,
+  role: 'reader' | 'writer' = 'reader',
+): Promise<boolean> {
+  try {
+    const response = await fetch(
+      `https://www.googleapis.com/drive/v3/files/${fileId}/permissions?supportsAllDrives=true`,
+      {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${accessToken}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          type: 'anyone',
+          role,
+          allowFileDiscovery: false,
+        }),
+      },
+    )
+    return response.ok
+  } catch (err) {
+    console.error('[DRIVE] shareWithAnyone failed:', err)
+    return false
+  }
+}
+
+/**
+ * Upload a file to Google Drive using the multipart/related upload method
+ * via direct fetch(). This bypasses googleapis's stream-based multipart
+ * builder (gaxios) which fails in Cloudflare Workers with
+ * "Missing end boundary in multipart body" — the underlying Readable
+ * stream's end event does not flush the closing boundary marker in the
+ * Workers runtime.
+ *
+ * We build the multipart/related body manually as a Uint8Array (no streams)
+ * and POST it to the Google Drive API. This is robust on Cloudflare Workers.
+ *
+ * Retries up to 2 times on transient failures (5xx / network errors).
+ */
+export async function uploadFileToDrive(params: {
+  serviceAccountKey: string
+  fileName: string
+  mimeType: string
+  content: Uint8Array
+  parents: string[]
+  sharedDriveId?: string
+}): Promise<{ id: string; name: string; webViewLink: string; size?: string }> {
+  const { serviceAccountKey, fileName, mimeType, content, parents, sharedDriveId } = params
+
+  const accessToken = await getAccessToken(serviceAccountKey)
+
+  // Build the multipart/related body manually as a single Uint8Array.
+  // Format:
+  //   --{boundary}\r\n
+  //   Content-Type: application/json; charset=UTF-8\r\n\r\n
+  //   {metadataJson}\r\n
+  //   --{boundary}\r\n
+  //   Content-Type: {mimeType}\r\n\r\n
+  //   {file bytes}\r\n
+  //   --{boundary}--\r\n
+  const boundary = 'pushakin_boundary_' + (crypto.randomUUID().replace(/-/g, ''))
+  const encoder = new TextEncoder()
+
+  const metadata: Record<string, unknown> = { name: fileName, mimeType }
+  if (sharedDriveId) metadata.driveId = sharedDriveId
+  metadata.parents = parents
+
+  const metadataJson = JSON.stringify(metadata)
+  const part1 = encoder.encode(
+    `--${boundary}\r\n` +
+    `Content-Type: application/json; charset=UTF-8\r\n\r\n` +
+    metadataJson + '\r\n',
+  )
+  const part2 = encoder.encode(
+    `--${boundary}\r\n` +
+    `Content-Type: ${mimeType}\r\n\r\n`,
+  )
+  const part4 = encoder.encode(`\r\n--${boundary}--\r\n`)
+
+  const totalLen = part1.byteLength + part2.byteLength + content.byteLength + part4.byteLength
+  const body = new Uint8Array(totalLen)
+  body.set(part1, 0)
+  body.set(part2, part1.byteLength)
+  body.set(content, part1.byteLength + part2.byteLength)
+  body.set(part4, part1.byteLength + part2.byteLength + content.byteLength)
+
+  const url =
+    'https://www.googleapis.com/upload/drive/v3/files' +
+    '?uploadType=multipart&supportsAllDrives=true' +
+    '&fields=id,name,webViewLink,size'
+
+  let lastError: Error | null = null
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${accessToken}`,
+          'Content-Type': `multipart/related; boundary=${boundary}`,
+          'Content-Length': totalLen.toString(),
+        },
+        body,
+      })
+
+      if (!response.ok) {
+        const errorText = await response.text()
+        // 4xx errors won't fix on retry
+        if (response.status >= 400 && response.status < 500) {
+          throw new Error(`Google Drive API ${response.status}: ${errorText}`)
+        }
+        // 5xx — retry
+        throw new Error(`Google Drive API ${response.status} (transient): ${errorText}`)
+      }
+
+      const fileData = await response.json()
+      return {
+        id: fileData.id,
+        name: fileData.name,
+        webViewLink: fileData.webViewLink,
+        size: fileData.size,
+      }
+    } catch (err) {
+      lastError = err instanceof Error ? err : new Error(String(err))
+      const isTransient = /transient|5\d\d|Failed to fetch|NetworkError/i.test(lastError.message)
+      if (!isTransient || attempt === 2) {
+        throw lastError
+      }
+      // Exponential backoff: 600ms, 1200ms
+      await new Promise((r) => setTimeout(r, 600 * (attempt + 1)))
+    }
+  }
+  throw lastError || new Error('Upload gagal — tidak diketahui')
+}

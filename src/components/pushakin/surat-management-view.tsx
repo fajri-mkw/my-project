@@ -237,7 +237,9 @@ export function SuratManagementView() {
     })
   }
 
-  // Upload pending documents to Google Drive after surat is created/edited
+  // Upload pending documents to Google Drive after surat is created/edited.
+  // Includes 2 retries with exponential backoff for transient failures
+  // (network errors, CF CPU limit 5xx, HTML error pages).
   const uploadDocumentsToDrive = async (suratId: string, docs: any[]) => {
     const pendingDocs = docs.filter((d: any) => d._pendingFile)
     if (pendingDocs.length === 0) return { finalDocs: docs, docLinks: [] as string[] }
@@ -246,32 +248,58 @@ export function SuratManagementView() {
     const docLinks: string[] = []
     for (const doc of pendingDocs) {
       const file = doc._pendingFile as File
-      try {
-        setUploadingDocs(prev => prev.map(d => d.id === doc.id ? { ...d, progress: 50 } : d))
-        updateStep('upload-docs', 'loading', `Mengupload "${doc.name}"...`)
-        const uploadForm = new FormData()
-        uploadForm.append('file', file)
-        uploadForm.append('suratId', suratId)
-        uploadForm.append('fileName', doc.name) // Send renamed filename to server
-        const res = await fetch('/api/surat/upload-document', { method: 'POST', body: uploadForm })
-        if (res.ok) {
-          const result = await safeJsonParse(res)
-          if (result?.document) {
-            uploadedDocs.push(result.document)
-            if (result.document.webViewLink) docLinks.push(result.document.webViewLink)
-            setUploadingDocs(prev => prev.map(d => d.id === doc.id ? { ...d, progress: 100, status: 'success', webViewLink: result.document.webViewLink } : d))
+      const MAX_UPLOAD_RETRIES = 2
+      let uploadSuccess = false
+      let lastErrorMsg = 'Upload gagal'
+
+      for (let attempt = 0; attempt <= MAX_UPLOAD_RETRIES; attempt++) {
+        try {
+          setUploadingDocs(prev => prev.map(d => d.id === doc.id ? { ...d, progress: 50 } : d))
+          if (attempt === 0) {
+            updateStep('upload-docs', 'loading', `Mengupload "${doc.name}"...`)
+          } else {
+            updateStep('upload-docs', 'loading', `Percobaan ulang #${attempt} untuk "${doc.name}"...`)
           }
-        } else {
-          let errorMsg = 'Upload gagal'
-          const err = await safeJsonParse(res)
-          if (err?.error) errorMsg = err.error
-          console.error(`[SURAT UPLOAD] Failed "${doc.name}":`, errorMsg)
-          setUploadingDocs(prev => prev.map(d => d.id === doc.id ? { ...d, status: 'error', error: errorMsg } : d))
+
+          const uploadForm = new FormData()
+          uploadForm.append('file', file)
+          uploadForm.append('suratId', suratId)
+          uploadForm.append('fileName', doc.name) // Send renamed filename to server
+          const res = await fetch('/api/surat/upload-document', { method: 'POST', body: uploadForm })
+
+          if (res.ok) {
+            const result = await safeJsonParse(res)
+            if (result?.document) {
+              uploadedDocs.push(result.document)
+              if (result.document.webViewLink) docLinks.push(result.document.webViewLink)
+              setUploadingDocs(prev => prev.map(d => d.id === doc.id ? { ...d, progress: 100, status: 'success', webViewLink: result.document.webViewLink } : d))
+              uploadSuccess = true
+              break
+            } else {
+              lastErrorMsg = 'Respon server tidak valid'
+            }
+          } else {
+            const err = await safeJsonParse(res)
+            lastErrorMsg = err?.error || `Upload gagal (HTTP ${res.status})`
+            // 4xx errors are not retryable (validation/client error)
+            if (res.status >= 400 && res.status < 500) {
+              break
+            }
+          }
+        } catch (err) {
+          lastErrorMsg = err instanceof Error ? err.message : 'Upload gagal'
+          console.error(`[SURAT UPLOAD] Attempt ${attempt + 1} error for "${doc.name}":`, lastErrorMsg)
         }
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : 'Upload gagal'
-        console.error(`[SURAT UPLOAD] Error "${doc.name}":`, msg)
-        setUploadingDocs(prev => prev.map(d => d.id === doc.id ? { ...d, status: 'error', error: msg } : d))
+
+        // Retry delay: 800ms, 1600ms
+        if (attempt < MAX_UPLOAD_RETRIES) {
+          await new Promise(r => setTimeout(r, 800 * (attempt + 1)))
+        }
+      }
+
+      if (!uploadSuccess) {
+        console.error(`[SURAT UPLOAD] Failed "${doc.name}" after retries:`, lastErrorMsg)
+        setUploadingDocs(prev => prev.map(d => d.id === doc.id ? { ...d, status: 'error', error: lastErrorMsg } : d))
       }
     }
     return { finalDocs: [...docs.filter((d: any) => !d._pendingFile), ...uploadedDocs], docLinks }

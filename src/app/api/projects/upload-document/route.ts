@@ -2,16 +2,12 @@ import { db, ensureDbConnection } from '@/lib/db'
 import { NextRequest, NextResponse } from 'next/server'
 import { checkMaintenanceMode } from '@/lib/maintenance-check'
 import { google } from 'googleapis'
-import { Readable } from 'stream'
-import { getDriveClient } from '@/lib/drive-service'
+import { getDriveClient, uploadFileToDrive, getAccessToken, shareWithAnyone } from '@/lib/drive-service'
 
-// Convert Buffer to Readable stream for Google Drive upload
-function bufferToStream(buffer: Buffer) {
-  const readable = new Readable()
-  readable.push(buffer)
-  readable.push(null)
-  return readable
-}
+// Convert Buffer to Readable stream — REMOVED.
+// File uploads now use uploadFileToDrive (direct fetch + multipart/related).
+// googleapis's stream-based upload fails in Cloudflare Workers with
+// "Missing end boundary in multipart body".
 
 interface DocumentMeta {
   id: string
@@ -54,46 +50,27 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    const drive = getDriveClient(settings.driveServiceAccountKey)
+    // Determine upload target — either driveParentFolderId or shared drive root
+    const targetFolderId = settings.driveParentFolderId || settings.driveSharedDriveId
 
-    // Create "DOKUMEN PENDUKUNG" folder inside project folder (if Drive auto-create is on)
-    // For now, upload directly to shared drive root or a designated parent
-    const buffer = Buffer.from(await file.arrayBuffer())
+    // Upload file via direct fetch + multipart/related (bypasses googleapis
+    // stream-based upload that fails in Cloudflare Workers).
+    const fileContent = new Uint8Array(await file.arrayBuffer())
+    const fileMime = file.type || 'application/octet-stream'
 
-    const fileMetadata: any = {
-      name: file.name,
-      mimeType: file.type || 'application/octet-stream',
-    }
-
-    // If driveParentFolderId is set, use it; otherwise use shared drive root
-    if (settings.driveParentFolderId) {
-      fileMetadata.parents = [settings.driveParentFolderId]
-    } else {
-      fileMetadata.driveId = settings.driveSharedDriveId
-      fileMetadata.parents = [settings.driveSharedDriveId]
-    }
-
-    const driveResponse = await drive.files.create({
-      requestBody: fileMetadata,
-      media: {
-        mimeType: file.type || 'application/octet-stream',
-        body: bufferToStream(buffer),
-      },
-      fields: 'id, name, webViewLink, size',
-      supportsAllDrives: true,
+    const driveResponse = await uploadFileToDrive({
+      serviceAccountKey: settings.driveServiceAccountKey,
+      fileName: file.name,
+      mimeType: fileMime,
+      content: fileContent,
+      parents: [targetFolderId],
+      sharedDriveId: settings.driveSharedDriveId,
     })
 
-    // Share with anyone who has the link (reader)
+    // Share with anyone who has the link (reader) — uses fetch directly
     try {
-      await drive.permissions.create({
-        fileId: driveResponse.data.id!,
-        requestBody: {
-          type: 'anyone',
-          role: 'reader',
-          allowFileDiscovery: false,
-        },
-        supportsAllDrives: true,
-      })
+      const accessToken = await getAccessToken(settings.driveServiceAccountKey)
+      await shareWithAnyone(accessToken, driveResponse.id, 'reader')
     } catch (shareErr) {
       console.error('[DOC UPLOAD] Failed to share file:', shareErr)
     }
@@ -102,10 +79,10 @@ export async function POST(request: NextRequest) {
     const docMeta: DocumentMeta = {
       id: `DOC-${Date.now()}`,
       name: file.name,
-      mimeType: file.type || 'application/octet-stream',
+      mimeType: fileMime,
       size: file.size,
-      driveFileId: driveResponse.data.id!,
-      webViewLink: driveResponse.data.webViewLink || '',
+      driveFileId: driveResponse.id,
+      webViewLink: driveResponse.webViewLink || '',
       uploadedAt: new Date().toISOString(),
     }
 

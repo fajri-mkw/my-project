@@ -2,8 +2,7 @@ import { db, ensureDbConnection } from '@/lib/db'
 import { NextRequest, NextResponse } from 'next/server'
 import { checkMaintenanceMode } from '@/lib/maintenance-check'
 import { google } from 'googleapis'
-import { Readable } from 'stream'
-import { getDriveClient } from '@/lib/drive-service'
+import { getDriveClient, uploadFileToDrive, getAccessToken, shareWithAnyone } from '@/lib/drive-service'
 
 // Indonesian month names
 const BULAN_INDONESIA = [
@@ -130,15 +129,10 @@ async function findOrCreateSuratMonthFolder(
   return suratFolderId
 }
 
-// Convert Buffer to Readable stream for Google Drive upload
-function bufferToStream(buffer: Buffer) {
-  const readable = new Readable()
-  readable.push(buffer)
-  readable.push(null)
-  return readable
-}
-
-// getDriveClient imported from @/lib/drive-service (robust JSON parser)
+// getDriveClient + uploadFileToDrive imported from @/lib/drive-service.
+// File uploads now use uploadFileToDrive (direct fetch + multipart/related)
+// instead of googleapis's stream-based upload, which fails in Cloudflare
+// Workers with "Missing end boundary in multipart body".
 
 interface DocumentMeta {
   id: string
@@ -243,49 +237,39 @@ export async function POST(request: NextRequest) {
       console.log(`[SURAT DOC] Created folder "${folderName}" (${targetFolderId})`)
     }
 
-    // Upload file to the folder using the RENAMED filename
+    // Upload file to the folder using the RENAMED filename.
+    // IMPORTANT: We use uploadFileToDrive (direct fetch + multipart/related)
+    // instead of drive.files.create({ media: { body: stream } }) because
+    // googleapis's stream-based upload fails in Cloudflare Workers with
+    // "Missing end boundary in multipart body".
     const uploadFileName = fileName || file.name // Use renamed name if provided
-    const buffer = Buffer.from(await file.arrayBuffer())
-
-    const fileMetadata: any = {
-      name: uploadFileName,
-      mimeType: file.type || 'application/octet-stream',
-      driveId: settings.driveSharedDriveId,
-      parents: [targetFolderId],
-    }
+    const fileContent = new Uint8Array(await file.arrayBuffer())
+    const fileMime = file.type || 'application/octet-stream'
 
     console.log(`[SURAT DOC] Uploading "${uploadFileName}" (${(file.size / 1024).toFixed(1)}KB) to folder ${targetFolderId}...`)
 
-    const driveResponse = await drive.files.create({
-      requestBody: fileMetadata,
-      media: {
-        mimeType: file.type || 'application/octet-stream',
-        body: bufferToStream(buffer),
-      },
-      fields: 'id, name, webViewLink, size, exportLinks',
-      supportsAllDrives: true,
+    const driveResponse = await uploadFileToDrive({
+      serviceAccountKey: settings.driveServiceAccountKey,
+      fileName: uploadFileName,
+      mimeType: fileMime,
+      content: fileContent,
+      parents: [targetFolderId],
+      sharedDriveId: settings.driveSharedDriveId,
     })
 
-    const driveFileId = driveResponse.data.id!
-    console.log(`[SURAT DOC] Upload success: ${driveFileId} — ${driveResponse.data.name}`)
+    const driveFileId = driveResponse.id
+    console.log(`[SURAT DOC] Upload success: ${driveFileId} — ${driveResponse.name}`)
 
-    // Share file with anyone who has the link (reader)
+    // Share file with anyone who has the link (reader) — uses fetch directly
     try {
-      await drive.permissions.create({
-        fileId: driveFileId,
-        requestBody: {
-          type: 'anyone',
-          role: 'reader',
-          allowFileDiscovery: false,
-        },
-        supportsAllDrives: true,
-      })
+      const accessToken = await getAccessToken(settings.driveServiceAccountKey)
+      await shareWithAnyone(accessToken, driveFileId, 'reader')
     } catch (shareErr) {
       console.error('[SURAT DOC] Failed to share file:', shareErr)
     }
 
     // Build proper access URLs
-    const webViewLink = driveResponse.data.webViewLink || `https://drive.google.com/file/d/${driveFileId}/view`
+    const webViewLink = driveResponse.webViewLink || `https://drive.google.com/file/d/${driveFileId}/view`
     const downloadUrl = `https://drive.google.com/uc?export=download&id=${driveFileId}`
 
     // Build document metadata
