@@ -255,18 +255,16 @@ export function SuratManagementView() {
         uploadForm.append('fileName', doc.name) // Send renamed filename to server
         const res = await fetch('/api/surat/upload-document', { method: 'POST', body: uploadForm })
         if (res.ok) {
-          const result = await res.json()
-          if (result.document) {
+          const result = await safeJsonParse(res)
+          if (result?.document) {
             uploadedDocs.push(result.document)
             if (result.document.webViewLink) docLinks.push(result.document.webViewLink)
             setUploadingDocs(prev => prev.map(d => d.id === doc.id ? { ...d, progress: 100, status: 'success', webViewLink: result.document.webViewLink } : d))
           }
         } else {
           let errorMsg = 'Upload gagal'
-          try {
-            const err = await res.json()
-            errorMsg = err.error || errorMsg
-          } catch { /* ignore parse error */ }
+          const err = await safeJsonParse(res)
+          if (err?.error) errorMsg = err.error
           console.error(`[SURAT UPLOAD] Failed "${doc.name}":`, errorMsg)
           setUploadingDocs(prev => prev.map(d => d.id === doc.id ? { ...d, status: 'error', error: errorMsg } : d))
         }
@@ -318,6 +316,111 @@ export function SuratManagementView() {
     setUploadingDocs([])
     setSaveProgress(null)
     setIsFormMaximized(false)
+  }
+
+  // Safe JSON parse — returns null if body is not valid JSON (e.g. Cloudflare HTML error page)
+  const safeJsonParse = async (response: Response): Promise<any | null> => {
+    try {
+      return await response.json()
+    } catch {
+      return null
+    }
+  }
+
+  // Fetch with retry for surat save operations.
+  // Retries on: network errors, HTTP 5xx, and non-JSON responses (CF error pages).
+  // POST /api/surat is safe to retry because nomorSurat is NOT @unique.
+  const fetchSuratWithRetry = async (
+    url: string,
+    method: 'POST' | 'PUT',
+    body: any,
+    onRetry?: (attempt: number, reason: string) => void
+  ): Promise<{ ok: boolean; data?: any; error?: string; status?: number }> => {
+    const MAX_RETRIES = 2
+    const RETRY_DELAY_MS = 800
+
+    for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+      try {
+        const response = await fetch(url, {
+          method,
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        })
+
+        // If response is OK, parse and return
+        if (response.ok) {
+          const data = await safeJsonParse(response)
+          if (data) return { ok: true, data }
+          // OK but non-JSON — shouldn't happen, treat as error
+          if (attempt < MAX_RETRIES) {
+            onRetry?.(attempt + 1, 'Respons tidak valid')
+            await new Promise(r => setTimeout(r, RETRY_DELAY_MS * (attempt + 1)))
+            continue
+          }
+          return { ok: false, error: 'Respons server tidak valid' }
+        }
+
+        // Non-OK response: try to parse error JSON safely
+        const errData = await safeJsonParse(response)
+
+        // 5xx errors: retry (likely CF CPU limit or temporary server issue)
+        if (response.status >= 500 && response.status < 600) {
+          if (attempt < MAX_RETRIES) {
+            const reason = errData?.error || `Server error (${response.status})`
+            onRetry?.(attempt + 1, reason)
+            await new Promise(r => setTimeout(r, RETRY_DELAY_MS * (attempt + 1)))
+            continue
+          }
+          // Final attempt failed — return the error
+          return { ok: false, error: errData?.error || `Server error (${response.status})`, status: response.status }
+        }
+
+        // 4xx errors: don't retry (client error — e.g. validation failure)
+        return { ok: false, error: errData?.error || `Gagal menyimpan surat (${response.status})`, status: response.status }
+
+      } catch (error) {
+        // Network error (fetch threw) — retry
+        if (attempt < MAX_RETRIES) {
+          onRetry?.(attempt + 1, 'Koneksi terputus')
+          await new Promise(r => setTimeout(r, RETRY_DELAY_MS * (attempt + 1)))
+          continue
+        }
+        return { ok: false, error: 'Koneksi terputus. Periksa jaringan Anda.' }
+      }
+    }
+    return { ok: false, error: 'Gagal menyimpan surat setelah beberapa percobaan' }
+  }
+
+  // Store last payload for retry functionality
+  const [lastSavePayload, setLastSavePayload] = useState<{ method: 'POST' | 'PUT'; body: any; editingId: string | null } | null>(null)
+
+  const performSave = async (payload: any, editingId: string | null, hasPending: boolean) => {
+    let suratData: any = null
+
+    const result = await fetchSuratWithRetry(
+      '/api/surat',
+      editingId ? 'PUT' : 'POST',
+      editingId ? { id: editingId, ...payload } : payload,
+      (attempt, reason) => {
+        updateStep('save-surat', 'loading', `Percobaan ulang #${attempt}: ${reason}...`)
+      }
+    )
+
+    if (!result.ok) {
+      updateStep('save-surat', 'error', result.error || 'Gagal menyimpan surat')
+      setIsSaving(false)
+      return null
+    }
+
+    suratData = result.data
+    if (editingId) {
+      updateSurat(suratData)
+      updateStep('save-surat', 'success', `Surat ${suratData.nomorSurat} berhasil diperbarui`)
+    } else {
+      addSurat(suratData)
+      updateStep('save-surat', 'success', `Surat ${suratData.nomorSurat} berhasil dibuat`)
+    }
+    return suratData
   }
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -380,39 +483,11 @@ export function SuratManagementView() {
         payload.picWhatsApp = formData.picWhatsApp || null
       }
 
-      let suratData: any = null
+      // Store payload for retry button
+      setLastSavePayload({ method: editingId ? 'PUT' : 'POST', body: payload, editingId })
 
-      if (editingId) {
-        const response = await fetch('/api/surat', {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ id: editingId, ...payload })
-        })
-        if (!response.ok) {
-          const err = await response.json()
-          updateStep('save-surat', 'error', err.error || 'Gagal memperbarui surat')
-          setIsSaving(false)
-          return
-        }
-        suratData = await response.json()
-        updateSurat(suratData)
-        updateStep('save-surat', 'success', `Surat ${suratData.nomorSurat} berhasil diperbarui`)
-      } else {
-        const response = await fetch('/api/surat', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload)
-        })
-        if (!response.ok) {
-          const err = await response.json()
-          updateStep('save-surat', 'error', err.error || 'Gagal membuat surat')
-          setIsSaving(false)
-          return
-        }
-        suratData = await response.json()
-        addSurat(suratData)
-        updateStep('save-surat', 'success', `Surat ${suratData.nomorSurat} berhasil dibuat`)
-      }
+      const suratData = await performSave(payload, editingId, hasPending)
+      if (!suratData) return
 
       // --- STEP 2: Upload documents (folder created automatically if needed) ---
       if (hasPending) {
@@ -450,7 +525,70 @@ export function SuratManagementView() {
         if (loadingStep) {
           return {
             ...prev,
-            steps: prev.steps.map(s => s.key === loadingStep.key ? { ...s, status: 'error' as const, detail: 'Terjadi kesalahan koneksi' } : s),
+            steps: prev.steps.map(s => s.key === loadingStep.key ? { ...s, status: 'error' as const, detail: 'Terjadi kesalahan tak terduga. Silakan coba lagi.' } : s),
+          }
+        }
+        return prev
+      })
+      setIsSaving(false)
+    }
+  }
+
+  // Retry handler — re-attempts the save from the last payload
+  const handleRetrySave = async () => {
+    if (!lastSavePayload) return
+    const hasPending = formData.documents.some((d: any) => d._pendingFile)
+
+    // Reset steps
+    type StepStatus = 'pending' | 'loading' | 'success' | 'error'
+    const steps: { key: string; label: string; icon: React.ReactNode; status: StepStatus; detail?: string }[] = [
+      { key: 'save-surat', label: 'Menyimpan data surat...', icon: <Save className="w-4 h-4" />, status: 'pending' },
+      { key: 'upload-docs', label: hasPending ? `Mengupload ${formData.documents.filter((d: any) => d._pendingFile).length} dokumen ke Google Drive...` : 'Tidak ada dokumen untuk diupload', icon: <CloudUpload className="w-4 h-4" />, status: 'pending' },
+      { key: 'done', label: 'Selesai!', icon: <CheckCircle2 className="w-4 h-4" />, status: 'pending' },
+    ]
+    if (!hasPending) {
+      steps[1].status = 'success'
+      steps[1].detail = 'Dilewati (tidak ada dokumen)'
+    }
+
+    setSaveProgress({ active: true, steps })
+    setIsSaving(true)
+    updateStep('save-surat', 'loading', 'Mencoba ulang...')
+
+    try {
+      const suratData = await performSave(lastSavePayload.body, lastSavePayload.editingId, hasPending)
+      if (!suratData) return
+
+      // --- STEP 2: Upload documents ---
+      if (hasPending) {
+        const suratId = lastSavePayload.editingId || suratData.id
+        const { finalDocs, docLinks } = await uploadDocumentsToDrive(suratId, formData.documents)
+        setFormData(prev => ({ ...prev, documents: finalDocs }))
+        const successCount = docLinks.length
+        const failCount = formData.documents.filter((d: any) => d._pendingFile).length - successCount
+        if (successCount > 0) {
+          updateStep('upload-docs', 'success', `${successCount} dokumen berhasil diupload ke Google Drive`)
+          setSaveProgress(prev => prev ? { ...prev, docLinks } : null)
+        }
+        if (failCount > 0) {
+          updateStep('upload-docs', successCount > 0 ? 'success' : 'error',
+            successCount > 0 ? `${successCount} berhasil, ${failCount} gagal diupload` : `${failCount} dokumen gagal diupload`
+          )
+        }
+      } else {
+        updateStep('upload-docs', 'success')
+      }
+
+      updateStep('done', 'success')
+      setIsSaving(false)
+    } catch (error) {
+      setSaveProgress(prev => {
+        if (!prev) return prev
+        const loadingStep = prev.steps.find(s => s.status === 'loading')
+        if (loadingStep) {
+          return {
+            ...prev,
+            steps: prev.steps.map(s => s.key === loadingStep.key ? { ...s, status: 'error' as const, detail: 'Terjadi kesalahan tak terduga. Silakan coba lagi.' } : s),
           }
         }
         return prev
@@ -1356,14 +1494,25 @@ export function SuratManagementView() {
                     ))}
                   </div>
 
-                  {/* Close button only when fully done or error */}
+                  {/* Action buttons: Retry (on error) + Close (when done or error) */}
                   {(saveProgress.steps[saveProgress.steps.length - 1]?.status === 'success' || saveProgress.steps.some(s => s.status === 'error')) && (
-                    <div className="mt-5 pt-4 border-t border-stone-100">
+                    <div className="mt-5 pt-4 border-t border-stone-100 space-y-2">
+                      {/* Retry button — only shown when save-surat step failed */}
+                      {saveProgress.steps.some(s => s.key === 'save-surat' && s.status === 'error') && (
+                        <Button
+                          className="w-full bg-amber-600 hover:bg-amber-700"
+                          onClick={handleRetrySave}
+                        >
+                          <RotateCcw className="w-4 h-4 mr-2" />
+                          Coba Lagi
+                        </Button>
+                      )}
                       <Button
                         className="w-full bg-emerald-600 hover:bg-emerald-700"
                         onClick={() => {
                           setSaveProgress(null)
                           setIsSaving(false)
+                          setLastSavePayload(null)
                           closeForm()
                           fetchSurat()
                         }}
