@@ -388,6 +388,16 @@ function AppContent() {
           .catch(error => console.error('Failed to fetch surat tugas:', error))
       )
 
+      // Re-fetch projects so cross-user changes (e.g. Super Admin force-complete,
+      // stage advances by other users) sync to this user within ~60s without a
+      // manual page refresh. Edge-cached, so the CPU cost is minimal.
+      fetchPromises.push(
+        fetch('/api/projects')
+          .then(res => res.ok ? res.json() : null)
+          .then(data => { if (data) setProjects(data) })
+          .catch(error => console.error('Failed to refetch projects:', error))
+      )
+
       // Role-specific fetches (Administrator, Manager, Admin)
       if (['Administrator', 'Manager', 'Admin'].includes(currentUser.role)) {
         const role = currentUser.role
@@ -431,7 +441,7 @@ function AppContent() {
     // Single consolidated polling interval (60s instead of 5 separate 30s intervals)
     const pollInterval = setInterval(fetchRoleData, 60000)
     return () => clearInterval(pollInterval)
-  }, [currentUser, isImpersonating, setNotifications, setSuratTugas, setPermohonanList, setSuratList, setKegiatanList])
+  }, [currentUser, isImpersonating, setNotifications, setSuratTugas, setPermohonanList, setSuratList, setKegiatanList, setProjects])
 
   // Handle database seeding
   const handleSeed = async () => {

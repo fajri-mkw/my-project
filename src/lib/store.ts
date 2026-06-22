@@ -628,7 +628,9 @@ export const useAppStore = create<AppState>()(
       const updatedTasks = p.tasks.map(t => ({
         ...t,
         status: 'completed' as const,
-        data: t.data || { forceCompleted: true }
+        // Merge existing data (preserves publishLinks, uploaded file links, notes, etc.)
+        // instead of overwriting with just { forceCompleted: true }
+        data: { ...(t.data || {}), forceCompleted: true, completedBy: 'Super Admin' }
       }))
       return { ...p, tasks: updatedTasks, currentStage: 5 }
     })

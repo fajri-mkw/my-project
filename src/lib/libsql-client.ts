@@ -184,10 +184,13 @@ function createLocalSqliteClient(fileUrl: string): Client {
       statements: InStatement[],
       _mode?: 'deferred' | 'write' | 'async',
     ): Promise<unknown[]> => {
-      // Run all statements atomically. better-sqlite3's db.transaction()
-      // wraps in BEGIN/COMMIT and rolls back on error — exactly what we want.
+      // Run all statements atomically. better-sqlite3's db.transaction(fn)
+      // RETURNS a transactional wrapper function (it does NOT call fn).
+      // We must invoke the returned function to actually execute the batch.
+      // This wraps in BEGIN/COMMIT and rolls back on error — exactly what we want.
       try {
-        const out = db.transaction(() => statements.map(executeOne))
+        const txn = db.transaction(() => statements.map(executeOne))
+        const out = txn()
         return Promise.resolve(out)
       } catch (e) {
         return Promise.reject(e)

@@ -601,27 +601,33 @@ export async function PUT(request: NextRequest) {
         )
       }
 
+      // Fetch ALL tasks (need assignedTo + existing data to merge, not just id/status)
       const tasksRes = await client.execute({
-        sql: `SELECT id, status FROM tasks WHERE projectId = ?`,
+        sql: `SELECT id, status, assignedTo, data FROM tasks WHERE projectId = ?`,
         args: [id],
       })
-      const pendingTaskIds = tasksRes.rows
-        .filter((t) => String(t.status) !== 'completed')
-        .map((t) => String(t.id))
+      const allTasks = tasksRes.rows
+      const pendingTasks = allTasks.filter(
+        (t) => String(t.status) !== 'completed',
+      )
 
       const ts = nowMs()
       const stmts: InStatement[] = []
 
-      // Complete all pending tasks
-      for (const taskId of pendingTaskIds) {
+      // Complete all pending tasks — MERGE existing data instead of overwriting
+      // (preserves publishLinks, uploaded file links, notes, etc.)
+      for (const t of pendingTasks) {
+        const existingData = t.data ? parseJSON(t.data, {}) : {}
+        const mergedData = JSON.stringify({
+          ...existingData,
+          forceCompleted: true,
+          completedBy: 'Super Admin',
+          forceCompletedAt: ts,
+        })
         stmts.push({
           sql: `UPDATE tasks SET status = 'completed',
                   data = ?, updatedAt = ? WHERE id = ?`,
-          args: [
-            JSON.stringify({ forceCompleted: true, completedBy: 'Super Admin' }),
-            ts,
-            taskId,
-          ],
+          args: [mergedData, ts, String(t.id)],
         })
       }
 
@@ -631,19 +637,32 @@ export async function PUT(request: NextRequest) {
         args: [ts, id],
       })
 
-      // Notify the manager
+      // Close all active surat_tugas for this project so they show "Selesai"
+      // in every assignee's Inbox (not just "Aktif")
       stmts.push({
-        sql: `INSERT INTO notifications
-              (id, message, projectId, targetView, read, userId, createdAt)
-              VALUES (?, ?, ?, 'project_detail', 0, ?, ?)`,
-        args: [
-          genId(),
-          `Proyek "${project.title}" telah dipaksa selesai (Force Complete) oleh Super Admin.`,
-          id,
-          String(project.managerId),
-          ts,
-        ],
+        sql: `UPDATE surat_tugas SET status = 'completed'
+              WHERE projectId = ? AND status = 'active'`,
+        args: [id],
       })
+
+      // --- Notify ALL involved users (not just the manager) ---
+      // Collect distinct userIds: every assignee + the manager. Deduplicate.
+      const involvedUserIds = new Set<string>()
+      for (const t of allTasks) {
+        const uid = String(t.assignedTo ?? '')
+        if (uid) involvedUserIds.add(uid)
+      }
+      involvedUserIds.add(String(project.managerId))
+
+      const forceCompleteMsg = `Proyek "${project.title}" telah diselesaikan oleh Super Admin (Force Complete). Semua tugas ditandai selesai otomatis.`
+      for (const uid of involvedUserIds) {
+        stmts.push({
+          sql: `INSERT INTO notifications
+                (id, message, projectId, targetView, read, userId, createdAt)
+                VALUES (?, ?, ?, 'project_detail', 0, ?, ?)`,
+          args: [genId(), forceCompleteMsg, id, uid, ts],
+        })
+      }
 
       await client.batch(stmts, 'write')
 
