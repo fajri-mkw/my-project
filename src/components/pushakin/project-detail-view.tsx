@@ -120,6 +120,7 @@ export function ProjectDetailView() {
   const [taskVerified, setTaskVerified] = useState<Record<string, boolean>>({})
   const [isUploadingDetailDoc, setIsUploadingDetailDoc] = useState(false)
   const [revisionTaskId, setRevisionTaskId] = useState<string | null>(null)
+  const [isRegeneratingDrive, setIsRegeneratingDrive] = useState(false)
   
   // State for multiple publish links per task
   const [taskPublishLinks, setTaskPublishLinks] = useState<Record<string, PublishLink[]>>({})
@@ -324,6 +325,274 @@ Pushakin Flows — Sistem Manajemen Produksi`
     } catch {
       showAlert('Gagal menyimpan tautan drive')
     }
+  }
+
+  /**
+   * Detect whether the project's Drive folders are mock (not real Google Drive
+   * folders). Mock folders use links like "https://drive.google.com/drive/folders/mock-..."
+   * or short constructed IDs (raw-..., revised-...) that the upload component
+   * rejects — causing the "Folder tidak valid" error when workers try to upload.
+   */
+  const hasMockDriveFolders = useMemo(() => {
+    if (!project.driveFolders || project.driveFolders.length === 0) return false
+    // Any folder whose link is empty or doesn't contain a real Drive folder ID
+    return project.driveFolders.some(f => {
+      if (!f.link) return true
+      const match = f.link.match(/\/folders\/([a-zA-Z0-9_-]+)/)
+      if (!match) return true
+      const id = match[1]
+      const mockPrefixes = ['raw-', 'revised-', 'final-', 'desain-', 'lainnya-', 'mock-']
+      if (mockPrefixes.some(p => id.startsWith(p))) return true
+      if (id.length < 20) return true
+      return false
+    })
+  }, [project.driveFolders])
+
+  /**
+   * Regenerate real Google Drive folders for this project.
+   *
+   * Reconstructs the folder-creation payload from the project's existing data
+   * (folder types, assigned users, per-folder DL/UL access, worker outputs)
+   * and calls /api/drive POST to create real folders. Then calls
+   * /api/projects PUT with action=regenerate-drive-folders to replace the
+   * project's drive_folder records with the new real ones.
+   *
+   * Fixes projects that were created with mock folders (because Drive wasn't
+   * connected or folder creation failed at creation time) — letting workers
+   * upload without hitting "Folder tidak valid".
+   */
+  const handleRegenerateDriveFolders = () => {
+    showConfirm(
+      `Buat ulang folder Google Drive untuk proyek "${project.title}"?\n\n` +
+      `Tindakan ini akan:\n` +
+      `• Membuat folder BARU di Google Drive (struktur sama: PRODUKSI, PASCA PRODUKSI, DESAIN, Additional Asset + subfolder per petugas & output)\n` +
+      `• Mengganti folder lama (mock/placeholder) dengan folder asli yang dapat menerima upload\n\n` +
+      `Pastikan koneksi Google Drive sudah aktif di Pengaturan. Lanjutkan?`,
+      async () => {
+        setIsRegeneratingDrive(true)
+        try {
+          // 1) Reconstruct the folder-creation payload from existing project data
+          const PARENT_TYPES = ['raw', 'revised', 'desain', 'lainnya']
+          const parentFolders = project.driveFolders.filter(
+            f => PARENT_TYPES.includes(f.folderId),
+          )
+          const folderTypes = parentFolders.map(f => f.folderId)
+
+          if (folderTypes.length === 0) {
+            showAlert(
+              'Tidak ada folder induk (PRODUKSI/PASCA/DESAIN/Additional) pada proyek ini. ' +
+              'Tidak dapat membuat ulang folder.',
+            )
+            setIsRegeneratingDrive(false)
+            return
+          }
+
+          // Build assignedUsers list from tasks (all stages)
+          const assignedUsersData = project.tasks
+            .filter(t => t.assignedTo)
+            .map(t => {
+              const user = users.find(u => u.id === t.assignedTo)
+              return {
+                role: t.role,
+                userName: user?.name || 'Unknown',
+                userId: t.assignedTo!,
+                stage: t.stage,
+              }
+            })
+
+          // Build folderUserAccess from existing parent folders' assignedUsers
+          const folderUserAccess: Record<string, Record<string, { download: boolean; upload: boolean }>> = {}
+          for (const pf of parentFolders) {
+            folderUserAccess[pf.folderId] = {}
+            if (pf.assignedUsers && Array.isArray(pf.assignedUsers)) {
+              for (const au of pf.assignedUsers) {
+                folderUserAccess[pf.folderId][au.userId] = {
+                  download: au.download,
+                  upload: au.upload,
+                }
+              }
+            }
+          }
+
+          // 2) Call /api/drive POST to create real folders
+          const driveResponse = await fetch('/api/drive', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              projectTitle: project.title,
+              folderTypes,
+              assignedUsers: assignedUsersData,
+              folderUserAccess,
+              workerOutputs: project.workerOutputs || {},
+              workerCustomOutput: project.workerCustomOutput || {},
+            }),
+          })
+
+          if (!driveResponse.ok) {
+            const errData = await driveResponse.json().catch(() => ({}))
+            showAlert(
+              `Gagal membuat folder di Google Drive: ${errData.error || driveResponse.statusText}\n\n` +
+              `Periksa pengaturan Google Drive (Service Account Key, Shared Drive ID, dan auto-create harus aktif).`,
+            )
+            setIsRegeneratingDrive(false)
+            return
+          }
+
+          const driveData = await driveResponse.json()
+          if (!driveData.success || !driveData.folders) {
+            showAlert('Gagal membuat folder di Google Drive. Periksa pengaturan Drive dan coba lagi.')
+            setIsRegeneratingDrive(false)
+            return
+          }
+
+          // 3) Map the new real folders to the driveFolder shape (mirrors create-project-view)
+          const FOLDER_OPTION_MAP: Record<string, { color: string; bg: string; border: string; desc: string }> = {
+            raw: { color: 'text-stone-600', bg: 'bg-stone-100', border: 'border-stone-200', desc: 'Untuk upload mentahan: Reporter, Fotografer, Videografer, Desain Grafis.' },
+            revised: { color: 'text-orange-600', bg: 'bg-orange-50', border: 'border-orange-200', desc: 'Untuk Editor, Reviewer, dan Publisher. Direview oleh QC.' },
+            desain: { color: 'text-blue-600', bg: 'bg-blue-50', border: 'border-blue-200', desc: 'Khusus untuk penyimpanan file project desain.' },
+            lainnya: { color: 'text-purple-600', bg: 'bg-purple-50', border: 'border-purple-200', desc: 'Folder kustom tambahan.' },
+          }
+
+          const newFolders: DriveFolder[] = driveData.folders.map((f: { folderId: string; name: string; webViewLink: string }) => {
+            const optionInfo = FOLDER_OPTION_MAP[f.folderId]
+            const isSub = f.folderId.includes('-') && !PARENT_TYPES.includes(f.folderId)
+
+            if (isSub) {
+              // Direct output subfolder (pattern: raw-output-userId-idx)
+              const directOutputMatch = f.folderId.match(/^(raw|revised|final|desain|lainnya)-output-(.+)-(\d+)$/)
+              if (directOutputMatch) {
+                const parentType = directOutputMatch[1]
+                const outputUserId = directOutputMatch[2]
+                const matchedUser = users.find(u => u.id === outputUserId)
+                return {
+                  id: `${project.id}-${f.folderId}`,
+                  folderId: f.folderId,
+                  name: f.name,
+                  desc: `Output - ${matchedUser?.name || outputUserId}`,
+                  color: 'text-stone-400',
+                  bg: 'bg-stone-50/50',
+                  border: 'border-stone-100',
+                  link: f.webViewLink,
+                  assignedRoles: matchedUser ? [matchedUser.role] : [],
+                  assignedUsers: matchedUser ? [{
+                    userId: matchedUser.id,
+                    userName: matchedUser.name,
+                    download: true,
+                    upload: true,
+                  }] : [],
+                  parentFolderId: parentType,
+                }
+              }
+
+              // Nested output-type subfolder (pattern: raw-role-userId-output-idx)
+              const isOutputSub = f.folderId.includes('-output-')
+              if (isOutputSub) {
+                const outputPrefix = f.folderId.substring(0, f.folderId.indexOf('-output-'))
+                const parentType = PARENT_TYPES.find(t => outputPrefix.startsWith(t + '-')) || ''
+                const matchedUser = users.find(u => outputPrefix.endsWith('-' + u.id))
+                const parentAccess = folderUserAccess[parentType] || {}
+                return {
+                  id: `${project.id}-${f.folderId}`,
+                  folderId: f.folderId,
+                  name: f.name,
+                  desc: `Output ${f.name}${matchedUser ? ' - ' + matchedUser.name : ''}`,
+                  color: 'text-stone-400',
+                  bg: 'bg-stone-50/50',
+                  border: 'border-stone-100',
+                  link: f.webViewLink,
+                  assignedRoles: matchedUser ? [matchedUser.role] : [],
+                  assignedUsers: matchedUser ? [{
+                    userId: matchedUser.id,
+                    userName: matchedUser.name,
+                    download: parentAccess[matchedUser.id]?.download ?? true,
+                    upload: true,
+                  }] : [],
+                  parentFolderId: outputPrefix,
+                }
+              }
+
+              // User-named subfolder (pattern: raw-role-userId)
+              const parentType = PARENT_TYPES.find(t => f.folderId.startsWith(t + '-')) || ''
+              const remaining = f.folderId.substring(parentType.length + 1)
+              const secondDash = remaining.indexOf('-')
+              const subRole = secondDash > 0 ? remaining.substring(0, secondDash) : remaining
+              const subUserId = secondDash > 0 ? remaining.substring(secondDash + 1) : ''
+              const matchedUser = users.find(u => u.id === subUserId)
+              const parentAccess = folderUserAccess[parentType] || {}
+              return {
+                id: `${project.id}-${f.folderId}`,
+                folderId: f.folderId,
+                name: f.name,
+                desc: `Subfolder untuk ${matchedUser?.name || subRole}`,
+                color: 'text-stone-500',
+                bg: 'bg-stone-50',
+                border: 'border-stone-200',
+                link: f.webViewLink,
+                assignedRoles: matchedUser ? [matchedUser.role] : [],
+                assignedUsers: matchedUser ? [{
+                  userId: matchedUser.id,
+                  userName: matchedUser.name,
+                  download: parentAccess[matchedUser.id]?.download ?? true,
+                  upload: parentAccess[matchedUser.id]?.upload ?? true,
+                }] : [],
+                parentFolderId: parentType,
+              }
+            }
+
+            // Parent folder
+            const assignedUsers = Object.entries(folderUserAccess[f.folderId] || {}).map(([userId, access]) => {
+              const u = users.find(usr => usr.id === userId)
+              return { userId, userName: u?.name || '', download: access.download, upload: access.upload }
+            })
+            return {
+              id: `${project.id}-${f.folderId}`,
+              folderId: f.folderId,
+              name: f.name,
+              desc: optionInfo?.desc || '',
+              color: optionInfo?.color || 'text-stone-600',
+              bg: optionInfo?.bg || 'bg-stone-100',
+              border: optionInfo?.border || 'border-stone-200',
+              link: f.webViewLink,
+              assignedRoles: [],
+              assignedUsers,
+            }
+          })
+
+          // 4) Persist to DB via /api/projects PUT with action=regenerate-drive-folders
+          const updateResponse = await fetch('/api/projects', {
+            method: 'PUT',
+            headers: {
+              'Content-Type': 'application/json',
+              'X-User-Role': currentUser?.role || '',
+            },
+            body: JSON.stringify({
+              id: project.id,
+              action: 'regenerate-drive-folders',
+              driveFolders: newFolders,
+            }),
+          })
+
+          if (!updateResponse.ok) {
+            const errData = await updateResponse.json().catch(() => ({}))
+            showAlert(`Folder Drive berhasil dibuat, tapi gagal menyimpan ke database: ${errData.error || updateResponse.statusText}`)
+            setIsRegeneratingDrive(false)
+            return
+          }
+
+          // 5) Update local store
+          updateProject({ ...project, driveFolders: newFolders })
+          showAlert(
+            `Berhasil! ${newFolders.length} folder Google Drive telah dibuat ulang untuk proyek "${project.title}".\n\n` +
+            `Petugas sekarang dapat mengunggah tugas tanpa error "Folder tidak valid".`,
+          )
+        } catch (err) {
+          console.error('[REGEN-DRIVE] Error:', err)
+          showAlert('Gagal membuat ulang folder Drive: ' + (err instanceof Error ? err.message : 'Unknown error'))
+        } finally {
+          setIsRegeneratingDrive(false)
+        }
+      },
+    )
   }
 
   const handleDeleteProject = () => {
@@ -1109,22 +1378,52 @@ Pushakin Flows — Sistem Manajemen Produksi`
                   <span>Workspace Drive Aktif</span>
                 </h3>
                 {canManageProject && (
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={handleOpenEditDrive}
-                    className="gap-2 text-amber-600 border-amber-200 hover:bg-amber-50"
-                  >
-                    <Edit className="w-3 h-3" />
-                    <span>Koreksi Folder</span>
-                  </Button>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={handleRegenerateDriveFolders}
+                      disabled={isRegeneratingDrive || project.driveFolders.length === 0}
+                      className="gap-2 text-violet-600 border-violet-200 hover:bg-violet-50"
+                      title="Buat ulang folder Google Drive asli (menggantikan folder mock/placeholder yang menyebabkan error upload)"
+                    >
+                      {isRegeneratingDrive ? (
+                        <Loader2 className="w-3 h-3 animate-spin" />
+                      ) : (
+                        <RotateCcw className="w-3 h-3" />
+                      )}
+                      <span>{isRegeneratingDrive ? 'Memproses...' : 'Buat Ulang Folder Drive'}</span>
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={handleOpenEditDrive}
+                      className="gap-2 text-amber-600 border-amber-200 hover:bg-amber-50"
+                    >
+                      <Edit className="w-3 h-3" />
+                      <span>Koreksi Folder</span>
+                    </Button>
+                  </div>
                 )}
               </div>
+              {/* Warning banner: mock folders detected — workers can't upload */}
+              {hasMockDriveFolders && (
+                <div className="mb-4 p-3 rounded-xl border border-red-200 bg-red-50 flex items-start gap-2">
+                  <ShieldAlert className="w-4 h-4 text-red-500 flex-shrink-0 mt-0.5" />
+                  <div className="text-xs text-red-800">
+                    <strong>Folder belum terhubung ke Google Drive (mode mock/placeholder).</strong>{' '}
+                    Petugas tidak dapat mengunggah file dan akan melihat error
+                    <em> &quot;Folder tidak valid&quot;</em>. Klik{' '}
+                    <strong>Buat Ulang Folder Drive</strong> untuk membuat folder asli di Google Drive
+                    (pastikan koneksi Drive sudah aktif di Pengaturan).
+                  </div>
+                </div>
+              )}
               {project.driveFolders.length === 0 ? (
                 <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 text-center">
                   <Folder className="w-8 h-8 text-amber-300 mx-auto mb-2" />
                   <p className="text-sm font-medium text-amber-700">Belum ada folder workspace</p>
-                  <p className="text-xs text-amber-500 mt-1">Klik <strong>Koreksi Folder</strong> untuk menambahkan folder drive ke proyek ini.</p>
+                  <p className="text-xs text-amber-500 mt-1">Klik <strong>Buat Ulang Folder Drive</strong> untuk membuat folder drive ke proyek ini.</p>
                 </div>
               ) : visibleFolders.length === 0 ? (
                 <div className="bg-stone-50 border border-stone-200 rounded-xl p-4 text-center">
@@ -2423,6 +2722,25 @@ function TaskCard({
                       </span>
                     ) : (
                       <div className="space-y-4">
+                        {/* Worker warning: upload folder is mock/placeholder → uploads will fail */}
+                        {getUploadFolders().some(f => {
+                          if (!f.link) return true
+                          const m = f.link.match(/\/folders\/([a-zA-Z0-9_-]+)/)
+                          if (!m) return true
+                          const id = m[1]
+                          const mockPrefixes = ['raw-', 'revised-', 'final-', 'desain-', 'lainnya-', 'mock-']
+                          return mockPrefixes.some(p => id.startsWith(p)) || id.length < 20
+                        }) && (
+                          <div className="p-3 rounded-xl border border-amber-200 bg-amber-50 flex items-start gap-2">
+                            <AlertCircle className="w-4 h-4 text-amber-500 flex-shrink-0 mt-0.5" />
+                            <div className="text-xs text-amber-800">
+                              <strong>Folder upload belum siap.</strong>{' '}
+                              Folder Google Drive untuk tugas ini belum dibuat oleh Manajer.
+                              Silakan hubungi Manajer/Admin untuk membuat ulang folder Drive pada proyek ini
+                              (via tombol <strong>Buat Ulang Folder Drive</strong> di detail proyek).
+                            </div>
+                          </div>
+                        )}
                         {/* Direct File Upload */}
                         {getUploadFolders().map(folder => (
                           <div key={`upload-${folder.id}`} className="bg-white p-4 rounded-xl border border-stone-200">

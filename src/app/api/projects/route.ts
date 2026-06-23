@@ -676,6 +676,104 @@ export async function PUT(request: NextRequest) {
       })
     }
 
+    // --- Regenerate Drive folders: Manager/Admin only ---
+    // Deletes ALL existing drive_folder records for the project and inserts
+    // the new real Google Drive folders passed from the client. Used by the
+    // "Buat Ulang Folder Drive" button to fix projects that were created with
+    // mock folders (because Drive wasn't connected or folder creation failed
+    // at creation time) but Drive is now connected.
+    if (body.action === 'regenerate-drive-folders') {
+      const requestUserRole = request.headers.get('X-User-Role')
+      if (requestUserRole !== 'Admin' && requestUserRole !== 'Manager') {
+        return NextResponse.json(
+          { error: 'Hanya Manager atau Admin yang dapat membuat ulang folder Drive' },
+          { status: 403 },
+        )
+      }
+
+      const { id, driveFolders: newFolders } = body as {
+        id: string
+        driveFolders: Array<{
+          folderId: string
+          name: string
+          desc: string
+          color: string
+          bg: string
+          border: string
+          link: string
+          assignedRoles: string[]
+          assignedUsers?: any[]
+          parentFolderId?: string | null
+        }>
+      }
+      if (!id) {
+        return NextResponse.json({ error: 'Project ID required' }, { status: 400 })
+      }
+      if (!Array.isArray(newFolders) || newFolders.length === 0) {
+        return NextResponse.json(
+          { error: 'Folder baru tidak boleh kosong' },
+          { status: 400 },
+        )
+      }
+
+      // Verify project exists
+      const projRes = await client.execute({
+        sql: `SELECT id, title FROM projects WHERE id = ?`,
+        args: [id],
+      })
+      if (!projRes.rows[0]) {
+        return NextResponse.json({ error: 'Proyek tidak ditemukan' }, { status: 404 })
+      }
+
+      const ts = nowMs()
+      const stmts: InStatement[] = []
+
+      // 1) Delete ALL existing drive_folder records for this project
+      stmts.push({
+        sql: `DELETE FROM drive_folders WHERE projectId = ?`,
+        args: [id],
+      })
+
+      // 2) Insert new real Drive folder records
+      for (const f of newFolders) {
+        stmts.push({
+          sql: `INSERT INTO drive_folders
+                (id, folderId, name, description, link, assignedRoles,
+                 color, bgColor, borderColor, assignedUsers, projectId, parentFolderId)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          args: [
+            genId(),
+            f.folderId,
+            f.name,
+            bind(f.desc),
+            bind(f.link),
+            bind(JSON.stringify(f.assignedRoles || [])),
+            bind(f.color),
+            bind(f.bg),
+            bind(f.border),
+            bind(f.assignedUsers ? JSON.stringify(f.assignedUsers) : null),
+            id,
+            bind(f.parentFolderId || null),
+          ],
+        })
+      }
+
+      // 3) Bump project updatedAt so it surfaces to the top of the dashboard
+      stmts.push({
+        sql: `UPDATE projects SET updatedAt = ? WHERE id = ?`,
+        args: [ts, id],
+      })
+
+      await client.batch(stmts, 'write')
+      await invalidateCache('/api/projects')
+
+      return NextResponse.json({
+        success: true,
+        action: 'regenerate-drive-folders',
+        count: newFolders.length,
+      })
+    }
+
     // --- Normal update ---
     const { id, ...data } = body
     const ts = nowMs()
