@@ -59,7 +59,12 @@ export function CreateProjectView() {
   // Worker output assignment: userId → list of output types
   const [workerOutputs, setWorkerOutputs] = useState<Record<string, string[]>>({})
   const [workerCustomOutput, setWorkerCustomOutput] = useState<Record<string, string>>({})
-  const [driveAutoCreate, setDriveAutoCreate] = useState(false)
+  // driveConnected = true ketika Service Account Key DAN Shared Drive ID sudah
+  // dikonfigurasi di Pengaturan. Dalam kondisi ini, folder Google Drive ASLI
+  // selalu dibuat saat proyek diinisiasi (tidak lagi bergantung pada toggle
+  // driveAutoCreate, dan TIDAK ada silent fallback ke mock folder). Mock folder
+  // hanya dipakai ketika Drive memang belum dikonfigurasi sama sekali.
+  const [driveConnected, setDriveConnected] = useState(false)
   const [driveCreatingStatus, setDriveCreatingStatus] = useState<string | null>(null)
   const [isFastTrack, setIsFastTrack] = useState(false)
   const [isFastProduction, setIsFastProduction] = useState(false)
@@ -390,7 +395,11 @@ export function CreateProjectView() {
         const response = await fetch('/api/settings')
         if (response.ok) {
           const data = await response.json()
-          setDriveAutoCreate(data.driveAutoCreate)
+          // Drive dianggap "terhubung" (mampu membuat folder asli) ketika
+          // Service Account Key DAN Shared Drive ID keduanya sudah diisi.
+          // Toggle driveAutoCreate tidak lagi menjadi syarat — jika Drive
+          // terkonfigurasi, folder asli selalu dibuat.
+          setDriveConnected(!!data.hasServiceAccountKey && !!data.driveSharedDriveId)
         }
       } catch (error) {
         console.error('Failed to fetch settings:', error)
@@ -508,8 +517,12 @@ export function CreateProjectView() {
         parentFolderId?: string
       }> = []
 
-      if (driveAutoCreate) {
-        // Try to create real Google Drive folders
+      if (driveConnected) {
+        // Drive terkonfigurasi → SELALU buat folder Google Drive asli.
+        // Jika pembuatan gagal karena alasan apa pun, GAGALKAN inisiasi proyek
+        // dengan pesan error yang jelas — JANGAN silent fallback ke mock folder.
+        // (Mock folder menyebabkan error "Folder tidak valid" saat petugas upload,
+        //  dan manager terpaksa pakai "Buat Ulang Folder Drive" untuk memperbaiki.)
         setDriveCreatingStatus('Membuat folder di Google Drive...')
         try {
           // Prepare assignedUsers for ALL stages subfolder creation
@@ -668,21 +681,38 @@ export function CreateProjectView() {
               })
               console.log('[DRIVE] Created folders:', driveData.mainFolder)
             } else {
-              // Fallback to mock
-              console.log('[DRIVE] Auto-create failed, using mock folders')
-              generatedFolders = createMockFolders(selectedFolders, activeRoles, tasks)
+              // API returned success:false → GAGALKAN, jangan mock.
+              const errMsg = driveData.error || 'Drive API mengembalikan success=false'
+              throw new Error(errMsg)
             }
           } else {
-            // Fallback to mock
-            console.log('[DRIVE] API error, using mock folders')
-            generatedFolders = createMockFolders(selectedFolders, activeRoles, tasks)
+            // HTTP non-2xx → GAGALKAN, jangan mock. Baca pesan error dari API.
+            let errMsg = `HTTP ${driveResponse.status}`
+            try {
+              const errData = await driveResponse.json()
+              errMsg = errData.details || errData.error || errMsg
+            } catch { /* response body bukan JSON, gunakan status code */ }
+            throw new Error(errMsg)
           }
         } catch (driveError) {
+          // Pembuatan folder gagal (network/auth/API). GAGALKAN inisiasi proyek
+          // dengan pesan jelas agar manager bisa memperbaiki konfigurasi Drive
+          // SEBELUM proyek dibuat dengan folder rusak.
           console.error('[DRIVE] Error:', driveError)
-          generatedFolders = createMockFolders(selectedFolders, activeRoles, tasks)
+          setDriveCreatingStatus(null)
+          setIsCreatingProject(false)
+          const detail = driveError instanceof Error ? driveError.message : 'Unknown error'
+          showAlert(
+            `Gagal membuat folder Google Drive: ${detail}.\n\n` +
+            `Periksa konfigurasi di menu Pengaturan (Service Account Key & Shared Drive ID harus terisi), ` +
+            `lalu coba inisiasi ulang. Proyek TIDAK dibuat agar petugas tidak terjebak dengan folder yang rusak.`
+          )
+          return
         }
       } else {
-        // Use mock folders
+        // Drive BELUM dikonfigurasi → gunakan mock folder sebagai satu-satunya
+        // kasus mock yang sah. Manager akan melihat peringatan di UI bahwa Drive
+        // belum terhubung dan upload petugas tidak akan berfungsi.
         generatedFolders = createMockFolders(selectedFolders, activeRoles, tasks)
       }
 
@@ -2119,21 +2149,28 @@ export function CreateProjectView() {
           {/* Folder Selection */}
           <div className="bg-indigo-50/40 border border-indigo-100 rounded-2xl p-6">
             <div className="flex items-center gap-3 mb-4 text-indigo-900">
-              <Checkbox checked={driveAutoCreate} disabled />
+              <Checkbox checked={driveConnected} disabled />
               <div className="font-bold flex items-center gap-2">
                 <Folder className="w-5 h-5" />
                 <span>Otomatis Generate Folder Workspace (Google Drive)</span>
-                {driveAutoCreate ? (
-                  <span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full">AKTIF</span>
+                {driveConnected ? (
+                  <span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full">DRIVE TERHUBUNG</span>
                 ) : (
-                  <span className="text-xs bg-stone-200 text-stone-600 px-2 py-0.5 rounded-full">MOCK MODE</span>
+                  <span className="text-xs bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full">DRIVE BELUM DIKONFIGURASI</span>
                 )}
               </div>
             </div>
-            {!driveAutoCreate && (
+            {driveConnected ? (
+              <p className="text-sm text-green-700 mb-4 ml-8">
+                ✓ Folder Google Drive asli akan otomatis dibuat saat proyek diinisiasi.
+                Petugas dapat langsung mengunggah file tanpa perlu &quot;Buat Ulang Folder Drive&quot;.
+                Jika pembuatan folder gagal, inisiasi proyek akan dibatalkan dengan pesan error yang jelas.
+              </p>
+            ) : (
               <p className="text-sm text-amber-700 mb-4 ml-8">
-                ⚠️ Mode mock aktif. Folder tidak akan dibuat di Google Drive sebenarnya. 
-                <span className="font-medium"> Aktifkan di menu Pengaturan.</span>
+                ⚠️ Google Drive belum dikonfigurasi. Folder akan dibuat sebagai placeholder (mock) dan
+                <span className="font-medium"> petugas TIDAK dapat mengunggah file</span> hingga Drive dihubungkan.
+                <span className="font-medium"> Aktifkan Service Account Key &amp; Shared Drive ID di menu Pengaturan.</span>
               </p>
             )}
             <p className="text-sm text-indigo-700/80 mb-2 ml-8">
@@ -2428,7 +2465,7 @@ export function CreateProjectView() {
                   <>
                     <Rocket className="w-4 h-4" />
                     <span>Inisiasi Proyek</span>
-                    {driveAutoCreate && (
+                    {driveConnected && (
                       <span className="text-xs opacity-75">(Google Drive Aktif)</span>
                     )}
                   </>

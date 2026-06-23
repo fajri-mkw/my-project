@@ -350,25 +350,23 @@ export async function POST(request: NextRequest) {
     const settings = await db.settings.findUnique({
       where: { id: 'main' }
     })
-    
-    if (!settings?.driveAutoCreate) {
-      return NextResponse.json({ 
-        error: 'Google Drive auto-create is disabled',
-        mockMode: true
+
+    // NOTE: Folder creation no longer gated on the `driveAutoCreate` toggle.
+    // If a Service Account Key + Shared Drive ID are configured, the manager
+    // intends for real Drive folders to be created — so we always proceed.
+    // This prevents projects from silently falling back to mock folders
+    // (which break petugas uploads) just because a separate toggle was off.
+    if (!settings?.driveServiceAccountKey) {
+      return NextResponse.json({
+        error: 'Google Service Account belum dikonfigurasi. Buka menu Pengaturan dan unggah Service Account Key.',
+        mockMode: false
       }, { status: 400 })
     }
-    
-    if (!settings.driveServiceAccountKey) {
-      return NextResponse.json({ 
-        error: 'Google Service Account not configured',
-        mockMode: true
-      }, { status: 400 })
-    }
-    
+
     // Check for Shared Drive ID (required for Service Accounts without storage quota)
     if (!settings.driveSharedDriveId) {
-      return NextResponse.json({ 
-        error: 'Shared Drive ID is required. Service Accounts do not have storage quota. Please configure a Shared Drive ID in settings.',
+      return NextResponse.json({
+        error: 'Shared Drive ID wajib diisi. Service Account tidak memiliki kuota penyimpanan sendiri. Konfigurasikan Shared Drive ID di Pengaturan.',
         details: 'Service Accounts do not have storage quota. Use a Shared Drive instead.'
       }, { status: 400 })
     }
