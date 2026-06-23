@@ -117,6 +117,7 @@ export interface Project {
   enableTemplateEditor: boolean
   managerId: string
   createdAt: string
+  updatedAt?: string
   documents?: Array<{
     id: string
     name: string

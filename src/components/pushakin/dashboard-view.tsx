@@ -53,6 +53,44 @@ function getStageGradient(stage: number) {
   return STAGE_GRADIENTS[stage] || DEFAULT_STAGE_GRADIENT
 }
 
+// Indonesian day & month names for localized date formatting.
+// Output format: "Senin, 22 Juni 2026 08.30"
+const HARI_INDONESIA = ['Minggu', 'Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu']
+const BULAN_INDONESIA = [
+  'Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni',
+  'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember',
+]
+
+/**
+ * Format a date string (ISO or datetime-local input value like
+ * "2026-06-23T08:30") into the Indonesian long form:
+ *   "Senin, 22 Juni 2026 08.30"
+ *
+ * Returns the original string unchanged if parsing fails (e.g. empty
+ * or already-humanized values) so we never show "Invalid Date" to users.
+ */
+function formatTanggalIndonesia(raw: string | null | undefined): string {
+  if (!raw || typeof raw !== 'string') return ''
+  // Already-formatted strings (contains letters beyond day/month names)
+  // — skip re-formatting to avoid double-wrapping.
+  if (/^(Senin|Selasa|Rabu|Kamis|Jumat|Sabtu|Minggu),/.test(raw)) return raw
+
+  // Normalize: datetime-local inputs ("2026-06-23T08:30") are valid for
+  // `new Date()` in modern browsers. Add a timezone-safe fallback by
+  // treating it as local time (no 'Z' suffix → local parse).
+  const d = new Date(raw)
+  if (isNaN(d.getTime())) return raw
+
+  const hari = HARI_INDONESIA[d.getDay()]
+  const tanggal = d.getDate()
+  const bulan = BULAN_INDONESIA[d.getMonth()]
+  const tahun = d.getFullYear()
+  const jam = String(d.getHours()).padStart(2, '0')
+  const menit = String(d.getMinutes()).padStart(2, '0')
+
+  return `${hari}, ${tanggal} ${bulan} ${tahun} ${jam}.${menit}`
+}
+
 export function DashboardView() {
   const { currentUser, projects, users, setActiveView, setSelectedProjectId, deleteProject, forceCompleteProject, showAlert, showConfirm, suratList, permohonanList } = useAppStore()
   const [viewMode, setViewMode] = useState<'grid' | 'table'>('grid')
@@ -101,6 +139,15 @@ export function DashboardView() {
 
   // Filter projects based on selected filter
   const visibleProjects = useMemo(() => {
+    // Stable sort: most recently modified first (updatedAt DESC, fallback createdAt DESC).
+    // This mirrors the API's ORDER BY and keeps newly-created/updated projects on top
+    // even when the client-side store appends them via addProject/updateProject.
+    const sortByRecent = (a: typeof projects[0], b: typeof projects[0]) => {
+      const aTime = new Date(a.updatedAt || a.createdAt || 0).getTime()
+      const bTime = new Date(b.updatedAt || b.createdAt || 0).getTime()
+      return bTime - aTime
+    }
+
     if (projectFilter === 'mine' && currentUser) {
       let filtered: typeof projects
       filtered = projects.filter(p => 
@@ -118,15 +165,15 @@ export function DashboardView() {
           !p.tasks.some(t => t.assignedTo === currentUser.id && t.status !== 'completed')
         )
       }
-      return filtered
+      return [...filtered].sort(sortByRecent)
     } else {
-      // projectFilter === 'all' — "Semua Proyek" group
+      // projectFilter === 'all' — "Semua Project Pushakin" group
       if (projectStatusFilter === 'pending') {
-        return projects.filter(p => p.currentStage !== 5)
+        return [...projects.filter(p => p.currentStage !== 5)].sort(sortByRecent)
       } else if (projectStatusFilter === 'completed') {
-        return projects.filter(p => p.currentStage === 5)
+        return [...projects.filter(p => p.currentStage === 5)].sort(sortByRecent)
       }
-      return projects
+      return [...projects].sort(sortByRecent)
     }
   }, [projectFilter, taskStatusFilter, projectStatusFilter, currentUser, projects])
 
@@ -248,8 +295,8 @@ export function DashboardView() {
       )}
 
       {/* Header */}
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-        <div className="flex items-center gap-2 flex-wrap">
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-end gap-4">
+        <div className="flex items-end gap-2 flex-wrap">
           {/* View Mode Toggle */}
           <div className="flex items-center gap-0.5 bg-white p-1 rounded-xl border border-slate-200 shadow-sm">
             <Button
@@ -273,71 +320,82 @@ export function DashboardView() {
           </div>
 
           {/* Project Filter — "Tugas Saya" (separate group) */}
-          <div className="flex items-center gap-0.5 bg-white p-1 rounded-xl border border-slate-200 shadow-sm">
-            <Button
-              variant={projectFilter === 'mine' ? 'default' : 'ghost'}
-              size="sm"
-              onClick={() => { setProjectFilter('mine'); }}
-              className={cn("gap-1.5", projectFilter === 'mine' && "bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700")}
-            >
-              <UserCheck className="w-4 h-4" />
-              <span className="hidden sm:inline">Tugas Saya</span>
-              <span className={cn(
-                "text-[10px] font-bold px-1.5 py-0.5 rounded-full min-w-[18px] text-center",
-                projectFilter === 'mine' ? "bg-white/25 text-white" : "bg-emerald-100 text-emerald-700"
-              )}>
-                {myProjectsCount}
-              </span>
-            </Button>
+          <div className="flex flex-col gap-1">
+            <span className="text-[10px] font-bold text-emerald-700 uppercase tracking-wider px-1">
+              Tugas Saya
+            </span>
+            <div className="flex items-center gap-0.5 bg-white p-1 rounded-xl border border-slate-200 shadow-sm">
+              <Button
+                variant={projectFilter === 'mine' ? 'default' : 'ghost'}
+                size="sm"
+                onClick={() => { setProjectFilter('mine'); }}
+                className={cn("gap-1.5", projectFilter === 'mine' && "bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700")}
+              >
+                <UserCheck className="w-4 h-4" />
+                <span className="hidden sm:inline">Tugas Saya</span>
+                <span className={cn(
+                  "text-[10px] font-bold px-1.5 py-0.5 rounded-full min-w-[18px] text-center",
+                  projectFilter === 'mine' ? "bg-white/25 text-white" : "bg-emerald-100 text-emerald-700"
+                )}>
+                  {myProjectsCount}
+                </span>
+              </Button>
+            </div>
           </div>
 
-          {/* Project Filter — "Semua Proyek" group (Semua / Belum / Selesai) */}
-          <div className="flex items-center gap-0.5 bg-white p-1 rounded-xl border border-slate-200 shadow-sm">
-            <Button
-              variant={projectFilter === 'all' && projectStatusFilter === 'all' ? 'default' : 'ghost'}
-              size="sm"
-              onClick={() => { setProjectFilter('all'); setProjectStatusFilter('all'); }}
-              className={cn("gap-1.5", projectFilter === 'all' && projectStatusFilter === 'all' && "bg-gradient-to-r from-slate-700 to-slate-800 hover:from-slate-800 hover:to-slate-900")}
-            >
-              <Users className="w-4 h-4" />
-              <span className="hidden sm:inline">Semua</span>
-              <span className={cn(
-                "text-[10px] font-bold px-1.5 py-0.5 rounded-full min-w-[18px] text-center",
-                projectFilter === 'all' && projectStatusFilter === 'all' ? "bg-white/25 text-white" : "bg-slate-100 text-slate-600"
-              )}>
-                {allProjectsCount}
-              </span>
-            </Button>
-            <Button
-              variant={projectFilter === 'all' && projectStatusFilter === 'pending' ? 'default' : 'ghost'}
-              size="sm"
-              onClick={() => { setProjectFilter('all'); setProjectStatusFilter('pending'); }}
-              className={cn("gap-1.5", projectFilter === 'all' && projectStatusFilter === 'pending' && "bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600")}
-            >
-              <Clock className="w-4 h-4" />
-              <span className="hidden sm:inline">Belum</span>
-              <span className={cn(
-                "text-[10px] font-bold px-1.5 py-0.5 rounded-full min-w-[18px] text-center",
-                projectFilter === 'all' && projectStatusFilter === 'pending' ? "bg-white/25 text-white" : "bg-amber-100 text-amber-700"
-              )}>
-                {pendingProjectsCount}
-              </span>
-            </Button>
-            <Button
-              variant={projectFilter === 'all' && projectStatusFilter === 'completed' ? 'default' : 'ghost'}
-              size="sm"
-              onClick={() => { setProjectFilter('all'); setProjectStatusFilter('completed'); }}
-              className={cn("gap-1.5", projectFilter === 'all' && projectStatusFilter === 'completed' && "bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-700 hover:to-emerald-700")}
-            >
-              <CircleCheckBig className="w-4 h-4" />
-              <span className="hidden sm:inline">Selesai</span>
-              <span className={cn(
-                "text-[10px] font-bold px-1.5 py-0.5 rounded-full min-w-[18px] text-center",
-                projectFilter === 'all' && projectStatusFilter === 'completed' ? "bg-white/25 text-white" : "bg-green-100 text-green-700"
-              )}>
-                {completedProjectsCount}
-              </span>
-            </Button>
+          {/* Project Filter — "Semua Project Pushakin" parent group (Semua / Belum / Selesai) */}
+          <div className="flex flex-col gap-1">
+            <span className="text-[10px] font-bold text-slate-700 uppercase tracking-wider px-1 flex items-center gap-1">
+              <FolderKanban className="w-3 h-3" />
+              Semua Project Pushakin
+            </span>
+            <div className="flex items-center gap-0.5 bg-white p-1 rounded-xl border border-slate-200 shadow-sm">
+              <Button
+                variant={projectFilter === 'all' && projectStatusFilter === 'all' ? 'default' : 'ghost'}
+                size="sm"
+                onClick={() => { setProjectFilter('all'); setProjectStatusFilter('all'); }}
+                className={cn("gap-1.5", projectFilter === 'all' && projectStatusFilter === 'all' && "bg-gradient-to-r from-slate-700 to-slate-800 hover:from-slate-800 hover:to-slate-900")}
+              >
+                <Users className="w-4 h-4" />
+                <span className="hidden sm:inline">Semua</span>
+                <span className={cn(
+                  "text-[10px] font-bold px-1.5 py-0.5 rounded-full min-w-[18px] text-center",
+                  projectFilter === 'all' && projectStatusFilter === 'all' ? "bg-white/25 text-white" : "bg-slate-100 text-slate-600"
+                )}>
+                  {allProjectsCount}
+                </span>
+              </Button>
+              <Button
+                variant={projectFilter === 'all' && projectStatusFilter === 'pending' ? 'default' : 'ghost'}
+                size="sm"
+                onClick={() => { setProjectFilter('all'); setProjectStatusFilter('pending'); }}
+                className={cn("gap-1.5", projectFilter === 'all' && projectStatusFilter === 'pending' && "bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600")}
+              >
+                <Clock className="w-4 h-4" />
+                <span className="hidden sm:inline">Belum</span>
+                <span className={cn(
+                  "text-[10px] font-bold px-1.5 py-0.5 rounded-full min-w-[18px] text-center",
+                  projectFilter === 'all' && projectStatusFilter === 'pending' ? "bg-white/25 text-white" : "bg-amber-100 text-amber-700"
+                )}>
+                  {pendingProjectsCount}
+                </span>
+              </Button>
+              <Button
+                variant={projectFilter === 'all' && projectStatusFilter === 'completed' ? 'default' : 'ghost'}
+                size="sm"
+                onClick={() => { setProjectFilter('all'); setProjectStatusFilter('completed'); }}
+                className={cn("gap-1.5", projectFilter === 'all' && projectStatusFilter === 'completed' && "bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-700 hover:to-emerald-700")}
+              >
+                <CircleCheckBig className="w-4 h-4" />
+                <span className="hidden sm:inline">Selesai</span>
+                <span className={cn(
+                  "text-[10px] font-bold px-1.5 py-0.5 rounded-full min-w-[18px] text-center",
+                  projectFilter === 'all' && projectStatusFilter === 'completed' ? "bg-white/25 text-white" : "bg-green-100 text-green-700"
+                )}>
+                  {completedProjectsCount}
+                </span>
+              </Button>
+            </div>
           </div>
 
           {/* Task Status Sub-Filter — only visible when "Tugas Saya" is selected */}
@@ -515,7 +573,7 @@ export function DashboardView() {
                           {project.executionTime && (
                             <span className="text-xs text-slate-400 flex items-center gap-1">
                               <Clock className="w-3 h-3" />
-                              {project.executionTime}
+                              {formatTanggalIndonesia(project.executionTime)}
                             </span>
                           )}
                         </div>
@@ -727,7 +785,7 @@ export function DashboardView() {
                     </TableCell>
                     <TableCell className="text-sm text-slate-600">{project.requesterUnit}</TableCell>
                     <TableCell className="text-sm text-slate-600">{project.location || '-'}</TableCell>
-                    <TableCell className="text-sm text-slate-600">{project.executionTime || '-'}</TableCell>
+                    <TableCell className="text-sm text-slate-600">{formatTanggalIndonesia(project.executionTime) || '-'}</TableCell>
                     <TableCell>
                       <div className="flex items-center gap-1.5">
                         {project.isFastTrack && (

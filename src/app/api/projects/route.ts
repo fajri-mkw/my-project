@@ -32,16 +32,17 @@ export const GET = withEdgeCache(async (request: NextRequest) => {
     const userId = searchParams.get('userId')
     const role = searchParams.get('role')
 
-    // 1) Fetch all projects (newest first)
+    // 1) Fetch all projects (newest modified first — most recently updated
+    //    projects surface to the top so workers always see active work first)
     const projectsRes = await client.execute({
       sql: `SELECT id, title, description, requesterUnit, location, executionTime,
                    picName, picWhatsApp, activityTypes, customActivity,
                    outputNeeds, customOutput, workerOutputs, workerCustomOutput,
                    currentStage, isFastTrack, isFastProduction,
                    enableFotoEditor, enableTemplateEditor, managerId,
-                   documents, createdAt
+                   documents, createdAt, updatedAt
             FROM projects
-            ORDER BY createdAt DESC`,
+            ORDER BY updatedAt DESC, createdAt DESC`,
       args: [],
     })
 
@@ -109,6 +110,7 @@ export const GET = withEdgeCache(async (request: NextRequest) => {
         enableTemplateEditor: p.enableTemplateEditor === undefined ? true : toBool(p.enableTemplateEditor),
         managerId: String(p.managerId ?? ''),
         createdAt: toDateISO(p.createdAt),
+        updatedAt: toDateISO(p.updatedAt),
         tasks: tasks.map((t) => ({
           id: String(t.id ?? ''),
           role: String(t.role ?? ''),
