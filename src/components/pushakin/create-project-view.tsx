@@ -74,6 +74,9 @@ export function CreateProjectView() {
   // fitur bisa auto-check lagi saat di-ON-kan kembali.
   const hasAutoCheckedFotoRef = useRef(false)
   const hasAutoCheckedTemplateRef = useRef(false)
+  // Tracks whether the user has attempted to submit — used to surface
+  // inline validation hints (e.g. workers missing output selection).
+  const [submitAttempted, setSubmitAttempted] = useState(false)
 
   // Custom folder state
   const [customFolders, setCustomFolders] = useState<Array<{id: string; name: string; desc: string}>>([])
@@ -398,6 +401,7 @@ export function CreateProjectView() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
+    setSubmitAttempted(true)
     const activeRoles = Object.keys(selectedUsers).filter(k => selectedUsers[k].length > 0)
     // Fast Track: only Publisher roles are required
     if (isFastTrack) {
@@ -444,6 +448,31 @@ export function CreateProjectView() {
       if (currentMissingStages.length > 0) {
         const stageNames = currentMissingStages.map(s => `Tahap ${s} (${STAGES[s]})`).join(', ')
         showAlert(`Wajib memilih petugas di setiap tahapan! Tahap yang belum memiliki petugas: ${stageNames}. Alur kerja akan terhambat jika ada tahapan tanpa petugas.`)
+        return
+      }
+    }
+
+    // === Mandatory output selection per assigned worker ===
+    // Every selected worker MUST have at least 1 output chosen from the
+    // "Tambah output" dropdown so the personnel know exactly what to produce.
+    {
+      const workersMissingOutput: Array<{ name: string; role: string }> = []
+      Object.entries(selectedUsers).forEach(([role, userIds]) => {
+        userIds.forEach(uid => {
+          const outputs = workerOutputs[uid] || []
+          if (outputs.length === 0) {
+            const user = users.find(u => u.id === uid)
+            workersMissingOutput.push({ name: user?.name || 'Petugas tidak dikenal', role })
+          }
+        })
+      })
+      if (workersMissingOutput.length > 0) {
+        const display = workersMissingOutput.map(w => `${w.name} (${getRoleDisplayName(w.role)})`).join(', ')
+        showAlert(
+          `Wajib memilih minimal 1 kebutuhan output untuk setiap petugas yang ditugaskan! ` +
+          `Petugas berikut belum memiliki output: ${display}. ` +
+          `Silakan pilih output dari dropdown "Tambah output" pada setiap petugas agar mereka jelas akan mengerjakan tugas apa.`
+        )
         return
       }
     }
@@ -1886,6 +1915,7 @@ export function CreateProjectView() {
             </div>
             <p className="text-[11px] text-stone-400 mb-4">
               Centang petugas yang ditugaskan, lalu pilih kebutuhan output yang harus dikerjakan per petugas.
+              <span className="font-semibold text-red-500"> Wajib pilih minimal 1 output</span> untuk setiap petugas agar mereka jelas akan mengerjakan tugas apa.
             </p>
 
             {/* Get all selected workers across all roles */}
@@ -1951,9 +1981,18 @@ export function CreateProjectView() {
                                 const assignedOutputs = workerOutputs[worker.userId] || []
                                 const isChecked = assignedOutputs.length > 0
                                 const hasLainnya = assignedOutputs.includes('Lainnya')
+                                // Surface missing outputs only after the manager tried to submit,
+                                // so the UI is calm during normal editing but loud when blocking.
+                                const missingOutput = submitAttempted && assignedOutputs.length === 0
 
                                 return (
-                                  <div key={worker.userId} className={`p-3 transition-all ${isChecked ? 'bg-violet-50/30' : 'bg-white'}`}>
+                                  <div key={worker.userId} className={`p-3 transition-all ${
+                                    missingOutput
+                                      ? 'bg-red-50/60 border border-red-300'
+                                      : isChecked
+                                        ? 'bg-violet-50/30'
+                                        : 'bg-white'
+                                  }`}>
                                     {/* Worker row: checkbox + name + dropdown */}
                                     <div className="flex items-center gap-3">
                                       <Checkbox
@@ -1984,7 +2023,11 @@ export function CreateProjectView() {
                                           addWorkerOutput(worker.userId, value)
                                         }}
                                       >
-                                        <SelectTrigger className="w-[160px] h-8 text-xs">
+                                        <SelectTrigger className={`w-[160px] h-8 text-xs ${
+                                          missingOutput
+                                            ? 'border-red-400 ring-1 ring-red-300 text-red-700'
+                                            : ''
+                                        }`}>
                                           <SelectValue placeholder="+ Tambah output..." />
                                         </SelectTrigger>
                                         <SelectContent>
@@ -1996,6 +2039,14 @@ export function CreateProjectView() {
                                         </SelectContent>
                                       </Select>
                                     </div>
+
+                                    {/* Inline error: worker has no output selected */}
+                                    {missingOutput && (
+                                      <div className="mt-2 ml-9 flex items-center gap-1.5 text-[10px] font-semibold text-red-600">
+                                        <AlertTriangle className="w-3 h-3 shrink-0" />
+                                        <span>Wajib pilih minimal 1 output agar petugas tahu tugas yang dikerjakan.</span>
+                                      </div>
+                                    )}
 
                                     {/* Assigned output badges */}
                                     {assignedOutputs.length > 0 && (
