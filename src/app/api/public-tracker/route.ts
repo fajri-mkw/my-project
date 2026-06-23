@@ -48,7 +48,10 @@ export async function GET(request: NextRequest) {
           select: { id: true, name: true, avatar: true }
         }
       },
-      orderBy: { createdAt: 'desc' }
+      // Sort by most-recently-modified first (updatedAt DESC, createdAt DESC
+      // fallback) — harmonized with the Dashboard & Statistik & Progress views
+      // so the shared public Tracker shows the same "newest on top" order.
+      orderBy: [{ updatedAt: 'desc' }, { createdAt: 'desc' }]
     })
     
     // Calculate statistics

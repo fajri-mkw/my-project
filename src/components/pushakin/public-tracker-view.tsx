@@ -18,6 +18,7 @@ import {
 } from 'lucide-react'
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { cn } from '@/lib/utils'
+import { formatTanggalIndonesia, sortByRecent } from '@/lib/date-utils'
 
 interface PublicTask {
   id: string
@@ -45,6 +46,7 @@ interface PublicProject {
   currentStage: number
   publicToken: string | null
   createdAt: string
+  updatedAt: string
   tasks: PublicTask[]
   manager: {
     id: string
@@ -339,12 +341,14 @@ export function PublicTrackerView({ onBack }: PublicTrackerViewProps) {
   }, [])
 
   // Filter projects based on client-side filter
+  // Sort by most-recently-modified first (updatedAt DESC, createdAt DESC fallback)
+  // — harmonized with the Dashboard & Statistik & Progress views.
   useEffect(() => {
     let filtered = allProjects
     if (timeFilter === 'active') {
       filtered = allProjects.filter(p => p.currentStage < 5)
     }
-    setProjects(filtered)
+    setProjects([...filtered].sort(sortByRecent))
     setCurrentPage(0)
   }, [allProjects, timeFilter])
 
@@ -780,20 +784,29 @@ export function PublicTrackerView({ onBack }: PublicTrackerViewProps) {
                         className={cn("rounded-lg border overflow-hidden flex flex-col min-h-0", tc.cardBg, tc.cardBorder)}
                       >
                         {/* Project Header */}
-                        <div className={cn("px-2 sm:px-2.5 py-1.5 sm:py-2 flex items-center justify-between shrink-0 border-b", tc.cardHeaderBg, tc.cardHeaderBorder)}>
-                          <div className="flex items-center gap-1.5 min-w-0 flex-1">
-                            <Badge className={cn(
-                              "shrink-0 text-[9px] sm:text-[8px] font-bold uppercase px-1.5 py-0",
-                              isCompleted ? "bg-green-500/90 text-white" : "bg-orange-500/90 text-white"
-                            )}>
-                              {isCompleted ? 'Selesai' : 'Aktif'}
-                            </Badge>
-                            <h3 className={cn("text-xs sm:text-[11px] font-bold truncate leading-tight", tc.cardHeaderText)}>{project.title}</h3>
+                        <div className={cn("px-2 sm:px-2.5 py-1.5 sm:py-2 shrink-0 border-b", tc.cardHeaderBg, tc.cardHeaderBorder)}>
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-1.5 min-w-0 flex-1">
+                              <Badge className={cn(
+                                "shrink-0 text-[9px] sm:text-[8px] font-bold uppercase px-1.5 py-0",
+                                isCompleted ? "bg-green-500/90 text-white" : "bg-orange-500/90 text-white"
+                              )}>
+                                {isCompleted ? 'Selesai' : 'Aktif'}
+                              </Badge>
+                              <h3 className={cn("text-xs sm:text-[11px] font-bold truncate leading-tight", tc.cardHeaderText)}>{project.title}</h3>
+                            </div>
+                            <div className={cn(
+                              "text-base sm:text-sm font-bold shrink-0 ml-1.5",
+                              isCompleted ? "text-green-500" : percentage === 100 ? "text-green-500" : tc.cardPercent
+                            )}>{percentage}%</div>
                           </div>
-                          <div className={cn(
-                            "text-base sm:text-sm font-bold shrink-0 ml-1.5",
-                            isCompleted ? "text-green-500" : percentage === 100 ? "text-green-500" : tc.cardPercent
-                          )}>{percentage}%</div>
+                          {/* Waktu pelaksanaan — harmonized with Dashboard: "Senin, 22 Juni 2026 08.30" */}
+                          {project.executionTime && (
+                            <div className={cn("flex items-center gap-1 mt-1 text-[9px] sm:text-[8px] leading-tight", tc.headerSub2)}>
+                              <Clock className="w-2.5 h-2.5 shrink-0" />
+                              <span className="truncate">{formatTanggalIndonesia(project.executionTime)}</span>
+                            </div>
+                          )}
                         </div>
 
                         {/* ── Unified Pipeline + Workers ────────────────── */}

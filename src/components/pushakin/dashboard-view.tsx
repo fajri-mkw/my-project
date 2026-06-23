@@ -37,6 +37,7 @@ import {
 } from 'lucide-react'
 import { useState, useMemo } from 'react'
 import { cn } from '@/lib/utils'
+import { formatTanggalIndonesia, sortByRecent } from '@/lib/date-utils'
 
 // Stage gradient colors - Purple, Blue, Orange theme
 const STAGE_GRADIENTS: Record<number, { from: string; to: string; border: string; text: string; bg: string; dot: string }> = {
@@ -51,44 +52,6 @@ const DEFAULT_STAGE_GRADIENT = { from: 'from-slate-100', to: 'to-slate-50', bord
 
 function getStageGradient(stage: number) {
   return STAGE_GRADIENTS[stage] || DEFAULT_STAGE_GRADIENT
-}
-
-// Indonesian day & month names for localized date formatting.
-// Output format: "Senin, 22 Juni 2026 08.30"
-const HARI_INDONESIA = ['Minggu', 'Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu']
-const BULAN_INDONESIA = [
-  'Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni',
-  'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember',
-]
-
-/**
- * Format a date string (ISO or datetime-local input value like
- * "2026-06-23T08:30") into the Indonesian long form:
- *   "Senin, 22 Juni 2026 08.30"
- *
- * Returns the original string unchanged if parsing fails (e.g. empty
- * or already-humanized values) so we never show "Invalid Date" to users.
- */
-function formatTanggalIndonesia(raw: string | null | undefined): string {
-  if (!raw || typeof raw !== 'string') return ''
-  // Already-formatted strings (contains letters beyond day/month names)
-  // — skip re-formatting to avoid double-wrapping.
-  if (/^(Senin|Selasa|Rabu|Kamis|Jumat|Sabtu|Minggu),/.test(raw)) return raw
-
-  // Normalize: datetime-local inputs ("2026-06-23T08:30") are valid for
-  // `new Date()` in modern browsers. Add a timezone-safe fallback by
-  // treating it as local time (no 'Z' suffix → local parse).
-  const d = new Date(raw)
-  if (isNaN(d.getTime())) return raw
-
-  const hari = HARI_INDONESIA[d.getDay()]
-  const tanggal = d.getDate()
-  const bulan = BULAN_INDONESIA[d.getMonth()]
-  const tahun = d.getFullYear()
-  const jam = String(d.getHours()).padStart(2, '0')
-  const menit = String(d.getMinutes()).padStart(2, '0')
-
-  return `${hari}, ${tanggal} ${bulan} ${tahun} ${jam}.${menit}`
 }
 
 export function DashboardView() {
@@ -142,11 +105,6 @@ export function DashboardView() {
     // Stable sort: most recently modified first (updatedAt DESC, fallback createdAt DESC).
     // This mirrors the API's ORDER BY and keeps newly-created/updated projects on top
     // even when the client-side store appends them via addProject/updateProject.
-    const sortByRecent = (a: typeof projects[0], b: typeof projects[0]) => {
-      const aTime = new Date(a.updatedAt || a.createdAt || 0).getTime()
-      const bTime = new Date(b.updatedAt || b.createdAt || 0).getTime()
-      return bTime - aTime
-    }
 
     if (projectFilter === 'mine' && currentUser) {
       let filtered: typeof projects

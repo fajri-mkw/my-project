@@ -11,10 +11,13 @@ import {
   Clock, 
   CheckCircle2,
   FolderKanban,
-  Loader2
+  Loader2,
+  User,
+  MapPin
 } from 'lucide-react'
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 import { cn } from '@/lib/utils'
+import { formatTanggalIndonesia, sortByRecent } from '@/lib/date-utils'
 
 const FILTER_OPTIONS = [
   { id: 'all', label: 'Semua Waktu' },
@@ -60,7 +63,16 @@ export function OverviewView() {
   // All users see the same real-time project statistics
   const visibleProjects = projects
 
-  const targetProjects = visibleProjects.filter(p => isDateInRange(p.createdAt, timeFilter))
+  // Sort by most-recently-modified first (updatedAt DESC, createdAt DESC fallback)
+  // — harmonized with the Dashboard so the same "newest on top" order is shown
+  // everywhere a worker looks (Dashboard, Statistik & Progress, Tracker).
+  const targetProjects = useMemo(
+    () =>
+      visibleProjects
+        .filter(p => isDateInRange(p.createdAt, timeFilter))
+        .sort(sortByRecent),
+    [visibleProjects, timeFilter],
+  )
   
   const totalProjects = targetProjects.length
   const completedCount = targetProjects.filter(p => p.currentStage === 5).length
@@ -238,7 +250,7 @@ export function OverviewView() {
                     {/* Project Header */}
                     <div className="bg-gradient-to-r from-slate-900 via-blue-950 to-slate-900 px-4 py-3 text-white">
                       <div className="flex items-center justify-between">
-                        <div>
+                        <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-2 mb-1">
                             <span className="text-[10px] font-mono text-slate-400 font-bold">
                               {project.id.slice(0, 8)}...
@@ -254,11 +266,30 @@ export function OverviewView() {
                               {isCompleted ? 'Selesai' : 'Aktif'}
                             </Badge>
                           </div>
-                          <h4 className="font-bold text-lg">{project.title}</h4>
-                          <p className="text-xs text-slate-400">{project.requesterUnit}</p>
+                          <h4 className="font-bold text-lg truncate">{project.title}</h4>
+                          {/* Metadata row — harmonized with Dashboard: requester, location, waktu */}
+                          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-1">
+                            <span className="text-xs text-slate-400 flex items-center gap-1">
+                              <User className="w-3 h-3" />
+                              {project.requesterUnit}
+                            </span>
+                            {project.location && (
+                              <span className="text-xs text-slate-400 flex items-center gap-1">
+                                <MapPin className="w-3 h-3" />
+                                {project.location}
+                              </span>
+                            )}
+                            {project.executionTime && (
+                              <span className="text-xs text-slate-400 flex items-center gap-1">
+                                <Clock className="w-3 h-3" />
+                                {formatTanggalIndonesia(project.executionTime)}
+                              </span>
+                            )}
+                          </div>
                         </div>
-                        <div className="text-right">
+                        <div className="text-right shrink-0 ml-3">
                           <div className="text-3xl font-bold">{percentage}%</div>
+                          <div className="text-xs text-slate-400">{completedTasks}/{totalTasks} tugas</div>
                         </div>
                       </div>
                     </div>
