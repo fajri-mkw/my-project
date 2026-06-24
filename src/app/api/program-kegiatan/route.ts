@@ -89,7 +89,12 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json()
-    console.log('[KEGIATAN POST] Body received:', JSON.stringify(body, null, 2))
+    // Verbose body logging only in dev — on Cloudflare Workers free plan,
+    // console.log of large bodies wastes CPU and can push the request past
+    // the 10ms limit (the exact cause of the "Terjadi kesalahan koneksi" bug).
+    if (process.env.NODE_ENV === 'development') {
+      console.log('[KEGIATAN POST] Body received:', JSON.stringify(body, null, 2))
+    }
     const {
       tanggalKegiatan, perihal, deskripsi, documents, managerId,
     } = body

@@ -311,6 +311,86 @@ export function ProgramKegiatanView() {
     setIsFormMaximized(false)
   }
 
+  // Safe JSON parse — returns null if body is not valid JSON (e.g. Cloudflare
+  // HTML error page returned when Workers free plan exceeds the 10ms CPU limit).
+  const safeJsonParse = async (response: Response): Promise<any | null> => {
+    try {
+      return await response.json()
+    } catch {
+      return null
+    }
+  }
+
+  // Fetch with retry for kegiatan save operations.
+  // Retries on: network errors, HTTP 5xx, and non-JSON responses (CF error pages).
+  // This mirrors the proven surat-flow fix (commit 8bd432e) and prevents the
+  // misleading "Terjadi kesalahan koneksi" when Cloudflare Workers free plan
+  // exceeds the 10ms CPU limit on cold starts (returns an HTML error page,
+  // not JSON — which would otherwise throw a SyntaxError in response.json()
+  // and mask the real cause).
+  // POST /api/program-kegiatan is safe to retry because nomorKegiatan is
+  // generated server-side and is NOT @unique.
+  const fetchKegiatanWithRetry = async (
+    url: string,
+    method: 'POST' | 'PUT',
+    body: any,
+    onRetry?: (attempt: number, reason: string) => void
+  ): Promise<{ ok: boolean; data?: any; error?: string; status?: number }> => {
+    const MAX_RETRIES = 2
+    const RETRY_DELAY_MS = 800
+
+    for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+      try {
+        const response = await fetch(url, {
+          method,
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        })
+
+        // If response is OK, parse and return
+        if (response.ok) {
+          const data = await safeJsonParse(response)
+          if (data) return { ok: true, data }
+          // OK but non-JSON — shouldn't happen, treat as error
+          if (attempt < MAX_RETRIES) {
+            onRetry?.(attempt + 1, 'Respons tidak valid')
+            await new Promise(r => setTimeout(r, RETRY_DELAY_MS * (attempt + 1)))
+            continue
+          }
+          return { ok: false, error: 'Respons server tidak valid' }
+        }
+
+        // Non-OK response: try to parse error JSON safely
+        const errData = await safeJsonParse(response)
+
+        // 5xx errors: retry (likely CF CPU limit or temporary server issue)
+        if (response.status >= 500 && response.status < 600) {
+          if (attempt < MAX_RETRIES) {
+            const reason = errData?.error || `Server error (${response.status})`
+            onRetry?.(attempt + 1, reason)
+            await new Promise(r => setTimeout(r, RETRY_DELAY_MS * (attempt + 1)))
+            continue
+          }
+          // Final attempt failed — return the error
+          return { ok: false, error: errData?.error || `Server error (${response.status})`, status: response.status }
+        }
+
+        // 4xx errors: don't retry (client error — e.g. validation failure)
+        return { ok: false, error: errData?.details || errData?.error || `Gagal menyimpan kegiatan (${response.status})`, status: response.status }
+
+      } catch (error) {
+        // Network error (fetch threw) — retry
+        if (attempt < MAX_RETRIES) {
+          onRetry?.(attempt + 1, 'Koneksi terputus')
+          await new Promise(r => setTimeout(r, RETRY_DELAY_MS * (attempt + 1)))
+          continue
+        }
+        return { ok: false, error: 'Koneksi terputus. Periksa jaringan Anda.' }
+      }
+    }
+    return { ok: false, error: 'Gagal menyimpan kegiatan setelah beberapa percobaan' }
+  }
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!formData.perihal.trim()) {
@@ -360,34 +440,28 @@ export function ProgramKegiatanView() {
 
       let kegiatanData: any = null
 
-      if (editingId) {
-        const response = await fetch('/api/program-kegiatan', {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ id: editingId, ...payload })
-        })
-        if (!response.ok) {
-          const err = await response.json()
-          updateStep('save-kegiatan', 'error', err.error || 'Gagal memperbarui kegiatan')
-          setIsSaving(false)
-          return
+      // Save with retry — resilient to Cloudflare Workers free-plan CPU-limit
+      // 5xx responses (which return HTML, not JSON) and transient network errors.
+      const saveResult = await fetchKegiatanWithRetry(
+        '/api/program-kegiatan',
+        editingId ? 'PUT' : 'POST',
+        editingId ? { id: editingId, ...payload } : payload,
+        (attempt, reason) => {
+          updateStep('save-kegiatan', 'loading', `Percobaan ulang #${attempt}: ${reason}...`)
         }
-        kegiatanData = await response.json()
+      )
+
+      if (!saveResult.ok) {
+        updateStep('save-kegiatan', 'error', saveResult.error || 'Gagal menyimpan kegiatan')
+        setIsSaving(false)
+        return
+      }
+
+      kegiatanData = saveResult.data
+      if (editingId) {
         updateKegiatan(kegiatanData)
         updateStep('save-kegiatan', 'success', `Kegiatan ${kegiatanData.nomorKegiatan} berhasil diperbarui`)
       } else {
-        const response = await fetch('/api/program-kegiatan', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload)
-        })
-        if (!response.ok) {
-          const err = await response.json()
-          updateStep('save-kegiatan', 'error', err.details || err.error || 'Gagal membuat kegiatan')
-          setIsSaving(false)
-          return
-        }
-        kegiatanData = await response.json()
         addKegiatan(kegiatanData)
         updateStep('save-kegiatan', 'success', `Kegiatan ${kegiatanData.nomorKegiatan} berhasil dibuat`)
       }
@@ -421,14 +495,17 @@ export function ProgramKegiatanView() {
       setIsSaving(false)
 
     } catch (error) {
-      // Find the current loading step and mark it as error
+      // Log the real cause for debugging (previously swallowed silently).
+      console.error('[Kegiatan] handleSubmit error:', error)
+      const reason = error instanceof Error ? error.message : 'Kesalahan tidak dikenal'
+      // Find the current loading step and mark it as error with the real reason
       setSaveProgress(prev => {
         if (!prev) return prev
         const loadingStep = prev.steps.find(s => s.status === 'loading')
         if (loadingStep) {
           return {
             ...prev,
-            steps: prev.steps.map(s => s.key === loadingStep.key ? { ...s, status: 'error' as const, detail: 'Terjadi kesalahan koneksi' } : s),
+            steps: prev.steps.map(s => s.key === loadingStep.key ? { ...s, status: 'error' as const, detail: `Terjadi kesalahan: ${reason}` } : s),
           }
         }
         return prev
