@@ -17,11 +17,48 @@ import {
   ShieldAlert,
   ArrowLeftRight,
   ClipboardList,
-  X
+  ExternalLink,
+  X,
+  Link2
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { getRoleDisplayName } from '@/lib/store'
 import { useRouter } from 'next/navigation'
+import { useEffect, useState } from 'react'
+
+// ============================================================================
+// Types
+// ============================================================================
+interface ExternalLinkItem {
+  id: string
+  label: string
+  url: string
+  icon: string | null
+  description: string | null
+  isActive: boolean
+  order: number
+}
+
+// Map a stored icon name (Lucide) to a rendered icon component.
+// Falls back to a generic external-link / link icon when name is unknown.
+function renderExternalIcon(iconName: string | null) {
+  if (!iconName) return <ExternalLink className="w-5 h-5" />
+  // We currently only support a small curated set of icons to keep the
+  // client bundle small. Unknown names fall back to ExternalLink.
+  switch (iconName.toLowerCase()) {
+    case 'image':
+    case 'photo':
+    case 'gallery':
+      return <ExternalLink className="w-5 h-5" />
+    case 'link':
+    case 'link2':
+      return <Link2 className="w-5 h-5" />
+    case 'external':
+    case 'externallink':
+    default:
+      return <ExternalLink className="w-5 h-5" />
+  }
+}
 
 interface SidebarProps {
   isOpen?: boolean
@@ -39,6 +76,31 @@ export function Sidebar({ isOpen = false, onNavigate, onClose }: SidebarProps) {
   const router = useRouter()
   const completedCount = projects.filter(p => p.currentStage === 5).length
   const unreadSuratCount = currentUser ? suratTugas.filter(s => s.userId === currentUser.id && !s.read).length : 0
+
+  // External links shown to all users (only active ones from the API)
+  const [externalLinks, setExternalLinks] = useState<ExternalLinkItem[]>([])
+  const [isLoadingLinks, setIsLoadingLinks] = useState(true)
+
+  // Fetch active external links on mount and whenever the user changes.
+  // This is intentionally a separate fetch (not in the store) because the
+  // list is read-only for non-admin users and changes rarely.
+  useEffect(() => {
+    if (!currentUser) return
+    let cancelled = false
+    setIsLoadingLinks(true)
+    fetch('/api/external-links')
+      .then(r => r.ok ? r.json() : { links: [] })
+      .then(data => {
+        if (!cancelled) setExternalLinks(Array.isArray(data.links) ? data.links : [])
+      })
+      .catch(() => {
+        if (!cancelled) setExternalLinks([])
+      })
+      .finally(() => {
+        if (!cancelled) setIsLoadingLinks(false)
+      })
+    return () => { cancelled = true }
+  }, [currentUser])
 
   if (!currentUser) return null
 
@@ -90,6 +152,14 @@ export function Sidebar({ isOpen = false, onNavigate, onClose }: SidebarProps) {
     setActiveView('login')
   }
 
+  // External links are always opened in a NEW TAB — these are third-party apps
+  // (galleries, photo editors, etc.) and should NOT replace the SPA.
+  const handleExternalClick = (e: React.MouseEvent<HTMLAnchorElement>) => {
+    // Always let the browser handle: anchor has target="_blank" so it opens in
+    // a new tab regardless. We only need to close the mobile sidebar.
+    onClose?.()
+  }
+
   return (
     <aside className={cn(
       "w-64 bg-gradient-to-b text-stone-300 flex flex-col h-full rounded-r-3xl shadow-xl z-40 print:hidden shrink-0 transition-transform duration-300 ease-in-out",
@@ -113,7 +183,7 @@ export function Sidebar({ isOpen = false, onNavigate, onClose }: SidebarProps) {
           <X className="w-5 h-5" />
         </button>
       </div>
-      
+
       {/* Navigation */}
       <div className="flex-1 px-4 py-2 overflow-y-auto">
         <div className="text-xs font-semibold text-stone-500 uppercase tracking-wider mb-2 px-2">
@@ -152,6 +222,41 @@ export function Sidebar({ isOpen = false, onNavigate, onClose }: SidebarProps) {
             )
           })}
         </nav>
+
+        {/* External App Links section — visible to all logged-in users */}
+        {/* Only render the section header & list when there's at least one link */}
+        {/* (while loading, we hide the section to avoid flicker on first paint) */}
+        {!isLoadingLinks && externalLinks.length > 0 && (
+          <>
+            <div className="text-xs font-semibold text-stone-500 uppercase tracking-wider mt-6 mb-2 px-2">
+              Aplikasi Eksternal
+            </div>
+            <nav className="space-y-1">
+              {externalLinks.map((link) => (
+                <Button
+                  key={link.id}
+                  variant="ghost"
+                  asChild
+                  className="w-full justify-start gap-3 px-4 py-3 rounded-xl transition-all hover:bg-slate-800/80 hover:text-stone-100 text-stone-300 group"
+                  title={link.description || link.url}
+                >
+                  <a
+                    href={link.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    onClick={handleExternalClick}
+                    aria-label={`Buka ${link.label} di tab baru`}
+                  >
+                    {renderExternalIcon(link.icon)}
+                    <span className="font-medium truncate flex-1 text-left">{link.label}</span>
+                    {/* External-link badge — appears on hover to indicate new tab */}
+                    <ExternalLink className="w-3.5 h-3.5 text-stone-500 opacity-60 group-hover:opacity-100" />
+                  </a>
+                </Button>
+              ))}
+            </nav>
+          </>
+        )}
       </div>
 
       {/* User Info & Logout */}
@@ -190,7 +295,7 @@ export function Sidebar({ isOpen = false, onNavigate, onClose }: SidebarProps) {
             <div className={`text-xs truncate ${isImpersonating ? 'text-amber-400' : currentUser.role === 'Admin' ? 'text-red-400' : currentUser.role === 'ContentCreator' ? 'text-cyan-400' : 'text-orange-400'}`}>{getRoleDisplayName(currentUser.role)}</div>
           </div>
         </div>
-        
+
         <Button
           variant="ghost"
           className="w-full justify-between text-red-400 hover:text-red-300 hover:bg-red-900/30 bg-slate-800/50"

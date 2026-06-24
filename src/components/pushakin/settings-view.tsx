@@ -28,6 +28,7 @@ import {
 } from 'lucide-react'
 import { useState, useEffect } from 'react'
 import { cn } from '@/lib/utils'
+import { ExternalLinksManager } from './external-links-manager'
 
 interface SettingsData {
   driveAutoCreate: boolean
@@ -856,6 +857,9 @@ export function SettingsView() {
           </div>
         </CardContent>
       </Card>
+
+      {/* External App Links Manager — Super Admin only */}
+      <ExternalLinksManager />
 
       {/* Shared Drive Notice */}
       <Card className="bg-amber-50 border-amber-200">

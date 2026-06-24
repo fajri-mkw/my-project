@@ -9,7 +9,7 @@
 import { db } from './db'
 
 // Increment this when adding new migrations
-const SCHEMA_VERSION = 8
+const SCHEMA_VERSION = 9
 
 let syncPerformed = false
 let syncPromise: Promise<boolean> | null = null
@@ -190,6 +190,21 @@ async function syncSqlite(): Promise<void> {
     shiftSqliteStage('surat_tugas', 'stage', 5, 4),
     shiftSqliteStage('surat_tugas', 'stage', 6, 5),
   ])
+
+  // === Version 9: Create external_links table for External App Links feature ===
+  // Super Admin can add external app links (online gallery, photo editor, etc.)
+  // that appear in the left sidebar for all users and open in a new tab.
+  await createSqliteTableIfNotExists('external_links', `(
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "label" TEXT NOT NULL,
+    "url" TEXT NOT NULL,
+    "icon" TEXT,
+    "description" TEXT,
+    "isActive" BOOLEAN NOT NULL DEFAULT 1,
+    "order" INTEGER NOT NULL DEFAULT 0,
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" DATETIME NOT NULL
+  )`)
 }
 
 async function addSqliteColumnIfNotExists(
@@ -215,6 +230,51 @@ async function addSqliteColumnIfNotExists(
   } catch (error) {
     console.error(`[DB Sync SQLite] Failed to add column ${table}.${column}:`, error)
     // Non-fatal — continue with other columns
+  }
+}
+
+async function createSqliteTableIfNotExists(
+  table: string,
+  tableDef: string
+): Promise<void> {
+  try {
+    // PRAGMA table_list returns existing tables; checking with table_info also works
+    const result = await db.$queryRawUnsafe(
+      `PRAGMA table_info("${table}")`
+    ) as Array<{ name: string }>
+
+    if (!result || result.length === 0) {
+      console.log(`[DB Sync SQLite] Creating table ${table}`)
+      await db.$executeRawUnsafe(
+        `CREATE TABLE IF NOT EXISTS "${table}" ${tableDef}`
+      )
+      console.log(`[DB Sync SQLite] Created table ${table}`)
+    }
+  } catch (error) {
+    console.error(`[DB Sync SQLite] Failed to create table ${table}:`, error)
+    // Non-fatal — Prisma queries will surface the real error if table is missing
+  }
+}
+
+async function createPostgresTableIfNotExists(
+  table: string,
+  tableDef: string
+): Promise<void> {
+  try {
+    const result = await db.$queryRawUnsafe(
+      `SELECT table_name FROM information_schema.tables
+       WHERE table_name = '${table}' LIMIT 1`
+    ) as Array<{ table_name: string }>
+
+    if (!result || result.length === 0) {
+      console.log(`[DB Sync Postgres] Creating table ${table}`)
+      await db.$executeRawUnsafe(
+        `CREATE TABLE IF NOT EXISTS "${table}" ${tableDef}`
+      )
+      console.log(`[DB Sync Postgres] Created table ${table}`)
+    }
+  } catch (error) {
+    console.error(`[DB Sync Postgres] Failed to create table ${table}:`, error)
   }
 }
 
@@ -313,6 +373,20 @@ async function syncPostgres(): Promise<void> {
     shiftPostgresStage('surat_tugas', 'stage', 5, 4),
     shiftPostgresStage('surat_tugas', 'stage', 6, 5),
   ])
+
+  // === Version 9: Create external_links table for External App Links feature ===
+  // (See syncSqlite Version 9 for details.)
+  await createPostgresTableIfNotExists('external_links', `(
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "label" TEXT NOT NULL,
+    "url" TEXT NOT NULL,
+    "icon" TEXT,
+    "description" TEXT,
+    "isActive" BOOLEAN NOT NULL DEFAULT true,
+    "order" INTEGER NOT NULL DEFAULT 0,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL
+  )`)
 }
 
 async function addPostgresColumnIfNotExists(

@@ -291,3 +291,22 @@ model ProgramKegiatan {
   @@index([kategori])
   @@map("program_kegiatan")
 }
+
+// External App Links — managed by Super Admin, shown in left sidebar for all users.
+// Clicking a link opens it in a new browser tab.
+// Examples: online gallery, photo editor, video editor, asset library, etc.
+model ExternalLink {
+  id          String   @id @default(cuid())
+  label       String   // Display name shown in sidebar
+  url         String   // External URL (must include http:// or https://)
+  icon        String?  // Optional Lucide icon name (defaults to "ExternalLink")
+  description String?  // Optional admin-facing description (not shown in sidebar)
+  isActive    Boolean  @default(true) // Only active links are shown to users
+  order       Int      @default(0)    // Lower numbers appear first
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([isActive])
+  @@index([order])
+  @@map("external_links")
+}
