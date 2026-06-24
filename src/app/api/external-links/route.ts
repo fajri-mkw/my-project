@@ -1,6 +1,5 @@
 import { db, ensureDbConnection } from '@/lib/db'
 import { NextRequest, NextResponse } from 'next/server'
-import { withEdgeCache, invalidateCache } from '@/lib/edge-cache'
 
 // ============================================================================
 // Public interface for an external link (returned to clients)
@@ -46,24 +45,119 @@ async function verifySuperAdmin(userId: string | null): Promise<boolean> {
   }
 }
 
+// ----------------------------------------------------------------------------
+// Direct Cache API helpers (bypasses the generic withEdgeCache wrapper).
+//
+// We use SEPARATE cache keys for the public (active-only) and admin (all)
+// responses so that:
+//   1. Inactive links never leak into the public cache entry.
+//   2. The admin list is also cached (short TTL) to avoid repeated DB round
+//      trips on every settings-page reload — this prevents the Worker from
+//      hanging under concurrent DB load (Cloudflare cancels hung Workers).
+// ----------------------------------------------------------------------------
+const CACHE_BASE = 'https://edge-cache.pushakin-flows.workers.dev/api/external-links'
+const PUBLIC_CACHE_KEY = `${CACHE_BASE}?public`
+const ADMIN_CACHE_KEY = `${CACHE_BASE}?admin`
+const PUBLIC_TTL = 30   // seconds — active links rarely change
+const ADMIN_TTL = 10    // seconds — short so admin sees fresh data after toggles
+
+function getCache(): Cache | null {
+  try {
+    // @ts-ignore - caches is available in Cloudflare Workers runtime
+    if (typeof caches !== 'undefined' && caches.default) {
+      // @ts-ignore
+      return caches.default
+    }
+  } catch {}
+  return null
+}
+
+async function readCache(key: string): Promise<Response | null> {
+  try {
+    const cache = getCache()
+    if (!cache) return null
+    const cached = await cache.match(key)
+    return cached || null
+  } catch {
+    return null
+  }
+}
+
+async function writeCache(key: string, response: Response, ttl: number): Promise<void> {
+  try {
+    const cache = getCache()
+    if (!cache) return
+    const clone = response.clone()
+    const headers = new Headers(clone.headers)
+    headers.set('Cache-Control', `public, max-age=${ttl}`)
+    const cached = new Response(clone.body, {
+      status: clone.status,
+      statusText: clone.statusText,
+      headers,
+    })
+    // @ts-ignore - ctx is available in Workers runtime
+    if (typeof ctx !== 'undefined' && ctx.waitUntil) {
+      // @ts-ignore
+      ctx.waitUntil(cache.put(key, cached))
+    } else {
+      await cache.put(key, cached)
+    }
+  } catch {}
+}
+
+// Bust BOTH cache entries after any mutation (create/update/delete).
+// We call cache.delete directly with the full key (invalidateCache would
+// double the base-URL prefix).
+async function bustExternalLinksCache(): Promise<void> {
+  const cache = getCache()
+  if (!cache) return
+  try {
+    await Promise.all([
+      cache.delete(PUBLIC_CACHE_KEY),
+      cache.delete(ADMIN_CACHE_KEY),
+    ])
+  } catch {}
+}
+
 // ============================================================================
 // GET /api/external-links
 //   - Public: returns only active links, sorted by `order` then `createdAt`
 //   - Admin (pass ?adminUserId=...&all=true): returns all links (incl. inactive)
 //
-// NOTE: We bypass the edge cache when an admin requests `all=true`, otherwise
-// the cached public (active-only) response would leak back to the admin.
+// Both responses are cached at the edge with SEPARATE keys so the admin list
+// (which requires 2 DB round trips: verifySuperAdmin + findMany) doesn't hammer
+// the database on every settings-page reload. The short admin TTL (10s) keeps
+// the data fresh while dramatically reducing DB load.
 // ============================================================================
-export const GET = withEdgeCache(async (request: NextRequest) => {
+export async function GET(request: NextRequest) {
   try {
-    await ensureDbConnection()
-
     const url = new URL(request.url)
     const showAll = url.searchParams.get('all') === 'true'
     const adminUserId = url.searchParams.get('adminUserId')
 
-    // Only reveal inactive links to verified Super Admin
-    const allowAll = showAll && await verifySuperAdmin(adminUserId)
+    // Choose cache key based on whether this is an admin "show all" request
+    const cacheKey = showAll ? ADMIN_CACHE_KEY : PUBLIC_CACHE_KEY
+    const ttl = showAll ? ADMIN_TTL : PUBLIC_TTL
+
+    // 1) Try cache first — avoids DB entirely on hit
+    const cached = await readCache(cacheKey)
+    if (cached) {
+      const headers = new Headers(cached.headers)
+      headers.set('x-edge-cache', 'HIT')
+      return new Response(cached.body, {
+        status: cached.status,
+        statusText: cached.statusText,
+        headers,
+      })
+    }
+
+    // 2) Cache miss — query the database
+    await ensureDbConnection()
+
+    // Only reveal inactive links to verified Super Admin.
+    // For the admin path we must verify; for the public path we skip the
+    // extra DB query entirely (always active-only).
+    const allowAll = showAll ? await verifySuperAdmin(adminUserId) : false
 
     const links = await db.externalLink.findMany({
       where: allowAll ? {} : { isActive: true },
@@ -80,7 +174,10 @@ export const GET = withEdgeCache(async (request: NextRequest) => {
       order: l.order
     }))
 
-    return NextResponse.json({ links: result })
+    const response = NextResponse.json({ links: result })
+    // 3) Cache the successful response (non-blocking via waitUntil)
+    await writeCache(cacheKey, response, ttl)
+    return response
   } catch (error) {
     console.error('Get external links error:', error)
     return NextResponse.json(
@@ -88,20 +185,7 @@ export const GET = withEdgeCache(async (request: NextRequest) => {
       { status: 500 }
     )
   }
-}, {
-  ttl: 30,
-  // Bypass cache for admin "show all" requests so inactive links don't leak
-  // through the public cache entry.
-  shouldBypass: (request: Request) => {
-    try {
-      const url = new URL(request.url)
-      return url.searchParams.get('all') === 'true' ||
-        !!url.searchParams.get('adminUserId')
-    } catch {
-      return false
-    }
-  }
-})
+}
 
 // ============================================================================
 // POST /api/external-links — Create a new link (Super Admin only)
@@ -155,7 +239,7 @@ export async function POST(request: NextRequest) {
       }
     })
 
-    await invalidateCache('/api/external-links')
+    await bustExternalLinksCache()
     return NextResponse.json({ success: true, link: created })
   } catch (error) {
     console.error('Create external link error:', error)
@@ -224,7 +308,7 @@ export async function PUT(request: NextRequest) {
       data: updateData
     })
 
-    await invalidateCache('/api/external-links')
+    await bustExternalLinksCache()
     return NextResponse.json({ success: true, link: updated })
   } catch (error) {
     console.error('Update external link error:', error)
@@ -262,7 +346,7 @@ export async function DELETE(request: NextRequest) {
 
     await db.externalLink.delete({ where: { id } })
 
-    await invalidateCache('/api/external-links')
+    await bustExternalLinksCache()
     return NextResponse.json({ success: true })
   } catch (error) {
     console.error('Delete external link error:', error)
