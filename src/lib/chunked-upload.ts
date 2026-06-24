@@ -29,6 +29,13 @@ export interface UploadedFile {
   webViewLink: string
   webContentLink?: string
   size: number
+  /**
+   * The actual Drive folder ID where the file was uploaded.
+   * When subfolderName is provided, this is the subfolder ID (not the
+   * original folderId passed in). The frontend can cache this to avoid
+   * redundant subfolder lookups for subsequent files with the same name.
+   */
+  folderId?: string
 }
 
 export interface AutoNameMeta {
@@ -47,6 +54,13 @@ export interface ChunkedUploadOptions {
   autoNameMeta?: AutoNameMeta
   /** Optional AbortController for cancellation */
   signal?: AbortSignal
+  /**
+   * Optional subfolder name. If provided, the server will find or create a
+   * subfolder with this name INSIDE folderId, and upload the file into it.
+   * Used to organize documents into named subfolders inside the main
+   * kegiatan/surat folder (e.g. "Notulensi", "Dokumentasi").
+   */
+  subfolderName?: string
 }
 
 /**
@@ -61,7 +75,7 @@ export interface ChunkedUploadOptions {
 export async function chunkedUploadFile(
   options: ChunkedUploadOptions,
 ): Promise<UploadedFile> {
-  const { file, folderId, onProgress, autoNameMeta, signal } = options
+  const { file, folderId, onProgress, autoNameMeta, signal, subfolderName } = options
 
   onProgress?.(2, 'Menyiapkan upload...')
 
@@ -74,6 +88,7 @@ export async function chunkedUploadFile(
       mimeType: file.type || 'application/octet-stream',
       folderId,
       autoNameMeta,
+      subfolderName,
     }),
     signal,
   })
@@ -87,7 +102,7 @@ export async function chunkedUploadFile(
     throw new Error(errorMsg)
   }
 
-  const { uploadUrl, autoFileName } = await urlResponse.json()
+  const { uploadUrl, autoFileName, folderId: targetFolderId } = await urlResponse.json()
   if (!uploadUrl) throw new Error('URL upload tidak ditemukan')
 
   onProgress?.(5, 'Mengupload...')
@@ -221,5 +236,6 @@ export async function chunkedUploadFile(
     webViewLink: uf.webViewLink || `https://drive.google.com/file/d/${uf.id}/view`,
     webContentLink: uf.webContentLink,
     size: file.size,
+    folderId: targetFolderId,
   }
 }

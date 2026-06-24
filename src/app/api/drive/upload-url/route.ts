@@ -53,9 +53,84 @@ function buildAutoFileName(
   return truncated + ext.toLowerCase()
 }
 
+/**
+ * Find or create a subfolder inside a parent folder in Google Drive.
+ * Used to organize uploaded documents into named subfolders inside the
+ * main kegiatan/surat folder (e.g. "Notulensi", "Dokumentasi").
+ *
+ * Returns the subfolder ID, or the parent folder ID if subfolderName is empty/invalid.
+ */
+async function findOrCreateSubfolder(
+  accessToken: string,
+  sharedDriveId: string,
+  parentFolderId: string,
+  subfolderName: string
+): Promise<string> {
+  // Sanitize the name (Google Drive forbids certain chars in file names)
+  const safeName = subfolderName.trim().replace(/[/\\?%*:|"<>]/g, '-').substring(0, 100)
+  if (!safeName) return parentFolderId
+
+  // Search for an existing subfolder with this name inside parentFolderId
+  const searchUrl = new URL('https://www.googleapis.com/drive/v3/files')
+  // Escape single quotes for Drive query syntax
+  const escapedName = safeName.replace(/'/g, "\\'")
+  searchUrl.searchParams.set('q', `name='${escapedName}' and mimeType='application/vnd.google-apps.folder' and trashed=false`)
+  searchUrl.searchParams.set('corpora', 'drive')
+  searchUrl.searchParams.set('driveId', sharedDriveId)
+  searchUrl.searchParams.set('fields', 'files(id,name,parents)')
+  searchUrl.searchParams.set('supportsAllDrives', 'true')
+  searchUrl.searchParams.set('includeItemsFromAllDrives', 'true')
+  searchUrl.searchParams.set('pageSize', '10')
+
+  const searchResp = await fetch(searchUrl.toString(), {
+    headers: { 'Authorization': `Bearer ${accessToken}` },
+  })
+
+  if (searchResp.ok) {
+    const searchData = await searchResp.json()
+    if (Array.isArray(searchData.files)) {
+      for (const f of searchData.files) {
+        if (f.id && Array.isArray(f.parents) && f.parents.includes(parentFolderId)) {
+          return f.id
+        }
+      }
+    }
+  }
+
+  // Not found — create the subfolder inside parentFolderId
+  const createUrl = new URL('https://www.googleapis.com/drive/v3/files')
+  createUrl.searchParams.set('fields', 'id,name')
+  createUrl.searchParams.set('supportsAllDrives', 'true')
+
+  const createResp = await fetch(createUrl.toString(), {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${accessToken}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      name: safeName,
+      mimeType: 'application/vnd.google-apps.folder',
+      parents: [parentFolderId],
+    }),
+  })
+
+  if (createResp.ok) {
+    const createData = await createResp.json()
+    if (createData.id) {
+      console.log(`[UPLOAD-URL] Created subfolder "${safeName}" inside ${parentFolderId}`)
+      return createData.id
+    }
+  }
+
+  // Fallback: upload to parent folder if subfolder creation failed
+  console.error('[UPLOAD-URL] Failed to create subfolder, falling back to parent folder')
+  return parentFolderId
+}
+
 export async function POST(request: NextRequest) {
   try {
-    const { fileName, mimeType, folderId, autoNameMeta } = await request.json()
+    const { fileName, mimeType, folderId, autoNameMeta, subfolderName } = await request.json()
 
     if (!fileName || !folderId) {
       return NextResponse.json({ error: 'fileName dan folderId wajib diisi' }, { status: 400 })
@@ -75,6 +150,19 @@ export async function POST(request: NextRequest) {
     // Use CACHED access token — this endpoint is called once per file upload,
     // but caching ensures the token is shared with the subsequent chunk uploads.
     const accessToken = await getCachedAccessToken(settings.driveServiceAccountKey)
+
+    // Determine the target folder for the file upload.
+    // If subfolderName is provided, find or create a subfolder inside folderId.
+    // This organizes documents into named subfolders inside the main kegiatan/surat folder.
+    let targetFolderId = folderId
+    if (subfolderName && typeof subfolderName === 'string' && subfolderName.trim() && settings.driveSharedDriveId) {
+      targetFolderId = await findOrCreateSubfolder(
+        accessToken,
+        settings.driveSharedDriveId,
+        folderId,
+        subfolderName
+      )
+    }
 
     // Generate auto-formatted filename if metadata provided
     const finalFileName = autoNameMeta
@@ -96,7 +184,7 @@ export async function POST(request: NextRequest) {
       body: JSON.stringify({
         name: finalFileName,
         mimeType: mimeType || 'application/octet-stream',
-        parents: [folderId]
+        parents: [targetFolderId]
       })
     })
 
@@ -115,7 +203,9 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Gagal mendapatkan URL upload' }, { status: 502 })
     }
 
-    return NextResponse.json({ uploadUrl, autoFileName: finalFileName })
+    // Return targetFolderId so the frontend can cache it for subsequent files
+    // with the same subfolderName (avoids redundant subfolder lookups).
+    return NextResponse.json({ uploadUrl, autoFileName: finalFileName, folderId: targetFolderId })
   } catch (error) {
     console.error('[UPLOAD-URL] Error:', error)
     return NextResponse.json(
@@ -124,3 +214,4 @@ export async function POST(request: NextRequest) {
     )
   }
 }
+

@@ -219,31 +219,74 @@ export function ProgramKegiatanView() {
     }
 
     // Step 2: Upload each file using chunked resumable upload (supports ANY file size)
+    //
+    // SUBFOLDER BEHAVIOR:
+    //   When the user fills in "Nama penamaan berkas" (berkasName), a subfolder
+    //   with that name is automatically created INSIDE the main kegiatan folder,
+    //   and the file is uploaded into it. This organizes documents into named
+    //   subfolders (e.g. "Notulensi", "Dokumentasi") within the kegiatan folder.
+    //
+    //   If berkasName is empty, the file is uploaded directly to the main folder.
+    //
+    //   We cache subfolder IDs by berkasName so that multiple files with the
+    //   same berkasName reuse the same subfolder (avoids redundant API calls).
+    const subfolderCache = new Map<string, string>() // berkasName → subfolderId
     const uploadedDocs: any[] = []
     const docLinks: string[] = []
     for (const doc of pendingDocs) {
       const file = doc.file as File
       try {
-        // Build auto-rename: use berkasName from manager, fallback to original name
-        const safeBerkasName = (doc.berkasName || doc.originalName || 'Dokumen').trim().replace(/[/\\?%*:|"<>]/g, '-')
+        // Determine the berkasName (subfolder name) and display name
+        const rawBerkasName = (doc.berkasName || '').trim()
+        const safeBerkasName = rawBerkasName.replace(/[/\\?%*:|"<>]/g, '-')
         const ext = doc.originalName?.split('.').pop() || ''
-        const renamed = safeBerkasName + (ext ? '.' + ext : '')
-        updateStep('upload-docs', 'loading', `Mengupload "${renamed}"...`)
+        // Display name: berkasName + ext (for app UI), or original name if no berkasName
+        const displayName = safeBerkasName
+          ? safeBerkasName + (ext ? '.' + ext : '')
+          : (doc.originalName || file.name)
+
+        updateStep('upload-docs', 'loading', `Mengupload "${displayName}"...`)
+
+        // Determine the upload folder and subfolderName:
+        //   - If berkasName is set AND we have a cached subfolderId, upload
+        //     directly to the cached subfolder (no need to pass subfolderName).
+        //   - If berkasName is set but NOT cached, pass subfolderName to the
+        //     server so it finds/creates the subfolder. Cache the returned ID.
+        //   - If berkasName is empty, upload to the main kegiatan folder.
+        let uploadFolderId = folderId
+        let uploadSubfolderName: string | undefined
+
+        if (safeBerkasName) {
+          const cached = subfolderCache.get(safeBerkasName)
+          if (cached) {
+            uploadFolderId = cached
+          } else {
+            uploadFolderId = folderId
+            uploadSubfolderName = safeBerkasName
+          }
+        }
 
         // Use chunked upload — supports files of ANY size (up to Google Drive's 5 TB limit)
         const uploadedFile = await chunkedUploadFile({
           file,
-          folderId,
+          folderId: uploadFolderId,
+          subfolderName: uploadSubfolderName,
           onProgress: (pct) => {
             setUploadingDocs(prev => prev.map(d => d.id === doc.id ? { ...d, progress: pct } : d))
           },
         })
 
+        // Cache the subfolder ID for subsequent files with the same berkasName
+        if (safeBerkasName && uploadedFile.folderId && !subfolderCache.has(safeBerkasName)) {
+          subfolderCache.set(safeBerkasName, uploadedFile.folderId)
+        }
+
         // Build document metadata
         const docMeta = {
           id: `DOC-${Date.now()}-${Math.random().toString(36).slice(2)}`,
-          name: renamed,
+          name: displayName,
           originalName: doc.originalName || file.name,
+          subfolderName: safeBerkasName || undefined,
           mimeType: file.type || 'application/octet-stream',
           size: file.size,
           driveFileId: uploadedFile.id,
@@ -268,7 +311,7 @@ export function ProgramKegiatanView() {
         } else {
           let errorMsg = 'Gagal mendaftarkan dokumen'
           try { const err = await regRes.json(); errorMsg = err.error || errorMsg } catch {}
-          console.error(`[KEGIATAN UPLOAD] Failed "${renamed}":`, errorMsg)
+          console.error(`[KEGIATAN UPLOAD] Failed "${displayName}":`, errorMsg)
           setUploadingDocs(prev => prev.map(d => d.id === doc.id ? { ...d, status: 'error', error: errorMsg } : d))
         }
       } catch (err) {
@@ -903,15 +946,15 @@ export function ProgramKegiatanView() {
                             <Input
                               value={doc.berkasName || ''}
                               onChange={e => updateBerkasName(doc.id, e.target.value)}
-                              placeholder="Nama penamaan berkas..."
+                              placeholder="Nama sub-folder..."
                               disabled={isExistingDoc || isSaving}
                               className={cn("text-sm", !doc.berkasName && hasFile && "border-amber-300 focus:border-amber-400")}
                             />
                             {!isExistingDoc && (
                               <p className="text-[10px] text-stone-400 pl-1">
                                 {doc.berkasName
-                                  ? `Akan disimpan sebagai: ${doc.berkasName}${doc.originalName ? '.' + (doc.originalName.split('.').pop()) : ''}`
-                                  : 'Isi nama berkas untuk auto-rename saat upload'}
+                                  ? `Akan dibuat sub-folder "${doc.berkasName}" di dalam folder kegiatan`
+                                  : 'Isi nama untuk membuat sub-folder di dalam folder kegiatan'}
                               </p>
                             )}
                           </div>
