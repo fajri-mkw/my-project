@@ -62,9 +62,11 @@ import {
   PenTool,
   Copy,
   Check,
-  Hourglass
+  Hourglass,
+  User,
+  ChevronLeft
 } from 'lucide-react'
-import { useState, useMemo, useCallback } from 'react'
+import { useState, useMemo, useCallback, useEffect, useRef } from 'react'
 import { cn } from '@/lib/utils'
 import type { Task, DriveFolder } from '@/lib/store'
 
@@ -921,8 +923,96 @@ Pushakin Flows — Sistem Manajemen Produksi`
     }))
   }
 
+  // --- Sticky header: show compact title/pemohon/status bar once the user
+  // scrolls past the full project header. Uses a sentinel element + Intersection
+  // Observer so it reliably detects when the header leaves the viewport. ---
+  const headerSentinelRef = useRef<HTMLDivElement | null>(null)
+  const [headerPinned, setHeaderPinned] = useState(false)
+  useEffect(() => {
+    const sentinel = headerSentinelRef.current
+    if (!sentinel) return
+    // The scroll container is <main> in page.tsx (overflow-y-auto). The
+    // IntersectionObserver default root (viewport) works because the main
+    // element fills the viewport — scrolling moves the sentinel out of view.
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const entry = entries[0]
+        // When sentinel is NOT intersecting, the header has scrolled off → pin.
+        setHeaderPinned(!entry.isIntersecting)
+      },
+      { threshold: 0, rootMargin: '0px 0px -90% 0px' }
+    )
+    observer.observe(sentinel)
+    return () => observer.disconnect()
+  }, [])
+
+  const handleBackToTop = () => {
+    // Scroll the nearest scrollable ancestor (the <main> container) to top.
+    const main = headerSentinelRef.current?.closest('main')
+    if (main) main.scrollTo({ top: 0, behavior: 'smooth' })
+  }
+
   return (
     <div className="max-w-6xl mx-auto space-y-6">
+      {/* Sentinel for sticky-header trigger — zero-height, top of header */}
+      <div ref={headerSentinelRef} aria-hidden="true" className="h-0 w-full" />
+
+      {/* Sticky summary bar — appears when the full project header scrolls out
+          of view. Keeps judul, pemohon, and status saat ini always visible so
+          the user never loses context while reading a long project detail page.
+          Uses max-h transition so it occupies zero vertical space when hidden. */}
+      <div
+        className={cn(
+          'sticky top-0 z-30 -mx-4 sm:-mx-6 lg:-mx-8 px-4 sm:px-6 lg:px-8',
+          'bg-white/95 backdrop-blur supports-[backdrop-filter]:bg-white/80',
+          'border-b border-stone-200 shadow-sm',
+          'transition-all duration-300 overflow-hidden',
+          headerPinned
+            ? 'opacity-100 max-h-20 py-3 pointer-events-auto'
+            : 'opacity-0 max-h-0 py-0 pointer-events-none'
+        )}
+        aria-hidden={!headerPinned}
+      >
+        <div className="max-w-6xl mx-auto flex items-center gap-3">
+          <button
+            type="button"
+            onClick={handleBackToTop}
+            className="shrink-0 rounded-lg p-1.5 text-stone-400 hover:text-stone-700 hover:bg-stone-100 transition-colors"
+            aria-label="Kembali ke atas"
+            title="Kembali ke atas"
+          >
+            <ChevronLeft className="w-4 h-4 rotate-90" />
+          </button>
+          <div className="min-w-0 flex-1 flex items-center gap-2">
+            <h3 className="font-bold text-stone-900 truncate text-sm sm:text-base" title={project.title}>
+              {project.title}
+            </h3>
+            <span className="hidden sm:inline text-stone-300">•</span>
+            <span className="hidden sm:inline-flex items-center gap-1 text-xs text-stone-500 min-w-0">
+              <User className="w-3 h-3 shrink-0" />
+              <span className="truncate">{project.requesterUnit}</span>
+            </span>
+          </div>
+          <div className="shrink-0 flex items-center gap-2">
+            <Badge variant="outline" className="font-mono text-[10px] hidden md:inline-flex">{project.id}</Badge>
+            <span className="inline-flex items-center gap-1.5 rounded-full bg-indigo-50 border border-indigo-200 px-2.5 py-1 text-xs font-bold text-indigo-700">
+              <span className="w-1.5 h-1.5 rounded-full bg-indigo-500" />
+              Tahap {project.currentStage}: {STAGES[project.currentStage]}
+            </span>
+            {project.isFastTrack && (
+              <Badge className="bg-amber-500 text-white text-[10px] px-2 py-0.5 border-0 hidden lg:inline-flex">
+                <Zap className="h-3 w-3 mr-1" />FAST TRACK
+              </Badge>
+            )}
+            {project.isFastProduction && (
+              <Badge className="bg-teal-500 text-white text-[10px] px-2 py-0.5 border-0 hidden lg:inline-flex">
+                <Rocket className="h-3 w-3 mr-1" />FAST PRODUCTION
+              </Badge>
+            )}
+          </div>
+        </div>
+      </div>
+
       {/* Header Actions */}
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <Button
