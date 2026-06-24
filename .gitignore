@@ -62,3 +62,8 @@ tool-results/
 db/*.db
 db/*.db-shm
 db/*.db-wal
+
+# Local SQLite dev database (environment-specific, not for git)
+db/*.db
+db/*.db-shm
+db/*.db-wal
