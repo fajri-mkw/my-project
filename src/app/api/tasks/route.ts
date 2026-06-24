@@ -103,16 +103,23 @@ export async function PUT(request: NextRequest) {
     const isSuperAdmin = requestUserRole === 'Admin'
     
     // For Fast Production projects: allow completing any task regardless of stage
-    // For normal/Fast Track: only allow completing tasks in current stage
-    // Super Admin override: bypass stage gate entirely
-    if (!proj?.isFastProduction && existingTask.stage !== proj?.currentStage && !isRevision && !isSuperAdmin) {
+    // For normal/Fast Track: block only tasks AHEAD of the current stage.
+    //
+    // A worker whose task stage is AT or BEFORE the project's current stage is
+    // allowed to complete their task (e.g. late uploads, revisions that reopen
+    // an earlier stage, late assignments). Previously the gate used `!==`,
+    // which permanently blocked stage-1 workers once the project advanced to
+    // stage 2+ — the project never goes back, so they could never finish.
+    // Super Admin override: bypass stage gate entirely.
+    const projCurrentStage = proj?.currentStage ?? 0
+    if (!proj?.isFastProduction && existingTask.stage > projCurrentStage && !isRevision && !isSuperAdmin) {
       const stageNames: Record<number, string> = {
         0: 'Perencanaan', 1: 'Produksi', 2: 'Pasca Produksi', 3: 'Review', 4: 'Publikasi', 5: 'Selesai'
       }
       const taskStageName = stageNames[existingTask.stage] || ''
-      const projStageName = proj?.currentStage !== undefined ? (stageNames[proj.currentStage] || '') : ''
+      const projStageName = stageNames[projCurrentStage] || ''
       return NextResponse.json({ 
-        error: `Tugas berada di Tahap ${existingTask.stage} (${taskStageName}), tetapi proyek saat ini di Tahap ${proj?.currentStage ?? '?'} (${projStageName}). Tunggu hingga proyek mencapai tahap Anda.` 
+        error: `Tugas Anda berada di Tahap ${existingTask.stage} (${taskStageName}), tetapi proyek saat ini masih di Tahap ${projCurrentStage} (${projStageName}). Tunggu hingga proyek mencapai tahap Anda.` 
       }, { status: 400 })
     }
 
