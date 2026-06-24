@@ -190,9 +190,12 @@ export function ProgramKegiatanView() {
   }
 
   // Upload pending documents to Google Drive after kegiatan is created/edited
+  // Returns { finalDocs, docLinks, errorDetails } where errorDetails is an array
+  // of { name, error } for each failed document — used to show the ACTUAL error
+  // to the user instead of a generic "N dokumen gagal diupload" message.
   const uploadDocumentsToDrive = async (kegiatanId: string, docs: any[]) => {
     const pendingDocs = docs.filter((d: any) => d.file && !d.webViewLink)
-    if (pendingDocs.length === 0) return { finalDocs: docs, docLinks: [] as string[] }
+    if (pendingDocs.length === 0) return { finalDocs: docs, docLinks: [] as string[], errorDetails: [] as { name: string; error: string }[] }
 
     // Step 1: Prepare upload folder (get folderId from server)
     let folderId: string
@@ -215,7 +218,12 @@ export function ProgramKegiatanView() {
       const msg = err instanceof Error ? err.message : 'Gagal menyiapkan folder'
       console.error('[KEGIATAN UPLOAD] Prepare failed:', msg)
       setUploadingDocs(prev => prev.map(d => (d as any).file ? { ...d, status: 'error', error: msg } : d))
-      return { finalDocs: docs.filter((d: any) => !d.file || !!d.webViewLink), docLinks: [] }
+      // Return ALL pending docs as failed with the prepare error
+      const errorDetails = pendingDocs.map((d: any) => ({
+        name: d.berkasName || d.originalName || d.file?.name || 'dokumen',
+        error: msg,
+      }))
+      return { finalDocs: docs.filter((d: any) => !d.file || !!d.webViewLink), docLinks: [], errorDetails }
     }
 
     // Step 2: Upload each file using chunked resumable upload (supports ANY file size)
@@ -233,94 +241,133 @@ export function ProgramKegiatanView() {
     const subfolderCache = new Map<string, string>() // berkasName → subfolderId
     const uploadedDocs: any[] = []
     const docLinks: string[] = []
+    const errorDetails: { name: string; error: string }[] = []
+
     for (const doc of pendingDocs) {
       const file = doc.file as File
-      try {
-        // Determine the berkasName (subfolder name) and display name
-        const rawBerkasName = (doc.berkasName || '').trim()
-        const safeBerkasName = rawBerkasName.replace(/[/\\?%*:|"<>]/g, '-')
-        const ext = doc.originalName?.split('.').pop() || ''
-        // Display name: berkasName + ext (for app UI), or original name if no berkasName
-        const displayName = safeBerkasName
-          ? safeBerkasName + (ext ? '.' + ext : '')
-          : (doc.originalName || file.name)
+      const rawBerkasName = (doc.berkasName || '').trim()
+      const safeBerkasName = rawBerkasName.replace(/[/\\?%*:|"<>]/g, '-')
+      const ext = doc.originalName?.split('.').pop() || ''
+      const displayName = safeBerkasName
+        ? safeBerkasName + (ext ? '.' + ext : '')
+        : (doc.originalName || file.name)
 
-        updateStep('upload-docs', 'loading', `Mengupload "${displayName}"...`)
+      // Determine the upload folder and subfolderName
+      let uploadFolderId = folderId
+      let uploadSubfolderName: string | undefined
+      if (safeBerkasName) {
+        const cached = subfolderCache.get(safeBerkasName)
+        if (cached) {
+          uploadFolderId = cached
+        } else {
+          uploadFolderId = folderId
+          uploadSubfolderName = safeBerkasName
+        }
+      }
 
-        // Determine the upload folder and subfolderName:
-        //   - If berkasName is set AND we have a cached subfolderId, upload
-        //     directly to the cached subfolder (no need to pass subfolderName).
-        //   - If berkasName is set but NOT cached, pass subfolderName to the
-        //     server so it finds/creates the subfolder. Cache the returned ID.
-        //   - If berkasName is empty, upload to the main kegiatan folder.
-        let uploadFolderId = folderId
-        let uploadSubfolderName: string | undefined
+      // Retry the entire chunked upload once on transient failure.
+      // This handles cases where the upload-url retries inside chunkedUploadFile
+      // are exhausted (e.g. 3 consecutive CPU-limit 5xx on cold isolates).
+      const MAX_FILE_RETRIES = 1
+      let uploadedFile: { id: string; name: string; webViewLink: string; webContentLink?: string; size: number; folderId?: string } | null = null
+      let fileErrorMsg: string | null = null
 
-        if (safeBerkasName) {
-          const cached = subfolderCache.get(safeBerkasName)
-          if (cached) {
-            uploadFolderId = cached
-          } else {
-            uploadFolderId = folderId
-            uploadSubfolderName = safeBerkasName
+      for (let fileAttempt = 0; fileAttempt <= MAX_FILE_RETRIES; fileAttempt++) {
+        updateStep('upload-docs', 'loading',
+          fileAttempt === 0
+            ? `Mengupload "${displayName}"...`
+            : `Percobaan ulang upload "${displayName}"...`
+        )
+        try {
+          uploadedFile = await chunkedUploadFile({
+            file,
+            folderId: uploadFolderId,
+            subfolderName: fileAttempt === 0 ? uploadSubfolderName : undefined,
+            onProgress: (pct) => {
+              setUploadingDocs(prev => prev.map(d => d.id === doc.id ? { ...d, progress: pct } : d))
+            },
+          })
+          fileErrorMsg = null
+          break
+        } catch (err) {
+          fileErrorMsg = err instanceof Error ? err.message : 'Upload gagal'
+          console.error(`[KEGIATAN UPLOAD] Attempt ${fileAttempt + 1} failed for "${displayName}":`, fileErrorMsg)
+          if (fileAttempt < MAX_FILE_RETRIES) {
+            await new Promise((r) => setTimeout(r, 1200))
           }
         }
+      }
 
-        // Use chunked upload — supports files of ANY size (up to Google Drive's 5 TB limit)
-        const uploadedFile = await chunkedUploadFile({
-          file,
-          folderId: uploadFolderId,
-          subfolderName: uploadSubfolderName,
-          onProgress: (pct) => {
-            setUploadingDocs(prev => prev.map(d => d.id === doc.id ? { ...d, progress: pct } : d))
-          },
-        })
-
-        // Cache the subfolder ID for subsequent files with the same berkasName
-        if (safeBerkasName && uploadedFile.folderId && !subfolderCache.has(safeBerkasName)) {
-          subfolderCache.set(safeBerkasName, uploadedFile.folderId)
-        }
-
-        // Build document metadata
-        const docMeta = {
-          id: `DOC-${Date.now()}-${Math.random().toString(36).slice(2)}`,
-          name: displayName,
-          originalName: doc.originalName || file.name,
-          subfolderName: safeBerkasName || undefined,
-          mimeType: file.type || 'application/octet-stream',
-          size: file.size,
-          driveFileId: uploadedFile.id,
-          webViewLink: uploadedFile.webViewLink,
-          downloadUrl: `https://drive.google.com/uc?export=download&id=${uploadedFile.id}`,
-          uploadedAt: new Date().toISOString(),
-        }
-
-        // Register document metadata to kegiatan
-        const regRes = await fetch('/api/program-kegiatan/register-document', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ kegiatanId, document: docMeta }),
-        })
-
-        if (regRes.ok) {
-          const result = await regRes.json()
-          const finalDoc = result.document || docMeta
-          uploadedDocs.push(finalDoc)
-          if (finalDoc.webViewLink) docLinks.push(finalDoc.webViewLink)
-          setUploadingDocs(prev => prev.map(d => d.id === doc.id ? { ...d, progress: 100, status: 'success', webViewLink: finalDoc.webViewLink } : d))
-        } else {
-          let errorMsg = 'Gagal mendaftarkan dokumen'
-          try { const err = await regRes.json(); errorMsg = err.error || errorMsg } catch {}
-          console.error(`[KEGIATAN UPLOAD] Failed "${displayName}":`, errorMsg)
-          setUploadingDocs(prev => prev.map(d => d.id === doc.id ? { ...d, status: 'error', error: errorMsg } : d))
-        }
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : 'Upload gagal'
-        console.error(`[KEGIATAN UPLOAD] Error:`, msg)
+      if (!uploadedFile || fileErrorMsg) {
+        const msg = fileErrorMsg || 'Upload gagal'
         setUploadingDocs(prev => prev.map(d => d.id === doc.id ? { ...d, status: 'error', error: msg } : d))
+        errorDetails.push({ name: displayName, error: msg })
+        continue
+      }
+
+      // Cache the subfolder ID for subsequent files with the same berkasName
+      if (safeBerkasName && uploadedFile.folderId && !subfolderCache.has(safeBerkasName)) {
+        subfolderCache.set(safeBerkasName, uploadedFile.folderId)
+      }
+
+      // Build document metadata
+      const docMeta = {
+        id: `DOC-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+        name: displayName,
+        originalName: doc.originalName || file.name,
+        subfolderName: safeBerkasName || undefined,
+        mimeType: file.type || 'application/octet-stream',
+        size: file.size,
+        driveFileId: uploadedFile.id,
+        webViewLink: uploadedFile.webViewLink,
+        downloadUrl: `https://drive.google.com/uc?export=download&id=${uploadedFile.id}`,
+        uploadedAt: new Date().toISOString(),
+      }
+
+      // Register document metadata to kegiatan — with retry on 5xx.
+      // register-document is lightweight but can still hit CPU limits on
+      // cold isolates. Retry up to 2 times.
+      const MAX_REG_RETRIES = 2
+      let regOk = false
+      let regErrorMsg = 'Gagal mendaftarkan dokumen'
+      let finalDoc = docMeta
+
+      for (let regAttempt = 0; regAttempt <= MAX_REG_RETRIES; regAttempt++) {
+        try {
+          const regRes = await fetch('/api/program-kegiatan/register-document', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ kegiatanId, document: docMeta }),
+          })
+          if (regRes.ok) {
+            const result = await regRes.json()
+            finalDoc = result.document || docMeta
+            regOk = true
+            break
+          }
+          // Parse error
+          try { const err = await regRes.json(); regErrorMsg = err.error || regErrorMsg } catch { regErrorMsg = `Server error (${regRes.status})` }
+          // Only retry on 5xx
+          if (regRes.status < 500 || regAttempt === MAX_REG_RETRIES) break
+          await new Promise((r) => setTimeout(r, 800 * (regAttempt + 1)))
+        } catch (regErr) {
+          regErrorMsg = regErr instanceof Error ? regErr.message : 'Gagal mendaftarkan dokumen'
+          if (regAttempt === MAX_REG_RETRIES) break
+          await new Promise((r) => setTimeout(r, 800 * (regAttempt + 1)))
+        }
+      }
+
+      if (regOk) {
+        uploadedDocs.push(finalDoc)
+        if (finalDoc.webViewLink) docLinks.push(finalDoc.webViewLink)
+        setUploadingDocs(prev => prev.map(d => d.id === doc.id ? { ...d, progress: 100, status: 'success', webViewLink: finalDoc.webViewLink } : d))
+      } else {
+        console.error(`[KEGIATAN UPLOAD] Register failed for "${displayName}":`, regErrorMsg)
+        setUploadingDocs(prev => prev.map(d => d.id === doc.id ? { ...d, status: 'error', error: regErrorMsg } : d))
+        errorDetails.push({ name: displayName, error: regErrorMsg })
       }
     }
-    return { finalDocs: [...docs.filter((d: any) => !d.file || !!d.webViewLink), ...uploadedDocs], docLinks }
+    return { finalDocs: [...docs.filter((d: any) => !d.file || !!d.webViewLink), ...uploadedDocs], docLinks, errorDetails }
   }
 
   const openCreateForm = () => {
@@ -512,21 +559,33 @@ export function ProgramKegiatanView() {
       // --- STEP 2: Upload documents (folder created automatically if needed) ---
       if (hasPending) {
         const kegiatanId = editingId || kegiatanData.id
-        const { finalDocs, docLinks } = await uploadDocumentsToDrive(kegiatanId, formData.documents)
+        const { finalDocs, docLinks, errorDetails } = await uploadDocumentsToDrive(kegiatanId, formData.documents)
         // Update form documents to reflect upload results
         setFormData(prev => ({ ...prev, documents: finalDocs }))
         const successCount = docLinks.length
-        const failCount = formData.documents.filter((d: any) => d.file && !d.webViewLink).length - successCount
+        const failCount = errorDetails.length
         if (successCount > 0) {
-          updateStep('upload-docs', 'success', `${successCount} dokumen berhasil diupload ke Google Drive`)
           setSaveProgress(prev => prev ? { ...prev, docLinks } : null)
         }
         if (failCount > 0) {
+          // Surface the ACTUAL error messages to the user so they know what went
+          // wrong (previously showed only a generic "N dokumen gagal diupload").
+          const errorSummary = errorDetails
+            .map(e => `"${e.name}": ${e.error}`)
+            .join('; ')
+          // Truncate very long error summaries for the step detail
+          const truncatedSummary = errorSummary.length > 200
+            ? errorSummary.substring(0, 200) + '...'
+            : errorSummary
           updateStep('upload-docs', successCount > 0 ? 'success' : 'error',
             successCount > 0
-              ? `${successCount} berhasil, ${failCount} gagal diupload`
-              : `${failCount} dokumen gagal diupload`
+              ? `${successCount} berhasil, ${failCount} gagal diupload — ${truncatedSummary}`
+              : `${failCount} dokumen gagal diupload — ${truncatedSummary}`
           )
+          // Also log full error details to console for debugging
+          console.error('[KEGIATAN] Upload errors:', errorDetails)
+        } else if (successCount > 0) {
+          updateStep('upload-docs', 'success', `${successCount} dokumen berhasil diupload ke Google Drive`)
         }
       } else {
         // No docs to upload, mark upload step as success

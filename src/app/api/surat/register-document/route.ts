@@ -1,6 +1,5 @@
-import { db, ensureDbConnection } from '@/lib/db'
+import { db } from '@/lib/db'
 import { NextRequest, NextResponse } from 'next/server'
-import { checkMaintenanceMode } from '@/lib/maintenance-check'
 
 interface DocumentMeta {
   id: string
@@ -21,18 +20,16 @@ interface DocumentMeta {
  * This is used AFTER the chunked resumable upload completes (via
  * /api/drive/upload-url + /api/drive/upload-chunk).
  *
- * This replaces the metadata-saving portion of the old
- * /api/surat/upload-document route (which also handled the file upload itself,
- * loading the entire file into memory).
- *
  * Body: { suratId: string, document: DocumentMeta }
- * Returns: { success: true, document: DocumentMeta, surat: ... }
+ * Returns: { success: true, document: DocumentMeta }
+ *
+ * PERFORMANCE: Lightweight — NO checkMaintenanceMode, NO ensureDbConnection
+ * (schema sync). The surat was just created/updated in the same request flow,
+ * so the schema is guaranteed current. Only 2 DB round trips to stay within
+ * Cloudflare Workers' free-plan CPU limit.
  */
 export async function POST(request: NextRequest) {
-  const maintenanceBlock = await checkMaintenanceMode(request)
-  if (maintenanceBlock) return maintenanceBlock
   try {
-    await ensureDbConnection()
     const { suratId, document } = await request.json()
 
     if (!suratId || !document) {
@@ -48,7 +45,6 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Surat tidak ditemukan' }, { status: 404 })
     }
 
-    // Build document metadata (ensure all fields are present)
     const docMeta: DocumentMeta = {
       id: document.id || `DOC-${Date.now()}-${Math.random().toString(36).slice(2)}`,
       name: document.name,
@@ -61,7 +57,6 @@ export async function POST(request: NextRequest) {
       uploadedAt: document.uploadedAt || new Date().toISOString(),
     }
 
-    // Append to existing documents
     const existingDocs: DocumentMeta[] = JSON.parse(surat.documents || '[]')
     existingDocs.push(docMeta)
 
@@ -70,17 +65,9 @@ export async function POST(request: NextRequest) {
       data: { documents: JSON.stringify(existingDocs) },
     })
 
-    console.log(`[SURAT REGISTER] Registered "${docMeta.name}" for surat ${surat.nomorSurat}`)
-
-    const updatedSurat = await db.surat.findUnique({ where: { id: suratId } })
-
     return NextResponse.json({
       success: true,
       document: docMeta,
-      surat: updatedSurat ? {
-        ...updatedSurat,
-        documents: JSON.parse(updatedSurat.documents || '[]'),
-      } : null,
     })
   } catch (error) {
     console.error('[SURAT REGISTER] Error:', error)

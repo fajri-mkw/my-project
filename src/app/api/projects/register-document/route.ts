@@ -1,6 +1,5 @@
-import { db, ensureDbConnection } from '@/lib/db'
+import { db } from '@/lib/db'
 import { NextRequest, NextResponse } from 'next/server'
-import { checkMaintenanceMode } from '@/lib/maintenance-check'
 
 interface DocumentMeta {
   id: string
@@ -20,12 +19,13 @@ interface DocumentMeta {
  *
  * Body: { projectId: string, document: DocumentMeta, label?: string }
  * Returns: { success: true, document: DocumentMeta }
+ *
+ * PERFORMANCE: Lightweight — NO checkMaintenanceMode, NO ensureDbConnection
+ * (schema sync). Only 2 DB round trips to stay within Cloudflare Workers'
+ * free-plan CPU limit.
  */
 export async function POST(request: NextRequest) {
-  const maintenanceBlock = await checkMaintenanceMode(request)
-  if (maintenanceBlock) return maintenanceBlock
   try {
-    await ensureDbConnection()
     const { projectId, document, label } = await request.json()
 
     if (!projectId || !document) {
@@ -51,7 +51,6 @@ export async function POST(request: NextRequest) {
       uploadedAt: document.uploadedAt || new Date().toISOString(),
     }
 
-    // Append to project's documents field
     const existingDocs = JSON.parse(project.documents || '[]')
     existingDocs.push(docMeta)
 
@@ -59,8 +58,6 @@ export async function POST(request: NextRequest) {
       where: { id: projectId },
       data: { documents: JSON.stringify(existingDocs) },
     })
-
-    console.log(`[PROJECTS REGISTER] Registered "${docMeta.name}" for project ${projectId}`)
 
     return NextResponse.json({ success: true, document: docMeta })
   } catch (error) {

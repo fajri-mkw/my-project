@@ -1,11 +1,11 @@
-import { db, ensureDbConnection } from '@/lib/db'
+import { db } from '@/lib/db'
 import { NextRequest, NextResponse } from 'next/server'
-import { checkMaintenanceMode } from '@/lib/maintenance-check'
 
 interface DocumentMeta {
   id: string
   name: string
   originalName?: string
+  subfolderName?: string
   mimeType: string
   size: number
   driveFileId: string
@@ -21,13 +21,16 @@ interface DocumentMeta {
  * Used AFTER chunked resumable upload completes.
  *
  * Body: { kegiatanId: string, document: DocumentMeta }
- * Returns: { success: true, document: DocumentMeta, kegiatan: ... }
+ * Returns: { success: true, document: DocumentMeta }
+ *
+ * PERFORMANCE: This route is intentionally lightweight — NO checkMaintenanceMode,
+ * NO ensureDbConnection (schema sync). The kegiatan was just created/updated in
+ * the same request flow, so the schema is guaranteed current. This route only
+ * does 2 DB round trips (findUnique + update) to stay within Cloudflare Workers'
+ * free-plan CPU limit.
  */
 export async function POST(request: NextRequest) {
-  const maintenanceBlock = await checkMaintenanceMode(request)
-  if (maintenanceBlock) return maintenanceBlock
   try {
-    await ensureDbConnection()
     const { kegiatanId, document } = await request.json()
 
     if (!kegiatanId || !document) {
@@ -47,6 +50,7 @@ export async function POST(request: NextRequest) {
       id: document.id || `DOC-${Date.now()}-${Math.random().toString(36).slice(2)}`,
       name: document.name,
       originalName: document.originalName,
+      subfolderName: document.subfolderName,
       mimeType: document.mimeType || 'application/octet-stream',
       size: document.size || 0,
       driveFileId: document.driveFileId,
@@ -63,17 +67,9 @@ export async function POST(request: NextRequest) {
       data: { documents: JSON.stringify(existingDocs) },
     })
 
-    console.log(`[KEGIATAN REGISTER] Registered "${docMeta.name}" for kegiatan ${kegiatan.nomorKegiatan}`)
-
-    const updatedKegiatan = await db.programKegiatan.findUnique({ where: { id: kegiatanId } })
-
     return NextResponse.json({
       success: true,
       document: docMeta,
-      kegiatan: updatedKegiatan ? {
-        ...updatedKegiatan,
-        documents: JSON.parse(updatedKegiatan.documents || '[]'),
-      } : null,
     })
   } catch (error) {
     console.error('[KEGIATAN REGISTER] Error:', error)

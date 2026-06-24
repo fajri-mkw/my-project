@@ -80,29 +80,71 @@ export async function chunkedUploadFile(
   onProgress?.(2, 'Menyiapkan upload...')
 
   // ===== STEP 1: Get resumable upload URL from server =====
-  const urlResponse = await fetch('/api/drive/upload-url', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      fileName: file.name,
-      mimeType: file.type || 'application/octet-stream',
-      folderId,
-      autoNameMeta,
-      subfolderName,
-    }),
-    signal,
-  })
+  // Retry on 5xx + network errors — Cloudflare Workers free-plan 10ms CPU
+  // limit can cause transient 5xx responses on cold isolates (Prisma WASM
+  // init + JWT signing + subfolder creation can exceed the limit).
+  const MAX_URL_RETRIES = 2
+  let uploadUrl: string | null = null
+  let autoFileName: string | undefined
+  let targetFolderId: string | undefined
 
-  if (!urlResponse.ok) {
-    let errorMsg = 'Gagal menyiapkan upload'
+  for (let attempt = 0; attempt <= MAX_URL_RETRIES; attempt++) {
+    if (signal?.aborted) throw new Error('Upload dibatalkan')
+
     try {
-      const d = await urlResponse.json()
-      errorMsg = d.error || errorMsg
-    } catch {}
-    throw new Error(errorMsg)
+      const urlResponse = await fetch('/api/drive/upload-url', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          fileName: file.name,
+          mimeType: file.type || 'application/octet-stream',
+          folderId,
+          autoNameMeta,
+          subfolderName,
+        }),
+        signal,
+      })
+
+      if (urlResponse.ok) {
+        const data = await urlResponse.json()
+        uploadUrl = data.uploadUrl
+        autoFileName = data.autoFileName
+        targetFolderId = data.folderId
+        break
+      }
+
+      // Non-OK response — parse error message
+      let errorMsg = 'Gagal menyiapkan upload'
+      let isTransient = false
+      try {
+        const d = await urlResponse.json()
+        errorMsg = d.error || errorMsg
+        isTransient = urlResponse.status >= 500
+      } catch {
+        // Response body is not JSON (likely a Cloudflare HTML error page)
+        errorMsg = `Server error (${urlResponse.status})`
+        isTransient = urlResponse.status >= 500 || urlResponse.status === 0
+      }
+
+      // 4xx errors are not retried (client/validation errors)
+      if (!isTransient || attempt === MAX_URL_RETRIES) {
+        throw new Error(errorMsg)
+      }
+
+      // Show retry status and back off
+      onProgress?.(3, `Percobaan ulang #${attempt + 1} untuk menyiapkan upload...`)
+      await new Promise((r) => setTimeout(r, 800 * (attempt + 1)))
+    } catch (fetchErr) {
+      if (signal?.aborted) throw new Error('Upload dibatalkan')
+      // Network error — retry unless this was the last attempt
+      if (attempt === MAX_URL_RETRIES) {
+        throw fetchErr instanceof Error ? fetchErr : new Error('Gagal menyiapkan upload')
+      }
+      onProgress?.(3, `Percobaan ulang #${attempt + 1} untuk menyiapkan upload...`)
+      await new Promise((r) => setTimeout(r, 800 * (attempt + 1)))
+    }
   }
 
-  const { uploadUrl, autoFileName, folderId: targetFolderId } = await urlResponse.json()
   if (!uploadUrl) throw new Error('URL upload tidak ditemukan')
 
   onProgress?.(5, 'Mengupload...')
