@@ -1,7 +1,7 @@
 import { db, ensureDbConnection } from '@/lib/db'
 import { NextRequest, NextResponse } from 'next/server'
 import { checkMaintenanceMode } from '@/lib/maintenance-check'
-import { withEdgeCache } from '@/lib/edge-cache'
+import { withEdgeCache, invalidateCache } from '@/lib/edge-cache'
 
 // Generate nomor surat: ST/001/I/2025
 async function generateNomorSurat(): Promise<string> {
@@ -211,6 +211,10 @@ export async function POST(request: NextRequest) {
     } catch (notifErr) {
       console.error('Failed to create surat tugas notification:', notifErr)
     }
+
+    // Invalidate caches — new surat tugas + notification were just created
+    await invalidateCache('/api/surat-tugas')
+    await invalidateCache('/api/notifications')
     
     return NextResponse.json({
       id: surat.id,
@@ -255,6 +259,9 @@ export async function PUT(request: NextRequest) {
       where: { id },
       data: updateData
     })
+
+    // Invalidate surat-tugas cache so the inbox reflects the new read/status
+    await invalidateCache('/api/surat-tugas')
     
     return NextResponse.json(surat)
   } catch (error) {

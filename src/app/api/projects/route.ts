@@ -146,7 +146,13 @@ export const GET = withEdgeCache(async (request: NextRequest) => {
     }
 
     return NextResponse.json(filteredProjects, {
-      headers: { 'Cache-Control': 'private, max-age=10, stale-while-revalidate=30' },
+      // Browser must NOT cache this response — the edge cache (15s TTL) is the
+      // single source of truth. A browser max-age would create a SECOND stale
+      // layer on top of the edge cache, causing "status lambat update" even
+      // after the edge cache is invalidated. no-store forces the browser to
+      // always revalidate against the edge, which returns fresh data once
+      // invalidated.
+      headers: { 'Cache-Control': 'no-store' },
     })
   } catch (error) {
     console.error('Get projects error:', error)
@@ -155,7 +161,7 @@ export const GET = withEdgeCache(async (request: NextRequest) => {
       { status: 500 },
     )
   }
-}, { ttl: 60 })
+}, { ttl: 15 })
 
 // ============================================================================
 // POST create project — batch transaction (project + tasks + drive_folders + notifications)

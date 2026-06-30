@@ -2,6 +2,7 @@ import { db, ensureDbConnection } from '@/lib/db'
 import { NextRequest, NextResponse } from 'next/server'
 import { checkMaintenanceMode } from '@/lib/maintenance-check'
 import { sendStageAdvanceNotification, sendReviewRejectionNotification } from '@/lib/notification-service'
+import { invalidateCache } from '@/lib/edge-cache'
 
 // PUT complete task
 export async function PUT(request: NextRequest) {
@@ -82,7 +83,14 @@ export async function PUT(request: NextRequest) {
       } catch (err) {
         console.error('Failed to send rejection notifications:', err)
       }
-      
+
+      // === CRITICAL: invalidate edge caches so other clients see the stage reset ===
+      // Without this, /api/projects keeps serving the old (pre-rejection) currentStage
+      // for up to 60s, causing the dashboard to show stale status.
+      await invalidateCache('/api/projects')
+      await invalidateCache('/api/notifications')
+      await invalidateCache('/api/surat-tugas')
+
       return NextResponse.json({ success: true, action: 'rejected' })
     }
     
@@ -531,6 +539,18 @@ export async function PUT(request: NextRequest) {
     // Return full project state for store sync to prevent desync
     const finalProjectTasks = await db.task.findMany({ where: { projectId } })
     const finalProject = await db.project.findUnique({ where: { id: projectId } })
+
+    // === CRITICAL: invalidate edge caches AFTER all DB mutations, BEFORE returning ===
+    // The task completion above mutated projects.currentStage, tasks.status,
+    // notifications, and surat_tugas. Without invalidating the /api/projects,
+    // /api/notifications, and /api/surat-tugas edge caches, other clients (and
+    // this client's own 60s poll) will keep reading STALE data and overwrite
+    // the optimistic local update — causing "status tidak update / lambat".
+    // Placed here (after the intra-stage handoff that creates more notifications)
+    // so every mutation is reflected once the cache is busted.
+    await invalidateCache('/api/projects')
+    await invalidateCache('/api/notifications')
+    await invalidateCache('/api/surat-tugas')
     
     return NextResponse.json({
       success: true,

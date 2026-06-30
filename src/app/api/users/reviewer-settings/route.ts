@@ -1,5 +1,6 @@
 import { db, ensureDbConnection } from '@/lib/db'
 import { NextRequest, NextResponse } from 'next/server'
+import { invalidateCache } from '@/lib/edge-cache'
 
 // GET reviewer settings
 export async function GET(request: NextRequest) {
@@ -133,6 +134,14 @@ export async function PUT(request: NextRequest) {
         }
       }
     }
+
+    // === Invalidate edge caches — auto-approve above may have advanced ===
+    // projects.currentStage and created notifications. Without this, the
+    // dashboard keeps showing the old stage for up to 15s (edge TTL).
+    await invalidateCache('/api/projects')
+    await invalidateCache('/api/notifications')
+    await invalidateCache('/api/surat-tugas')
+    await invalidateCache('/api/users')
     
     return NextResponse.json({ 
       success: true, 
