@@ -388,21 +388,40 @@ export function CreateProjectView() {
     })
   }
 
-  // Fetch Drive settings on mount
+  // Fetch Drive settings on mount — with retry logic to handle Cloudflare
+  // Workers free-plan CPU-limit 5xx responses on cold isolates.
+  // CRITICAL: If this fetch fails, driveConnected stays false and the manager
+  // CANNOT initiate a project (mock folder fallback has been removed to
+  // prevent the "Folder tidak valid" error that workers hit when uploading
+  // to mock/placeholder folders).
   useEffect(() => {
     const fetchSettings = async () => {
-      try {
-        const response = await fetch('/api/settings')
-        if (response.ok) {
-          const data = await response.json()
-          // Drive dianggap "terhubung" (mampu membuat folder asli) ketika
-          // Service Account Key DAN Shared Drive ID keduanya sudah diisi.
-          // Toggle driveAutoCreate tidak lagi menjadi syarat — jika Drive
-          // terkonfigurasi, folder asli selalu dibuat.
-          setDriveConnected(!!data.hasServiceAccountKey && !!data.driveSharedDriveId)
+      const MAX_RETRIES = 2
+      for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+        try {
+          const response = await fetch('/api/settings')
+          if (response.ok) {
+            const data = await response.json()
+            // Drive dianggap "terhubung" (mampu membuat folder asli) ketika
+            // Service Account Key DAN Shared Drive ID keduanya sudah diisi.
+            setDriveConnected(!!data.hasServiceAccountKey && !!data.driveSharedDriveId)
+            return
+          }
+          // Non-OK response — retry on 5xx (CF CPU limit)
+          if (response.status < 500 || attempt === MAX_RETRIES) {
+            console.error('Failed to fetch settings, status:', response.status)
+            setDriveConnected(false)
+            return
+          }
+        } catch (error) {
+          console.error('Failed to fetch settings (attempt', attempt + 1 + '):', error)
+          if (attempt === MAX_RETRIES) {
+            setDriveConnected(false)
+            return
+          }
         }
-      } catch (error) {
-        console.error('Failed to fetch settings:', error)
+        // Backoff before retry
+        await new Promise(r => setTimeout(r, 800 * (attempt + 1)))
       }
     }
     fetchSettings()
@@ -489,6 +508,40 @@ export function CreateProjectView() {
     setIsCreatingProject(true)
 
     try {
+      // ===== PRE-FLIGHT: Re-verify Drive connection before initiating project =====
+      // The mount-time fetchSettings may have failed (CF CPU limit on cold start)
+      // or the admin may have just disconnected Drive. Re-check NOW with retry
+      // to ensure we don't create a project with broken/mock folders.
+      // If Drive is NOT connected, BLOCK project initiation entirely — no mock
+      // folder fallback (mock folders cause "Folder tidak valid" for workers).
+      let driveVerified = driveConnected
+      if (!driveVerified) {
+        // Re-fetch settings with retry in case the mount-time fetch failed
+        try {
+          const recheckResp = await fetch('/api/settings')
+          if (recheckResp.ok) {
+            const recheckData = await recheckResp.json()
+            driveVerified = !!recheckData.hasServiceAccountKey && !!recheckData.driveSharedDriveId
+            if (driveVerified) {
+              setDriveConnected(true) // update state so UI reflects the corrected status
+            }
+          }
+        } catch {
+          // Re-fetch also failed — driveVerified stays false
+        }
+      }
+
+      if (!driveVerified) {
+        setIsCreatingProject(false)
+        showAlert(
+          'Google Drive BELUM terhubung. Proyek TIDAK dapat diinisiasi.\n\n' +
+          'Hubungi Super Admin untuk mengonfigurasi Service Account Key & Shared Drive ID ' +
+          'di menu Pengaturan → Google Drive. Setelah Drive terhubung, Anda dapat ' +
+          'menginisiasi proyek dan petugas dapat mengunggah file tanpa error.'
+        )
+        return
+      }
+
       // Create one task per selected user per role
       const tasks: Array<{ role: string; stage: number; assignedTo: string }> = []
       activeRoles.forEach(role => {
@@ -710,10 +763,19 @@ export function CreateProjectView() {
           return
         }
       } else {
-        // Drive BELUM dikonfigurasi → gunakan mock folder sebagai satu-satunya
-        // kasus mock yang sah. Manager akan melihat peringatan di UI bahwa Drive
-        // belum terhubung dan upload petugas tidak akan berfungsi.
-        generatedFolders = createMockFolders(selectedFolders, activeRoles, tasks)
+        // This branch should NEVER be reached because the pre-flight check at
+        // the top of handleSubmit already blocks project creation when Drive
+        // is not connected. But we keep this as a defensive hard-block to
+        // ensure NO project is ever created with mock/placeholder folders.
+        // Mock folders cause "Folder tidak valid" errors for workers.
+        setDriveCreatingStatus(null)
+        setIsCreatingProject(false)
+        showAlert(
+          'Google Drive BELUM terhubung. Proyek TIDAK dapat diinisiasi.\n\n' +
+          'Hubungi Super Admin untuk mengonfigurasi Service Account Key & Shared Drive ID ' +
+          'di menu Pengaturan → Google Drive. Setelah Drive terhubung, coba lagi.'
+        )
+        return
       }
 
       setDriveCreatingStatus(null)
@@ -1239,6 +1301,28 @@ export function CreateProjectView() {
       </CardHeader>
       <CardContent className="p-4 sm:p-6 lg:p-8">
         <form onSubmit={handleSubmit} className="space-y-6 sm:space-y-8">
+          {/* ⛔ Drive Connection Block Banner — shown when Drive is NOT connected.
+              Project initiation is BLOCKED until Super Admin configures Drive. */}
+          {!driveConnected && (
+            <div className="rounded-xl border-2 border-red-300 bg-red-50 p-4 flex items-start gap-3">
+              <AlertTriangle className="w-5 h-5 text-red-600 flex-shrink-0 mt-0.5" />
+              <div>
+                <p className="font-bold text-red-800 mb-1">
+                  Google Drive Belum Terhubung — Proyek TIDAK Dapat Diinisiasi
+                </p>
+                <p className="text-sm text-red-700 mb-2">
+                  Tombol &quot;Inisiasi Proyek&quot; dinonaktifkan. Petugas akan mengalami error
+                  &quot;Folder tidak valid&quot; jika proyek dibuat tanpa koneksi Drive.
+                </p>
+                <p className="text-sm text-red-700">
+                  <span className="font-medium">Solusi:</span> Minta Super Admin membuka menu
+                  <span className="font-medium"> Pengaturan → Google Drive</span> dan mengisi
+                  <span className="font-medium"> Service Account Key</span> &amp;
+                  <span className="font-medium"> Shared Drive ID</span>.
+                </p>
+              </div>
+            </div>
+          )}
 
           {/* ⚡ Fast Track Toggle — Manager Only */}
           <div className={`rounded-xl border-2 p-4 transition-all duration-300 ${
@@ -2167,11 +2251,22 @@ export function CreateProjectView() {
                 Jika pembuatan folder gagal, inisiasi proyek akan dibatalkan dengan pesan error yang jelas.
               </p>
             ) : (
-              <p className="text-sm text-amber-700 mb-4 ml-8">
-                ⚠️ Google Drive belum dikonfigurasi. Folder akan dibuat sebagai placeholder (mock) dan
-                <span className="font-medium"> petugas TIDAK dapat mengunggah file</span> hingga Drive dihubungkan.
-                <span className="font-medium"> Aktifkan Service Account Key &amp; Shared Drive ID di menu Pengaturan.</span>
-              </p>
+              <div className="mb-4 ml-8 p-3 bg-red-50 border border-red-200 rounded-lg">
+                <p className="text-sm text-red-800 font-medium mb-1">
+                  ⛔ Google Drive BELUM terhubung — Proyek TIDAK dapat diinisiasi.
+                </p>
+                <p className="text-sm text-red-700">
+                  Tombol &quot;Inisiasi Proyek&quot; dinonaktifkan hingga Drive terhubung.
+                  Hubungi <span className="font-medium">Super Admin</span> untuk mengonfigurasi
+                  <span className="font-medium"> Service Account Key</span> &amp;
+                  <span className="font-medium"> Shared Drive ID</span> di menu
+                  <span className="font-medium"> Pengaturan → Google Drive</span>.
+                </p>
+                <p className="text-xs text-red-600 mt-2">
+                  Catatan: Jika Drive sudah terhubung di admin tetapi pesan ini muncul,
+                  kemungkinan koneksi server sedang tidak stabil. Coba refresh halaman.
+                </p>
+              </div>
             )}
             <p className="text-sm text-indigo-700/80 mb-2 ml-8">
               Pilih struktur folder dan tentukan user mana saja yang memiliki akses.
@@ -2453,21 +2548,25 @@ export function CreateProjectView() {
               </Button>
               <Button
                 type="submit"
-                disabled={isCreatingProject}
+                disabled={isCreatingProject || !driveConnected}
                 className="flex-1 sm:flex-none bg-indigo-600 hover:bg-indigo-700 gap-2"
+                title={!driveConnected ? 'Google Drive belum terhubung — hubungi Super Admin' : undefined}
               >
                 {isCreatingProject ? (
                   <>
                     <Loader2 className="w-4 h-4 animate-spin" />
                     <span>{driveCreatingStatus || 'Menginisiasi Proyek...'}</span>
                   </>
+                ) : !driveConnected ? (
+                  <>
+                    <AlertTriangle className="w-4 h-4" />
+                    <span>Drive Belum Terhubung</span>
+                  </>
                 ) : (
                   <>
                     <Rocket className="w-4 h-4" />
                     <span>Inisiasi Proyek</span>
-                    {driveConnected && (
-                      <span className="text-xs opacity-75">(Google Drive Aktif)</span>
-                    )}
+                    <span className="text-xs opacity-75">(Google Drive Aktif)</span>
                   </>
                 )}
               </Button>
