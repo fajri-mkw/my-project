@@ -2,7 +2,7 @@ import { db, ensureDbConnection } from '@/lib/db'
 import { NextRequest, NextResponse } from 'next/server'
 import { checkMaintenanceMode } from '@/lib/maintenance-check'
 import { sendStageAdvanceNotification, sendReviewRejectionNotification } from '@/lib/notification-service'
-import { invalidateCache } from '@/lib/edge-cache'
+import { invalidateCache, deferToBackground } from '@/lib/edge-cache'
 
 // PUT complete task
 export async function PUT(request: NextRequest) {
@@ -56,33 +56,41 @@ export async function PUT(request: NextRequest) {
       }
 
       // Send WA/Email for review rejection
-      try {
-        const settings = await db.settings.findFirst({ where: { id: 'main' } })
-        const notifEnabled = settings?.notifWaEnabled || settings?.notifEmailEnabled
-        if (notifEnabled) {
-          const stage2UserIds = [...new Set(stage2Tasks.map(t => t.assignedTo))]
-          const users = await db.user.findMany({ where: { id: { in: stage2UserIds } } })
-          for (const user of users) {
-            await sendReviewRejectionNotification(user, {
-              notifWaEnabled: settings!.notifWaEnabled || false,
-              notifWaToken: settings!.notifWaToken,
-              notifWaDeviceId: settings!.notifWaDeviceId,
-              notifWaSenderNumber: settings!.notifWaSenderNumber,
-              notifEmailEnabled: settings!.notifEmailEnabled || false,
-              notifEmailHost: settings!.notifEmailHost,
-              notifEmailPort: settings!.notifEmailPort,
-              notifEmailUser: settings!.notifEmailUser,
-              notifEmailPass: settings!.notifEmailPass,
-              notifEmailFromName: settings!.notifEmailFromName
-            }, {
-              projectTitle: project.title,
-              rejectReason
-            })
+      // DEFERRED to background (ctx.waitUntil) — each WA/Email call can take
+      // 1-3s and is already fire-and-forget (wrapped in try/catch). Running
+      // it synchronously was adding 1-5s to the response time, pushing us
+      // past Cloudflare Workers' wall-clock limits on slow days and causing
+      // the "Gagal menyelesaikan tugas: Gagal menyelesaikan tugas" non-JSON
+      // errors users kept seeing.
+      deferToBackground((async () => {
+        try {
+          const settings = await db.settings.findFirst({ where: { id: 'main' } })
+          const notifEnabled = settings?.notifWaEnabled || settings?.notifEmailEnabled
+          if (notifEnabled) {
+            const stage2UserIds = [...new Set(stage2Tasks.map(t => t.assignedTo))]
+            const users = await db.user.findMany({ where: { id: { in: stage2UserIds } } })
+            for (const user of users) {
+              await sendReviewRejectionNotification(user, {
+                notifWaEnabled: settings!.notifWaEnabled || false,
+                notifWaToken: settings!.notifWaToken,
+                notifWaDeviceId: settings!.notifWaDeviceId,
+                notifWaSenderNumber: settings!.notifWaSenderNumber,
+                notifEmailEnabled: settings!.notifEmailEnabled || false,
+                notifEmailHost: settings!.notifEmailHost,
+                notifEmailPort: settings!.notifEmailPort,
+                notifEmailUser: settings!.notifEmailUser,
+                notifEmailPass: settings!.notifEmailPass,
+                notifEmailFromName: settings!.notifEmailFromName
+              }, {
+                projectTitle: project.title,
+                rejectReason
+              })
+            }
           }
+        } catch (err) {
+          console.error('Failed to send rejection notifications:', err)
         }
-      } catch (err) {
-        console.error('Failed to send rejection notifications:', err)
-      }
+      })())
 
       // === CRITICAL: invalidate edge caches so other clients see the stage reset ===
       // Without this, /api/projects keeps serving the old (pre-rejection) currentStage
@@ -467,33 +475,40 @@ export async function PUT(request: NextRequest) {
       }
 
       // Send WA/Email for stage advance
-      try {
-        const settings = await db.settings.findFirst({ where: { id: 'main' } })
-        const notifEnabled = settings?.notifWaEnabled || settings?.notifEmailEnabled
-        if (notifEnabled && nextStagePendingTasks.length > 0) {
-          const nextStageUserIds = [...new Set(nextStagePendingTasks.map(t => t.assignedTo))]
-          const users = await db.user.findMany({ where: { id: { in: nextStageUserIds } } })
-          for (const user of users) {
-            await sendStageAdvanceNotification(user, {
-              notifWaEnabled: settings!.notifWaEnabled || false,
-              notifWaToken: settings!.notifWaToken,
-              notifWaDeviceId: settings!.notifWaDeviceId,
-              notifWaSenderNumber: settings!.notifWaSenderNumber,
-              notifEmailEnabled: settings!.notifEmailEnabled || false,
-              notifEmailHost: settings!.notifEmailHost,
-              notifEmailPort: settings!.notifEmailPort,
-              notifEmailUser: settings!.notifEmailUser,
-              notifEmailPass: settings!.notifEmailPass,
-              notifEmailFromName: settings!.notifEmailFromName
-            }, {
-              projectTitle: task.project.title,
-              newStage: nextStage
-            })
+      // DEFERRED to background (ctx.waitUntil) — each WA/Email call can take
+      // 1-3s per recipient. With multiple next-stage workers, this was adding
+      // 3-10s to the response time, frequently pushing the request past
+      // Cloudflare Workers' wall-clock limit and causing non-JSON error
+      // responses (the redundant "Gagal menyelesaikan tugas" message).
+      deferToBackground((async () => {
+        try {
+          const settings = await db.settings.findFirst({ where: { id: 'main' } })
+          const notifEnabled = settings?.notifWaEnabled || settings?.notifEmailEnabled
+          if (notifEnabled && nextStagePendingTasks.length > 0) {
+            const nextStageUserIds = [...new Set(nextStagePendingTasks.map(t => t.assignedTo))]
+            const users = await db.user.findMany({ where: { id: { in: nextStageUserIds } } })
+            for (const user of users) {
+              await sendStageAdvanceNotification(user, {
+                notifWaEnabled: settings!.notifWaEnabled || false,
+                notifWaToken: settings!.notifWaToken,
+                notifWaDeviceId: settings!.notifWaDeviceId,
+                notifWaSenderNumber: settings!.notifWaSenderNumber,
+                notifEmailEnabled: settings!.notifEmailEnabled || false,
+                notifEmailHost: settings!.notifEmailHost,
+                notifEmailPort: settings!.notifEmailPort,
+                notifEmailUser: settings!.notifEmailUser,
+                notifEmailPass: settings!.notifEmailPass,
+                notifEmailFromName: settings!.notifEmailFromName
+              }, {
+                projectTitle: task.project.title,
+                newStage: nextStage
+              })
+            }
           }
+        } catch (err) {
+          console.error('Failed to send stage advance notifications:', err)
         }
-      } catch (err) {
-        console.error('Failed to send stage advance notifications:', err)
- }
+      })())
       
       // If completed (stage 5), notify manager
       if (nextStage === 5) {
@@ -583,6 +598,14 @@ export async function PUT(request: NextRequest) {
     })
   } catch (error) {
     console.error('Update task error:', error)
-    return NextResponse.json({ error: 'Failed to update task' }, { status: 500 })
+    // Return a meaningful, actionable error message so the client can surface
+    // it to the user (the old generic "Failed to update task" was English and
+    // unhelpful, and when the response was lost entirely the client fell back
+    // to "Gagal menyelesaikan tugas: Gagal menyelesaikan tugas").
+    const detail = error instanceof Error ? error.message : 'Unknown error'
+    return NextResponse.json(
+      { error: `Gagal memperbarui tugas di server: ${detail}` },
+      { status: 500 }
+    )
   }
 }

@@ -612,74 +612,168 @@ Pushakin Flows — Sistem Manajemen Produksi`
   }
 
   const handleTaskComplete = async (taskId: string, taskData: { link?: string; publishLinks?: PublishLink[] }) => {
-    try {
-      const isSuperAdmin = currentUser?.role === 'Admin' || (isImpersonating && originalUser?.role === 'Admin')
-      const response = await fetch('/api/tasks', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          projectId: project.id,
-          taskId,
-          taskData,
-          isRevision: revisionTaskId === taskId,
-          isAdminOverride: isSuperAdmin
-        })
-      })
-      
-      if (response.ok) {
-        const result = await response.json()
-        // Use API's authoritative projectState to sync store — prevents desync
-        const projectState = result.projectState || undefined
-        
-        if (revisionTaskId === taskId) {
-          reviseTask(project.id, taskId, taskData)
-          setRevisionTaskId(null)
-        } else {
-          completeTask(project.id, taskId, taskData, projectState)
-        }
-        
-        // If stage advanced, sync notifications and surat tugas for next stage workers
-        if (result.stageAdvanced && result.nextStageTasks && result.nextStageTasks.length > 0) {
-          const stageName = STAGES[result.newStage as keyof typeof STAGES] || `Tahap ${result.newStage}`
-          for (const nextTask of result.nextStageTasks) {
-            // Add notification to Zustand store (server already created DB record)
-            addNotification({
-              id: `server-${project.id}-${nextTask.assignedTo}-${result.newStage}`,
-              userId: nextTask.assignedTo,
-              message: `Proyek ${project.title} maju ke ${stageName}. Giliran Anda!`,
-              projectId: project.id,
-              targetView: 'project_detail',
-              read: false,
-              createdAt: new Date()
-            })
-            
-            // Add surat tugas to Zustand store (server already created DB record)
-            addSuratTugas({
-              id: `surat-${project.id}-${nextTask.assignedTo}-${result.newStage}`,
-              nomorSurat: `ST/AUTO/${result.newStage}/${Date.now()}`,
-              projectId: project.id,
-              userId: nextTask.assignedTo,
-              role: nextTask.role,
-              stage: nextTask.stage,
-              status: 'active',
-              read: false,
-              createdAt: new Date().toISOString(),
-              project: {
-                id: project.id,
-                title: project.title,
-                manager: users.find(u => u.id === project.managerId) || null
-              }
-            })
-          }
-        }
-      } else {
-        const errorData = await response.json().catch(() => ({}))
-        const errorMsg = errorData.error || 'Gagal menyelesaikan tugas'
-        showAlert(`Gagal menyelesaikan tugas: ${errorMsg}`)
-      }
-    } catch {
-      showAlert('Terjadi kesalahan')
+    const isSuperAdmin = currentUser?.role === 'Admin' || (isImpersonating && originalUser?.role === 'Admin')
+    const payload = {
+      projectId: project.id,
+      taskId,
+      taskData,
+      isRevision: revisionTaskId === taskId,
+      isAdminOverride: isSuperAdmin
     }
+
+    // === Robust error extraction ===
+    // Cloudflare Workers / gateway can return non-JSON bodies (HTML error pages,
+    // 502/504 from upstream, empty bodies on network failure). The old code
+    // fell back to a generic "Gagal menyelesaikan tugas" string when the body
+    // wasn't JSON, producing the redundant "Gagal menyelesaikan tugas:
+    // Gagal menyelesaikan tugas" message users kept seeing.
+    const extractError = async (resp: Response, attempt: number): Promise<string> => {
+      // Try JSON first
+      try {
+        const data = await resp.json()
+        if (data?.error) return String(data.error)
+      } catch {
+        // Body wasn't JSON — fall through to text/status extraction below
+      }
+      // Try text (truncated) — useful for HTML error pages
+      try {
+        const text = await resp.text()
+        if (text && text.length > 0) {
+          // Strip HTML tags if present, collapse whitespace, truncate
+          const cleaned = text
+            .replace(/<[^>]*>/g, ' ')
+            .replace(/\s+/g, ' ')
+            .trim()
+            .substring(0, 200)
+          if (cleaned) return `Server error ${resp.status}: ${cleaned}`
+        }
+      } catch {
+        // Body couldn't be read at all
+      }
+      // Final fallback: HTTP status text
+      if (resp.status === 0) return 'Koneksi terputus (network error)'
+      const statusText = resp.statusText || `HTTP ${resp.status}`
+      return `Server error ${resp.status} (${statusText})`
+    }
+
+    // === Client-side retry for transient failures ===
+    // 5xx errors (Cloudflare CPU spike, gateway blip, upstream timeout) and
+    // network errors (status 0) are transient — a retry usually succeeds.
+    // 4xx errors are NOT retried (they won't fix themselves).
+    const MAX_ATTEMPTS = 3 // initial + 2 retries
+    let lastErrorMsg = 'Gagal menyelesaikan tugas'
+
+    for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+      try {
+        const response = await fetch('/api/tasks', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        })
+
+        if (response.ok) {
+          const result = await response.json()
+          // Use API's authoritative projectState to sync store — prevents desync
+          const projectState = result.projectState || undefined
+
+          if (revisionTaskId === taskId) {
+            reviseTask(project.id, taskId, taskData)
+            setRevisionTaskId(null)
+          } else {
+            completeTask(project.id, taskId, taskData, projectState)
+          }
+
+          // If stage advanced, sync notifications and surat tugas for next stage workers
+          if (result.stageAdvanced && result.nextStageTasks && result.nextStageTasks.length > 0) {
+            const stageName = STAGES[result.newStage as keyof typeof STAGES] || `Tahap ${result.newStage}`
+            for (const nextTask of result.nextStageTasks) {
+              // Add notification to Zustand store (server already created DB record)
+              addNotification({
+                id: `server-${project.id}-${nextTask.assignedTo}-${result.newStage}`,
+                userId: nextTask.assignedTo,
+                message: `Proyek ${project.title} maju ke ${stageName}. Giliran Anda!`,
+                projectId: project.id,
+                targetView: 'project_detail',
+                read: false,
+                createdAt: new Date()
+              })
+
+              // Add surat tugas to Zustand store (server already created DB record)
+              addSuratTugas({
+                id: `surat-${project.id}-${nextTask.assignedTo}-${result.newStage}`,
+                nomorSurat: `ST/AUTO/${result.newStage}/${Date.now()}`,
+                projectId: project.id,
+                userId: nextTask.assignedTo,
+                role: nextTask.role,
+                stage: nextTask.stage,
+                status: 'active',
+                read: false,
+                createdAt: new Date().toISOString(),
+                project: {
+                  id: project.id,
+                  title: project.title,
+                  manager: users.find(u => u.id === project.managerId) || null
+                }
+              })
+            }
+          }
+          return // success — exit retry loop
+        }
+
+        // Non-OK response
+        lastErrorMsg = await extractError(response, attempt)
+
+        // 4xx errors won't fix on retry — show error immediately and stop.
+        // Special case: 409 / 400 from server might mean "task already completed"
+        // — we should re-sync the store so the UI reflects the actual server state
+        // (the task may actually be complete server-side, just the response was lost).
+        if (response.status >= 400 && response.status < 500) {
+          // Re-fetch /api/projects in background to sync store with server truth.
+          // This handles the case where the previous attempt actually succeeded
+          // server-side but the response was lost (network blip), so a retry
+          // returns "task already completed" — the store should reflect that.
+          fetch('/api/projects')
+            .then(r => r.ok ? r.json() : null)
+            .then(data => { if (data) useAppStore.getState().setProjects(data) })
+            .catch(() => {})
+          showAlert(`Gagal menyelesaikan tugas: ${lastErrorMsg}`)
+          return
+        }
+
+        // 5xx — transient, retry if attempts remain
+        if (attempt < MAX_ATTEMPTS) {
+          // Exponential backoff: 1.5s, 3s
+          await new Promise(r => setTimeout(r, 1500 * attempt))
+          continue
+        }
+        // Exhausted retries on 5xx — fall through to final error
+        break
+      } catch (err) {
+        // Network error (fetch threw) — always transient
+        lastErrorMsg = err instanceof Error && err.message
+          ? `Koneksi gagal: ${err.message}`
+          : 'Koneksi terputus'
+        if (attempt < MAX_ATTEMPTS) {
+          await new Promise(r => setTimeout(r, 1500 * attempt))
+          continue
+        }
+        break
+      }
+    }
+
+    // === Final failure path ===
+    // All retries exhausted. Re-fetch /api/projects to sync the store with the
+    // actual server state. This is the key fix for "kadang harus reload beberapa
+    // kali": if the previous attempt succeeded server-side but the response was
+    // lost, the refetch will show the task as completed (no reload needed).
+    // If it actually failed, the refetch will revert the optimistic local state
+    // so the user sees the true pending state and can retry cleanly.
+    fetch('/api/projects')
+      .then(r => r.ok ? r.json() : null)
+      .then(data => { if (data) useAppStore.getState().setProjects(data) })
+      .catch(() => {})
+
+    showAlert(`Gagal menyelesaikan tugas: ${lastErrorMsg}`)
   }
 
   const handleReviewReject = async () => {

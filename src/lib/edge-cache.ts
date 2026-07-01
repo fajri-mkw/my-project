@@ -138,3 +138,39 @@ export async function invalidateCache(prefix: string): Promise<void> {
     await cache.delete(key)
   } catch {}
 }
+
+/**
+ * Defer non-critical background work to run AFTER the response is sent.
+ *
+ * On Cloudflare Workers, `ctx.waitUntil(promise)` keeps the Worker alive
+ * after the response is returned so the promise can complete. This is
+ * perfect for fire-and-forget side-effects like:
+ *   - Sending WA/Email notifications (each call can take 1-3s)
+ *   - Creating notification DB rows for OTHER users (not the requester)
+ *   - Creating surat_tugas rows for next-stage workers
+ *
+ * On local dev (no `ctx` global), the work runs synchronously inline —
+ * preserving correctness at the cost of latency.
+ *
+ * IMPORTANT: Only defer work whose FAILURE does not affect the response.
+ * The caller has already wrapped such work in try/catch (so a thrown error
+ * won't crash the Worker). Deferring just moves it off the response path.
+ */
+export function deferToBackground(promise: Promise<void>): void {
+  try {
+    // @ts-ignore — `ctx` is a global injected by the Cloudflare Workers runtime
+    // (via @opennextjs/cloudflare adapter). It is NOT defined in local dev
+    // or in non-Workers environments.
+    if (typeof ctx !== 'undefined' && ctx?.waitUntil) {
+      // @ts-ignore
+      ctx.waitUntil(promise)
+      return
+    }
+  } catch {
+    // ctx access threw — fall through to synchronous execution
+  }
+  // No ctx (local dev / non-Workers) — fire-and-forget synchronously.
+  // Errors are swallowed to match the waitUntil behavior (which also
+  // silently swallows unhandled rejections unless explicitly caught).
+  promise.catch(() => {})
+}

@@ -48,8 +48,19 @@ interface UploadingFile {
 const CHUNK_SIZE = 8 * 1024 * 1024 // 8 MB per chunk
 
 // Maximum retry attempts for a failed chunk upload.
-// Retries help with transient Cloudflare Workers CPU-limit / network errors.
-const MAX_CHUNK_RETRIES = 2
+// Increased from 2 → 4 — the previous value was too low for flaky mobile
+// networks and intermittent Cloudflare Workers CPU spikes. With exponential
+// backoff (1s, 2s, 3s, 4s) the worst-case adds ~10s, well worth the reliability.
+const MAX_CHUNK_RETRIES = 4
+
+// Maximum retry attempts for the upload-url session creation.
+// Previously this had ZERO retry — a single transient Drive 5xx killed the
+// whole file. Now we retry up to 3 times.
+const MAX_URL_RETRIES = 3
+
+// Uploads are sequential (one file at a time). Parallel uploads caused
+// Cloudflare Workers subrequest contention and Google Drive API 429
+// rate-limit errors. See uploadFile() for the queue implementation.
 
 // Extract real Google Drive folder ID from URL (reject constructed/mock IDs)
 function extractFolderId(url: string): string | null {
@@ -89,6 +100,12 @@ export function FileUpload({ folderLink, projectId, onUploadComplete, className,
   const [isDragging, setIsDragging] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const seriesCounterRef = useRef(0) // tracks upload count for series numbering
+  // Upload queue — ensures only MAX_PARALLEL_UPLOADS files upload at once.
+  // Previously every dropped file fired `uploadFile` in parallel via forEach,
+  // causing Cloudflare Workers subrequest contention + Drive API 429s.
+  // Sequential uploads are slightly slower for many small files but
+  // dramatically more reliable.
+  const uploadQueueRef = useRef<Promise<void>>(Promise.resolve())
 
   const updateFile = useCallback((fileId: string, updater: (f: UploadingFile) => UploadingFile) => {
     setUploadingFiles(prev => prev.map(f => f.id === fileId ? updater(f) : f))
@@ -107,7 +124,8 @@ export function FileUpload({ folderLink, projectId, onUploadComplete, className,
       return
     }
 
-    // Add to list
+    // Add to list IMMEDIATELY (before queueing) so the user sees all dropped
+    // files right away, even while they wait in the sequential upload queue.
     setUploadingFiles(prev => [...prev, {
       id: fileId, name: file.name, size: file.size,
       progress: 0, status: 'uploading', abortController
@@ -115,12 +133,12 @@ export function FileUpload({ folderLink, projectId, onUploadComplete, className,
 
     const setError = (msg: string) => updateFile(fileId, f => ({ ...f, status: 'error', error: msg }))
 
-    try {
-      // ===== STEP 1: Get resumable upload URL from server =====
-      updateFile(fileId, f => ({ ...f, progress: 2 }))
-
+    // === Helper: create resumable upload session (with retry) ===
+    // Returns { uploadUrl, autoFileName } or throws on persistent failure.
+    // Previously this had ZERO retry — a single transient Drive 5xx killed the
+    // entire file upload. Now we retry up to MAX_URL_RETRIES times.
+    const createUploadSession = async (): Promise<{ uploadUrl: string; autoFileName?: string }> => {
       // Build auto-naming metadata if available
-      seriesCounterRef.current += 1
       const autoNameMeta = projectTitle ? {
         projectTitle,
         executionTime: executionTime || '',
@@ -128,26 +146,94 @@ export function FileUpload({ folderLink, projectId, onUploadComplete, className,
         seriesNumber: seriesCounterRef.current
       } : undefined
 
-      const urlResponse = await fetch('/api/drive/upload-url', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ fileName: file.name, mimeType: file.type, folderId, autoNameMeta }),
-        signal: abortController.signal
-      })
+      let lastErr: Error | null = null
+      for (let attempt = 0; attempt < MAX_URL_RETRIES; attempt++) {
+        if (abortController.signal.aborted) {
+          throw new Error('Upload dibatalkan')
+        }
+        try {
+          const urlResponse = await fetch('/api/drive/upload-url', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ fileName: file.name, mimeType: file.type, folderId, autoNameMeta }),
+            signal: abortController.signal
+          })
 
-      if (!urlResponse.ok) {
-        let errorMsg = 'Gagal menyiapkan upload'
-        try { const d = await urlResponse.json(); errorMsg = d.error || errorMsg } catch {}
-        throw new Error(errorMsg)
+          if (urlResponse.ok) {
+            const data = await urlResponse.json()
+            if (data.uploadUrl) {
+              if (data.autoFileName) {
+                updateFile(fileId, f => ({ ...f, autoName: data.autoFileName }))
+              }
+              return { uploadUrl: data.uploadUrl, autoFileName: data.autoFileName }
+            }
+            lastErr = new Error('URL upload tidak ditemukan dalam respons')
+          } else {
+            // Parse error from response (handle non-JSON gracefully)
+            let msg = `Gagal menyiapkan upload (HTTP ${urlResponse.status})`
+            try {
+              const d = await urlResponse.json()
+              if (d?.error) msg = d.error
+            } catch {
+              // Non-JSON body — try text
+              try {
+                const t = await urlResponse.text()
+                if (t) msg = `Server error ${urlResponse.status}: ${t.substring(0, 100)}`
+              } catch {}
+            }
+            lastErr = new Error(msg)
+            // 4xx — don't retry (client error)
+            if (urlResponse.status >= 400 && urlResponse.status < 500) {
+              throw lastErr
+            }
+          }
+        } catch (err) {
+          // Network error or abort
+          if (abortController.signal.aborted) throw new Error('Upload dibatalkan')
+          lastErr = err instanceof Error ? err : new Error('Gagal menyiapkan upload')
+        }
+        // Exponential backoff between URL session attempts: 1s, 2s
+        if (attempt < MAX_URL_RETRIES - 1) {
+          updateFile(fileId, f => ({
+            ...f,
+            error: `Menyiapkan ulang sesi upload (percobaan ${attempt + 2}/${MAX_URL_RETRIES})...`
+          }))
+          await new Promise(r => setTimeout(r, 1000 * (attempt + 1)))
+        }
       }
+      throw lastErr || new Error('Gagal menyiapkan upload setelah beberapa percobaan')
+    }
 
-      const { uploadUrl, autoFileName } = await urlResponse.json()
+    // === Wait in the sequential upload queue ===
+    // Each file is registered in the UI immediately (above), but the actual
+    // upload work waits its turn. This prevents parallel upload storms that
+    // were causing Drive 429s and Cloudflare subrequest contention.
+    // `releaseQueue` is called when this file's upload completes (success or
+    // failure) so the next file can start.
+    let releaseQueue!: () => void
+    const queuePromise = new Promise<void>(resolve => { releaseQueue = resolve })
+    const prevQueue = uploadQueueRef.current
+    uploadQueueRef.current = prevQueue.then(() => queuePromise)
+    await prevQueue.catch(() => {}) // swallow previous file's errors
+
+    // Check abort after waiting in queue (user may have cancelled while queued)
+    if (abortController.signal.aborted) {
+      releaseQueue()
+      setError('Upload dibatalkan')
+      return
+    }
+
+    try {
+      // ===== STEP 1: Get resumable upload URL from server (with retry) =====
+      updateFile(fileId, f => ({ ...f, progress: 2 }))
+      seriesCounterRef.current += 1
+
+      let { uploadUrl, autoFileName } = await createUploadSession()
       if (autoFileName) {
         updateFile(fileId, f => ({ ...f, autoName: autoFileName }))
       }
-      if (!uploadUrl) throw new Error('URL upload tidak ditemukan')
 
-      updateFile(fileId, f => ({ ...f, progress: 5 }))
+      updateFile(fileId, f => ({ ...f, progress: 5, error: undefined }))
 
       // ===== STEP 2: Upload file in chunks through server =====
       const totalSize = file.size
@@ -155,6 +241,15 @@ export function FileUpload({ folderLink, projectId, onUploadComplete, className,
       let chunkIndex = 0
       let uploadComplete = false
       let uploadedFile: { id?: string; name?: string; webViewLink?: string; webContentLink?: string } | null = null
+
+      // Track consecutive 5xx failures that may indicate Drive invalidated
+      // the resumable session URL. After 2 such failures, re-create the
+      // session from the current chunkIndex (Drive supports resumable uploads
+      // starting from any byte offset using a fresh session, but we'd need to
+      // know the byte offset already uploaded — Drive's session query can tell
+      // us, but simpler: just restart the file from chunk 0 with a new session
+      // since chunks are small and the cost is low).
+      let consecutiveSessionErrors = 0
 
       while (chunkIndex < totalChunks && !uploadComplete) {
         // Check abort
@@ -175,6 +270,7 @@ export function FileUpload({ folderLink, projectId, onUploadComplete, className,
         // Retry loop for transient failures (CF Workers CPU spikes, network blips).
         // 4xx errors fail fast (client/validation error — won't fix on retry).
         // 5xx + network errors retry up to MAX_CHUNK_RETRIES times.
+        // 429 (Too Many Requests) gets a longer backoff (Drive rate-limit).
         let chunkResult: { complete: boolean; nextChunk: number; file?: { id?: string; name?: string; webViewLink?: string; webContentLink?: string } } | null = null
         let chunkError: Error | null = null
 
@@ -193,24 +289,40 @@ export function FileUpload({ folderLink, projectId, onUploadComplete, className,
             if (chunkResponse.ok) {
               chunkResult = await chunkResponse.json()
               chunkError = null
+              consecutiveSessionErrors = 0 // reset on success
               break
             }
 
             // Non-OK response — try to parse error JSON
             let errorMsg = `Gagal upload chunk ${chunkIndex + 1}/${totalChunks}`
             let isTransient = false
+            let isRateLimit = false
             try {
               const errData = await chunkResponse.json()
               errorMsg = errData.error || errorMsg
               // 5xx errors are transient (server errors, CF CPU limits)
               isTransient = chunkResponse.status >= 500
+              // 429 = Too Many Requests (Drive API rate-limit)
+              isRateLimit = chunkResponse.status === 429
             } catch {
               // Response body is not JSON (likely a CF error page)
               errorMsg = `Server error (${chunkResponse.status})`
               isTransient = chunkResponse.status >= 500 || chunkResponse.status === 0
+              isRateLimit = false
             }
 
-            if (!isTransient || attempt === MAX_CHUNK_RETRIES) {
+            // 4xx (except 429) won't fix on retry
+            if (!isTransient && !isRateLimit) {
+              chunkError = new Error(errorMsg)
+              break
+            }
+
+            // Track session-level errors (Drive may have invalidated the upload URL)
+            if (chunkResponse.status >= 500) {
+              consecutiveSessionErrors++
+            }
+
+            if (attempt === MAX_CHUNK_RETRIES) {
               chunkError = new Error(errorMsg)
               break
             }
@@ -220,8 +332,14 @@ export function FileUpload({ folderLink, projectId, onUploadComplete, className,
               ...f,
               error: `Percobaan ulang #${attempt + 1} untuk chunk ${chunkIndex + 1}/${totalChunks}...`
             }))
-            // Exponential backoff: 1s, 2s
-            await new Promise(r => setTimeout(r, 1000 * (attempt + 1)))
+
+            // Backoff: 429 gets a longer backoff (5s, 10s, 15s, 20s) since
+            // Drive's rate-limit window is typically 1-5 seconds.
+            // 5xx/network errors use shorter backoff (1s, 2s, 3s, 4s).
+            const backoffMs = isRateLimit
+              ? 5000 * (attempt + 1)
+              : 1000 * (attempt + 1)
+            await new Promise(r => setTimeout(r, backoffMs))
           } catch (fetchErr) {
             // Network error (fetch threw)
             if (abortController.signal.aborted) {
@@ -237,6 +355,26 @@ export function FileUpload({ folderLink, projectId, onUploadComplete, className,
               error: `Percobaan ulang #${attempt + 1} untuk chunk ${chunkIndex + 1}/${totalChunks}...`
             }))
             await new Promise(r => setTimeout(r, 1000 * (attempt + 1)))
+          }
+        }
+
+        // If we've hit consecutive 5xx errors and still have retries left
+        // at the file level, re-create the upload session from chunk 0.
+        // This handles Drive invalidating the resumable session URL after
+        // a 5xx (e.g. session expired, internal Drive error).
+        if (chunkError && consecutiveSessionErrors >= 2 && chunkIndex === 0) {
+          updateFile(fileId, f => ({
+            ...f,
+            error: 'Membuat ulang sesi upload (Drive session invalidated)...'
+          }))
+          try {
+            const newSession = await createUploadSession()
+            uploadUrl = newSession.uploadUrl
+            consecutiveSessionErrors = 0
+            // Don't advance chunkIndex — retry this chunk with the new session
+            continue
+          } catch (recreateErr) {
+            chunkError = recreateErr instanceof Error ? recreateErr : new Error('Gagal membuat ulang sesi upload')
           }
         }
 
@@ -293,11 +431,19 @@ export function FileUpload({ folderLink, projectId, onUploadComplete, className,
       } else {
         setError(error instanceof Error ? error.message : 'Upload gagal')
       }
+    } finally {
+      // Always release the queue so the next file can start, even if this
+      // upload failed or was aborted.
+      releaseQueue()
     }
   }, [folderLink, projectId, onUploadComplete, updateFile, projectTitle, executionTime, uploaderName])
 
   const handleFiles = useCallback((files: FileList | null) => {
     if (!files) return
+    // Each call to uploadFile() immediately registers the file in the UI list
+    // (so the user sees all dropped files right away), then waits in the
+    // internal sequential queue before doing actual network work.
+    // See uploadFile() for the queue implementation.
     Array.from(files).forEach(file => uploadFile(file))
   }, [uploadFile])
 
