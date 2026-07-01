@@ -372,6 +372,30 @@ function AppContent() {
       // Build all fetch promises in parallel — much faster than sequential await
       const fetchPromises: Promise<void>[] = []
 
+      // === Auto-repair stuck projects (Admin/Manager only) ===
+      // Runs BEFORE fetching projects so the data is fresh. This fixes projects
+      // where all tasks are completed but currentStage is stuck (caused by
+      // Cloudflare Workers 10ms CPU limit killing /api/tasks mid-execution).
+      // Fire-and-forget — the repair runs in parallel with the project fetch,
+      // and the next polling cycle (60s) will pick up the repaired data.
+      if (['Admin', 'Manager'].includes(currentUser.role)) {
+        fetchPromises.push(
+          fetch('/api/projects/repair', { method: 'POST' })
+            .then(res => res.ok ? res.json() : null)
+            .then(data => {
+              if (data?.repairedProjects > 0) {
+                console.info(`[Auto-Repair] Fixed ${data.repairedProjects} stuck project(s)`)
+                // Re-fetch projects to get the repaired data immediately
+                return fetch('/api/projects')
+                  .then(res => res.ok ? res.json() : null)
+                  .then(projectsData => { if (projectsData) setProjects(projectsData) })
+                  .catch(() => {})
+              }
+            })
+            .catch(error => console.error('[Auto-Repair] Failed:', error))
+        )
+      }
+
       // Fetch notifications for all logged-in users
       fetchPromises.push(
         fetch(`/api/notifications?userId=${currentUser.id}`)
