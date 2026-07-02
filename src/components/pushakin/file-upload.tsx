@@ -48,10 +48,11 @@ interface UploadingFile {
 const CHUNK_SIZE = 8 * 1024 * 1024 // 8 MB per chunk
 
 // Maximum retry attempts for a failed chunk upload.
-// Increased from 2 → 4 — the previous value was too low for flaky mobile
-// networks and intermittent Cloudflare Workers CPU spikes. With exponential
-// backoff (1s, 2s, 3s, 4s) the worst-case adds ~10s, well worth the reliability.
-const MAX_CHUNK_RETRIES = 4
+// Increased from 4 → 5 — gives one more chance for very large files (e.g. 100MB+)
+// where Cloudflare Workers CPU spikes are more likely to hit at least one chunk.
+// With exponential backoff (1s, 2s, 3s, 4s, 5s) the worst-case adds ~15s,
+// well worth the reliability for a long-running upload.
+const MAX_CHUNK_RETRIES = 5
 
 // Maximum retry attempts for the upload-url session creation.
 // Previously this had ZERO retry — a single transient Drive 5xx killed the
@@ -244,12 +245,15 @@ export function FileUpload({ folderLink, projectId, onUploadComplete, className,
 
       // Track consecutive 5xx failures that may indicate Drive invalidated
       // the resumable session URL. After 2 such failures, re-create the
-      // session from the current chunkIndex (Drive supports resumable uploads
-      // starting from any byte offset using a fresh session, but we'd need to
-      // know the byte offset already uploaded — Drive's session query can tell
-      // us, but simpler: just restart the file from chunk 0 with a new session
-      // since chunks are small and the cost is low).
+      // session from chunk 0 with a new resumable upload URL.
       let consecutiveSessionErrors = 0
+
+      // Limit how many times we recreate the upload session for a single file.
+      // Without this, a permanently broken Drive session would loop forever
+      // (recreate → fail → recreate → fail). 3 attempts is enough to ride out
+      // transient Drive outages without hanging the browser.
+      const MAX_SESSION_RECREATIONS = 3
+      let sessionRecreations = 0
 
       while (chunkIndex < totalChunks && !uploadComplete) {
         // Check abort
@@ -297,6 +301,7 @@ export function FileUpload({ folderLink, projectId, onUploadComplete, className,
             let errorMsg = `Gagal upload chunk ${chunkIndex + 1}/${totalChunks}`
             let isTransient = false
             let isRateLimit = false
+            let sessionInvalidated = false
             try {
               const errData = await chunkResponse.json()
               errorMsg = errData.error || errorMsg
@@ -304,11 +309,22 @@ export function FileUpload({ folderLink, projectId, onUploadComplete, className,
               isTransient = chunkResponse.status >= 500
               // 429 = Too Many Requests (Drive API rate-limit)
               isRateLimit = chunkResponse.status === 429
+              // Server explicitly tells us the resumable session is invalidated
+              // (HTTP 404/410 from Google Drive) — we MUST recreate the session.
+              sessionInvalidated = errData.sessionInvalidated === true
             } catch {
               // Response body is not JSON (likely a CF error page)
               errorMsg = `Server error (${chunkResponse.status})`
               isTransient = chunkResponse.status >= 500 || chunkResponse.status === 0
               isRateLimit = false
+            }
+
+            // Server says session is invalidated — break out of the chunk-retry
+            // loop immediately and recreate the upload session below.
+            if (sessionInvalidated) {
+              chunkError = new Error(errorMsg)
+              consecutiveSessionErrors = 99 // force session recreation below
+              break
             }
 
             // 4xx (except 429) won't fix on retry
@@ -358,20 +374,38 @@ export function FileUpload({ folderLink, projectId, onUploadComplete, className,
           }
         }
 
-        // If we've hit consecutive 5xx errors and still have retries left
-        // at the file level, re-create the upload session from chunk 0.
-        // This handles Drive invalidating the resumable session URL after
-        // a 5xx (e.g. session expired, internal Drive error).
-        if (chunkError && consecutiveSessionErrors >= 2 && chunkIndex === 0) {
+        // If we've hit consecutive 5xx errors OR the server explicitly told
+        // us the session is invalidated (404/410 from Google Drive), recreate
+        // the upload session. This now works for ANY chunk index, not just
+        // chunk 0 — Drive's resumable upload sessions can expire mid-upload,
+        // and the frontend needs to recreate them to continue.
+        //
+        // When recreating mid-upload, Drive will start a NEW empty file from
+        // chunk 0. We restart from the beginning to ensure the file is
+        // complete (Drive's resumable upload protocol doesn't support
+        // resuming from a byte offset with a different session ID).
+        if (chunkError && consecutiveSessionErrors >= 2) {
+          // Safety valve: don't recreate the session more than MAX times.
+          // If Drive is permanently broken, fail with a clear error instead
+          // of looping forever.
+          if (sessionRecreations >= MAX_SESSION_RECREATIONS) {
+            throw new Error(
+              `Gagal upload setelah ${MAX_SESSION_RECREATIONS}x pembuatan ulang sesi. ` +
+              `Server Google Drive mungkin sedang bermasalah. Coba lagi nanti.`
+            )
+          }
+          sessionRecreations++
           updateFile(fileId, f => ({
             ...f,
-            error: 'Membuat ulang sesi upload (Drive session invalidated)...'
+            error: `Membuat ulang sesi upload (percobaan ${sessionRecreations}/${MAX_SESSION_RECREATIONS})...`
           }))
           try {
             const newSession = await createUploadSession()
             uploadUrl = newSession.uploadUrl
             consecutiveSessionErrors = 0
-            // Don't advance chunkIndex — retry this chunk with the new session
+            // Restart from chunk 0 with the new session — Drive's resumable
+            // upload doesn't support cross-session byte offset resume.
+            chunkIndex = 0
             continue
           } catch (recreateErr) {
             chunkError = recreateErr instanceof Error ? recreateErr : new Error('Gagal membuat ulang sesi upload')

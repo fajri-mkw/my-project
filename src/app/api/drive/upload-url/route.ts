@@ -1,5 +1,5 @@
-import { db } from '@/lib/db'
 import { NextRequest, NextResponse } from 'next/server'
+import { getLibsql } from '@/lib/libsql-client'
 import { getCachedAccessToken } from '@/lib/drive-service'
 
 /**
@@ -128,9 +128,34 @@ async function findOrCreateSubfolder(
   return parentFolderId
 }
 
+// 20 second timeout for Google Drive API calls (init + subfolder creation)
+const DRIVE_API_TIMEOUT_MS = 20_000
+
+async function fetchWithTimeout(url: string, init: RequestInit): Promise<Response> {
+  const controller = new AbortController()
+  const timeout = setTimeout(() => controller.abort(), DRIVE_API_TIMEOUT_MS)
+  try {
+    return await fetch(url, { ...init, signal: controller.signal })
+  } finally {
+    clearTimeout(timeout)
+  }
+}
+
 export async function POST(request: NextRequest) {
   try {
-    const { fileName, mimeType, folderId, autoNameMeta, subfolderName } = await request.json()
+    const body = await request.json()
+    const { fileName, mimeType, folderId, autoNameMeta, subfolderName } = body as {
+      fileName: string
+      mimeType?: string
+      folderId: string
+      autoNameMeta?: {
+        projectTitle?: string
+        executionTime?: string
+        uploaderName?: string
+        seriesNumber?: number
+      }
+      subfolderName?: string
+    }
 
     if (!fileName || !folderId) {
       return NextResponse.json({ error: 'fileName dan folderId wajib diisi' }, { status: 400 })
@@ -139,29 +164,74 @@ export async function POST(request: NextRequest) {
     // Reject constructed/mock folder IDs
     const knownPrefixes = ['raw-', 'revised-', 'final-', 'desain-', 'lainnya-', 'mock-']
     if (knownPrefixes.some(p => folderId.startsWith(p)) || folderId.length < 20) {
-      return NextResponse.json({ error: 'Folder ID tidak valid. Pastikan Google Drive sudah terhubung.' }, { status: 400 })
+      return NextResponse.json(
+        { error: 'Folder ID tidak valid. Pastikan Google Drive sudah terhubung.' },
+        { status: 400 },
+      )
     }
 
-    const settings = await db.settings.findUnique({ where: { id: 'main' } })
+    // === Use lightweight libsql client instead of Prisma ===
+    // Prisma's client initialization + query building adds ~3-5ms CPU per call.
+    // On Cloudflare Workers free plan (10ms CPU limit), every millisecond counts.
+    let settings: { driveServiceAccountKey: string | null; driveSharedDriveId: string | null } | null = null
+    try {
+      const client = getLibsql()
+      const result = await client.execute({
+        sql: `SELECT driveServiceAccountKey, driveSharedDriveId FROM settings WHERE id = 'main' LIMIT 1`,
+        args: [],
+      })
+      if (result.rows.length > 0) {
+        const row = result.rows[0]
+        settings = {
+          driveServiceAccountKey: (row.driveServiceAccountKey as string) || null,
+          driveSharedDriveId: (row.driveSharedDriveId as string) || null,
+        }
+      }
+    } catch (dbErr) {
+      console.error('[UPLOAD-URL] settings fetch error:', dbErr)
+      return NextResponse.json(
+        { error: 'Gagal membaca konfigurasi Google Drive. Coba lagi.' },
+        { status: 500 },
+      )
+    }
+
     if (!settings?.driveServiceAccountKey) {
       return NextResponse.json({ error: 'Google Drive belum dikonfigurasi' }, { status: 400 })
     }
 
     // Use CACHED access token — this endpoint is called once per file upload,
     // but caching ensures the token is shared with the subsequent chunk uploads.
-    const accessToken = await getCachedAccessToken(settings.driveServiceAccountKey)
+    let accessToken: string
+    try {
+      accessToken = await getCachedAccessToken(settings.driveServiceAccountKey)
+    } catch (tokenErr) {
+      console.error('[UPLOAD-URL] access token error:', tokenErr)
+      return NextResponse.json(
+        { error: 'Gagal autentikasi ke Google Drive. Periksa Service Account Key.' },
+        { status: 502 },
+      )
+    }
 
     // Determine the target folder for the file upload.
     // If subfolderName is provided, find or create a subfolder inside folderId.
-    // This organizes documents into named subfolders inside the main kegiatan/surat folder.
     let targetFolderId = folderId
-    if (subfolderName && typeof subfolderName === 'string' && subfolderName.trim() && settings.driveSharedDriveId) {
-      targetFolderId = await findOrCreateSubfolder(
-        accessToken,
-        settings.driveSharedDriveId,
-        folderId,
-        subfolderName
-      )
+    if (
+      subfolderName &&
+      typeof subfolderName === 'string' &&
+      subfolderName.trim() &&
+      settings.driveSharedDriveId
+    ) {
+      try {
+        targetFolderId = await findOrCreateSubfolder(
+          accessToken,
+          settings.driveSharedDriveId,
+          folderId,
+          subfolderName,
+        )
+      } catch (subErr) {
+        console.error('[UPLOAD-URL] subfolder creation failed, using parent:', subErr)
+        // Fall back to parent folder — non-fatal
+      }
     }
 
     // Generate auto-formatted filename if metadata provided
@@ -175,7 +245,7 @@ export async function POST(request: NextRequest) {
     initUrl.searchParams.set('fields', 'id,name,webViewLink,webContentLink')
     initUrl.searchParams.set('supportsAllDrives', 'true')
 
-    const response = await fetch(initUrl.toString(), {
+    const response = await fetchWithTimeout(initUrl.toString(), {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${accessToken}`,
@@ -184,16 +254,18 @@ export async function POST(request: NextRequest) {
       body: JSON.stringify({
         name: finalFileName,
         mimeType: mimeType || 'application/octet-stream',
-        parents: [targetFolderId]
-      })
+        parents: [targetFolderId],
+      }),
     })
 
     if (!response.ok) {
       const errorText = await response.text()
-      console.error('[UPLOAD-URL] Google API error:', response.status, errorText)
+      console.error('[UPLOAD-URL] Google API error:', response.status, errorText.substring(0, 300))
+      // 5xx from Google = transient, retry-worthy. Frontend will retry.
+      const status = response.status >= 500 ? 502 : 502
       return NextResponse.json(
-        { error: `Gagal membuat sesi upload: ${response.status}` },
-        { status: 502 }
+        { error: `Gagal membuat sesi upload: HTTP ${response.status}` },
+        { status },
       )
     }
 
@@ -208,10 +280,14 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ uploadUrl, autoFileName: finalFileName, folderId: targetFolderId })
   } catch (error) {
     console.error('[UPLOAD-URL] Error:', error)
+    const aborted = error instanceof Error && error.name === 'AbortError'
     return NextResponse.json(
-      { error: 'Terjadi kesalahan saat menyiapkan upload' },
-      { status: 500 }
+      {
+        error: aborted
+          ? 'Permintaan ke Google Drive timeout. Coba lagi.'
+          : 'Terjadi kesalahan saat menyiapkan upload',
+      },
+      { status: aborted ? 504 : 500 },
     )
   }
 }
-

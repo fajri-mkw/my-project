@@ -1,43 +1,87 @@
-import { db, ensureDbConnection } from '@/lib/db'
 import { NextRequest, NextResponse } from 'next/server'
-import { checkMaintenanceMode } from '@/lib/maintenance-check'
+import { getLibsql } from '@/lib/libsql-client'
 import { getCachedAccessToken, shareWithAnyone } from '@/lib/drive-service'
 
-export async function POST(request: NextRequest) {
-  const maintenanceBlock = await checkMaintenanceMode(request)
-  if (maintenanceBlock) return maintenanceBlock
+// 20 second timeout for Google Drive API calls
+const DRIVE_API_TIMEOUT_MS = 20_000
+
+async function fetchWithTimeout(url: string, init: RequestInit): Promise<Response> {
+  const controller = new AbortController()
+  const timeout = setTimeout(() => controller.abort(), DRIVE_API_TIMEOUT_MS)
   try {
-    await ensureDbConnection()
+    return await fetch(url, { ...init, signal: controller.signal })
+  } finally {
+    clearTimeout(timeout)
+  }
+}
+
+export async function POST(request: NextRequest) {
+  try {
     const { fileId } = await request.json()
 
     if (!fileId) {
       return NextResponse.json({ error: 'fileId wajib diisi' }, { status: 400 })
     }
 
-    const settings = await db.settings.findUnique({ where: { id: 'main' } })
-    if (!settings?.driveServiceAccountKey) {
+    // Use lightweight libsql client (skip Prisma overhead)
+    let serviceAccountKey: string | null = null
+    try {
+      const client = getLibsql()
+      const result = await client.execute({
+        sql: `SELECT driveServiceAccountKey FROM settings WHERE id = 'main' LIMIT 1`,
+        args: [],
+      })
+      if (result.rows.length > 0) {
+        serviceAccountKey = (result.rows[0].driveServiceAccountKey as string) || null
+      }
+    } catch (dbErr) {
+      console.error('[UPLOAD-COMPLETE] settings fetch error:', dbErr)
+      return NextResponse.json(
+        { error: 'Gagal membaca konfigurasi Google Drive' },
+        { status: 500 },
+      )
+    }
+
+    if (!serviceAccountKey) {
       return NextResponse.json({ error: 'Google Drive belum dikonfigurasi' }, { status: 400 })
     }
 
     // Use cached access token
-    const accessToken = await getCachedAccessToken(settings.driveServiceAccountKey)
+    let accessToken: string
+    try {
+      accessToken = await getCachedAccessToken(serviceAccountKey)
+    } catch (tokenErr) {
+      console.error('[UPLOAD-COMPLETE] access token error:', tokenErr)
+      return NextResponse.json(
+        { error: 'Gagal autentikasi ke Google Drive' },
+        { status: 502 },
+      )
+    }
 
     // Get file metadata via direct fetch
-    const metaResp = await fetch(
+    const metaResp = await fetchWithTimeout(
       `https://www.googleapis.com/drive/v3/files/${fileId}?fields=id,name,webViewLink,webContentLink&supportsAllDrives=true`,
       { headers: { 'Authorization': `Bearer ${accessToken}` } },
     )
 
     if (!metaResp.ok) {
       const errText = await metaResp.text()
-      console.error('[UPLOAD-COMPLETE] Failed to get file metadata:', metaResp.status, errText)
-      return NextResponse.json({ error: 'Gagal mendapatkan metadata file' }, { status: 502 })
+      console.error('[UPLOAD-COMPLETE] Failed to get file metadata:', metaResp.status, errText.substring(0, 300))
+      return NextResponse.json(
+        { error: `Gagal mendapatkan metadata file: HTTP ${metaResp.status}` },
+        { status: 502 },
+      )
     }
 
     const fileData = await metaResp.json()
 
-    // Share with anyone (writer access) using direct fetch
-    await shareWithAnyone(accessToken, fileId, 'writer')
+    // Share with anyone (writer access) using direct fetch — best-effort
+    try {
+      await shareWithAnyone(accessToken, fileId, 'writer')
+    } catch (shareErr) {
+      // Non-fatal — file was uploaded successfully
+      console.error('[UPLOAD-COMPLETE] shareWithAnyone failed (non-fatal):', shareErr)
+    }
 
     return NextResponse.json({
       success: true,
@@ -50,9 +94,14 @@ export async function POST(request: NextRequest) {
     })
   } catch (error) {
     console.error('[UPLOAD-COMPLETE] Error:', error)
+    const aborted = error instanceof Error && error.name === 'AbortError'
     return NextResponse.json(
-      { error: 'Gagal menyelesaikan upload' },
-      { status: 500 },
+      {
+        error: aborted
+          ? 'Permintaan ke Google Drive timeout'
+          : 'Gagal menyelesaikan upload',
+      },
+      { status: aborted ? 504 : 500 },
     )
   }
 }

@@ -21,7 +21,16 @@
  */
 
 const CHUNK_SIZE = 8 * 1024 * 1024 // 8 MB — must match backend upload-chunk/route.ts
-const MAX_CHUNK_RETRIES = 2
+// Increased from 2 → 5 to match file-upload.tsx — gives large files (100MB+)
+// more chances to ride through Cloudflare Workers CPU spikes and Drive API
+// transient errors. With exponential backoff (1s, 2s, 3s, 4s, 5s), worst-case
+// adds ~15s — acceptable for a long-running upload.
+const MAX_CHUNK_RETRIES = 5
+// Maximum number of times to recreate the resumable upload session for a
+// single file. Drive can invalidate the session mid-upload (HTTP 404/410);
+// recreating it lets us finish the upload. 3 attempts is enough to ride out
+// transient Drive outages without hanging the browser.
+const MAX_SESSION_RECREATIONS = 3
 
 export interface UploadedFile {
   id: string
@@ -83,7 +92,7 @@ export async function chunkedUploadFile(
   // Retry on 5xx + network errors — Cloudflare Workers free-plan 10ms CPU
   // limit can cause transient 5xx responses on cold isolates (Prisma WASM
   // init + JWT signing + subfolder creation can exceed the limit).
-  const MAX_URL_RETRIES = 2
+  const MAX_URL_RETRIES = 3
   let uploadUrl: string | null = null
   let autoFileName: string | undefined
   let targetFolderId: string | undefined
@@ -155,6 +164,11 @@ export async function chunkedUploadFile(
   let chunkIndex = 0
   let uploadedFile: { id?: string; name?: string; webViewLink?: string; webContentLink?: string } | null = null
 
+  // Track consecutive 5xx failures — if Drive invalidates the resumable
+  // session URL mid-upload, we need to recreate it and restart from chunk 0.
+  let consecutiveSessionErrors = 0
+  let sessionRecreations = 0
+
   while (chunkIndex < totalChunks) {
     if (signal?.aborted) {
       throw new Error('Upload dibatalkan')
@@ -165,7 +179,7 @@ export async function chunkedUploadFile(
     const chunkBlob = file.slice(start, end)
 
     const chunkFormData = new FormData()
-    chunkFormData.append('uploadUrl', uploadUrl)
+    chunkFormData.append('uploadUrl', uploadUrl as string)
     chunkFormData.append('chunkIndex', chunkIndex.toString())
     chunkFormData.append('totalSize', totalSize.toString())
     chunkFormData.append('chunk', chunkBlob, file.name)
@@ -173,6 +187,7 @@ export async function chunkedUploadFile(
     // Retry loop for transient failures
     let chunkResult: { complete: boolean; nextChunk: number; file?: { id?: string; name?: string; webViewLink?: string; webContentLink?: string } } | null = null
     let chunkError: Error | null = null
+    let sessionInvalidated = false
 
     for (let attempt = 0; attempt <= MAX_CHUNK_RETRIES; attempt++) {
       if (signal?.aborted) {
@@ -189,6 +204,7 @@ export async function chunkedUploadFile(
         if (chunkResponse.ok) {
           chunkResult = await chunkResponse.json()
           chunkError = null
+          consecutiveSessionErrors = 0
           break
         }
 
@@ -199,14 +215,26 @@ export async function chunkedUploadFile(
           const errData = await chunkResponse.json()
           errorMsg = errData.error || errorMsg
           isTransient = chunkResponse.status >= 500
+          sessionInvalidated = errData.sessionInvalidated === true
         } catch {
           errorMsg = `Server error (${chunkResponse.status})`
           isTransient = chunkResponse.status >= 500 || chunkResponse.status === 0
         }
 
+        // Server explicitly says session is invalidated — break out and recreate
+        if (sessionInvalidated) {
+          chunkError = new Error(errorMsg)
+          consecutiveSessionErrors = 99
+          break
+        }
+
         if (!isTransient || attempt === MAX_CHUNK_RETRIES) {
           chunkError = new Error(errorMsg)
           break
+        }
+
+        if (chunkResponse.status >= 500) {
+          consecutiveSessionErrors++
         }
 
         // Show retry status
@@ -224,6 +252,49 @@ export async function chunkedUploadFile(
         const retryStatus = `Percobaan ulang #${attempt + 1} untuk chunk ${chunkIndex + 1}/${totalChunks}...`
         onProgress?.(Math.round(5 + (chunkIndex / totalChunks) * 90), retryStatus)
         await new Promise((r) => setTimeout(r, 1000 * (attempt + 1)))
+      }
+    }
+
+    // If we've hit consecutive 5xx errors OR the server explicitly told us
+    // the session is invalidated, recreate the upload session and restart
+    // from chunk 0. Drive's resumable upload protocol doesn't support
+    // cross-session byte offset resume, so we have to restart.
+    if (chunkError && consecutiveSessionErrors >= 2) {
+      if (sessionRecreations >= MAX_SESSION_RECREATIONS) {
+        throw new Error(
+          `Gagal upload setelah ${MAX_SESSION_RECREATIONS}x pembuatan ulang sesi. ` +
+          `Server Google Drive mungkin sedang bermasalah. Coba lagi nanti.`
+        )
+      }
+      sessionRecreations++
+      onProgress?.(
+        Math.round(5 + (chunkIndex / totalChunks) * 90),
+        `Membuat ulang sesi upload (percobaan ${sessionRecreations}/${MAX_SESSION_RECREATIONS})...`,
+      )
+      try {
+        // Re-create the session by calling upload-url again
+        const urlResponse = await fetch('/api/drive/upload-url', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            fileName: file.name,
+            mimeType: file.type || 'application/octet-stream',
+            folderId,
+            autoNameMeta,
+            subfolderName,
+          }),
+          signal,
+        })
+        if (!urlResponse.ok) {
+          throw new Error('Gagal membuat ulang sesi upload')
+        }
+        const data = await urlResponse.json()
+        uploadUrl = data.uploadUrl
+        consecutiveSessionErrors = 0
+        chunkIndex = 0 // restart from beginning with new session
+        continue
+      } catch (recreateErr) {
+        throw recreateErr instanceof Error ? recreateErr : new Error('Gagal membuat ulang sesi upload')
       }
     }
 

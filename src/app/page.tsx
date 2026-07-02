@@ -369,32 +369,30 @@ function AppContent() {
     lastFetchedUserId.current = userId
 
     const fetchRoleData = async () => {
-      // Build all fetch promises in parallel — much faster than sequential await
-      const fetchPromises: Promise<void>[] = []
-
-      // === Auto-repair stuck projects (Admin/Manager only) ===
-      // Runs BEFORE fetching projects so the data is fresh. This fixes projects
-      // where all tasks are completed but currentStage is stuck (caused by
-      // Cloudflare Workers 10ms CPU limit killing /api/tasks mid-execution).
-      // Fire-and-forget — the repair runs in parallel with the project fetch,
-      // and the next polling cycle (60s) will pick up the repaired data.
+      // === Auto-repair stuck projects FIRST (Admin/Manager only) ===
+      // This must complete BEFORE the projects fetch so the dashboard shows
+      // fresh data immediately. Previously these ran in parallel, causing a
+      // race condition: the projects fetch would often complete first with
+      // STALE data and overwrite the fresh data from the repair re-fetch.
+      //
+      // The repair endpoint uses a single efficient SQL UPDATE — typically
+      // <100ms — so blocking on it adds negligible latency.
       if (['Admin', 'Manager'].includes(currentUser.role)) {
-        fetchPromises.push(
-          fetch('/api/projects/repair', { method: 'POST' })
-            .then(res => res.ok ? res.json() : null)
-            .then(data => {
-              if (data?.repairedProjects > 0) {
-                console.info(`[Auto-Repair] Fixed ${data.repairedProjects} stuck project(s)`)
-                // Re-fetch projects to get the repaired data immediately
-                return fetch('/api/projects')
-                  .then(res => res.ok ? res.json() : null)
-                  .then(projectsData => { if (projectsData) setProjects(projectsData) })
-                  .catch(() => {})
-              }
-            })
-            .catch(error => console.error('[Auto-Repair] Failed:', error))
-        )
+        try {
+          const repairRes = await fetch('/api/projects/repair', { method: 'POST' })
+          if (repairRes.ok) {
+            const repairData = await repairRes.json()
+            if (repairData?.repairedProjects > 0) {
+              console.info(`[Auto-Repair] Fixed ${repairData.repairedProjects} stuck project(s)`)
+            }
+          }
+        } catch (error) {
+          console.error('[Auto-Repair] Failed:', error)
+        }
       }
+
+      // Build all OTHER fetch promises in parallel — much faster than sequential await
+      const fetchPromises: Promise<void>[] = []
 
       // Fetch notifications for all logged-in users
       fetchPromises.push(
@@ -412,14 +410,14 @@ function AppContent() {
           .catch(error => console.error('Failed to fetch surat tugas:', error))
       )
 
-      // Re-fetch projects so cross-user changes (e.g. Super Admin force-complete,
-      // stage advances by other users) sync to this user within ~60s without a
-      // manual page refresh. Edge-cached, so the CPU cost is minimal.
+      // Fetch projects — runs AFTER repair so data is fresh.
+      // This is the user's primary view; if it fails the user sees stale data
+      // but the app remains usable. Edge-cached, so the CPU cost is minimal.
       fetchPromises.push(
         fetch('/api/projects')
           .then(res => res.ok ? res.json() : null)
           .then(data => { if (data) setProjects(data) })
-          .catch(error => console.error('Failed to refetch projects:', error))
+          .catch(error => console.error('Failed to fetch projects:', error))
       )
 
       // Role-specific fetches (Administrator, Manager, Admin)
