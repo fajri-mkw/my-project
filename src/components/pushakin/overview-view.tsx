@@ -3,19 +3,22 @@
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
-import { useAppStore, STAGES } from '@/lib/store'
-import { 
-  Calendar, 
-  Share2, 
-  TrendingUp, 
-  Clock, 
+import { useAppStore, STAGES, getRoleDisplayName } from '@/lib/store'
+import {
+  Calendar,
+  Share2,
+  TrendingUp,
+  Clock,
   CheckCircle2,
   FolderKanban,
   Loader2,
   User,
-  MapPin
+  MapPin,
+  Copy,
+  Check,
+  MessageCircle
 } from 'lucide-react'
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useCallback } from 'react'
 import { cn } from '@/lib/utils'
 import { formatTanggalIndonesia, sortByRecent } from '@/lib/date-utils'
 
@@ -26,6 +29,15 @@ const FILTER_OPTIONS = [
   { id: 'month', label: 'Bulan Ini' },
   { id: 'year', label: 'Tahun Ini' }
 ]
+
+// Human-readable label for each filter id (used in the WA digest header)
+const FILTER_LABELS: Record<string, string> = {
+  all: 'Semua Waktu',
+  day: 'Hari Ini',
+  week: 'Minggu Ini',
+  month: 'Bulan Ini',
+  year: 'Tahun Ini'
+}
 
 // Stage gradient colors - Purple, Blue, Orange theme
 const STAGE_GRADIENTS: Record<number, { from: string; to: string; border: string; text: string; bg: string }> = {
@@ -46,13 +58,22 @@ export function OverviewView() {
   const { currentUser, projects, users, showAlert } = useAppStore()
   const [timeFilter, setTimeFilter] = useState('all')
   const [isGenerating, setIsGenerating] = useState(false)
+  const [copiedDigest, setCopiedDigest] = useState(false)
+  const [copiedProjectId, setCopiedProjectId] = useState<string | null>(null)
+
+  // === Manager-only feature gate ===
+  // The "Salin Reminder WA" (Copy WA Reminder) feature is exclusive to
+  // Manager and Admin (Super Admin) roles — they are the ones who need to
+  // remind staff via WhatsApp groups. Regular staff (Reporter, Photographer,
+  // Editor, etc.) do not see these buttons.
+  const isManager = currentUser ? ['Manager', 'Admin'].includes(currentUser.role) : false
 
   const isDateInRange = (dateString: string, filter: string) => {
     if (filter === 'all') return true
     if (!dateString) return false
     const d = new Date(dateString)
     const now = new Date()
-    
+
     if (filter === 'day') return d.toDateString() === now.toDateString()
     if (filter === 'week') return (now.getTime() - d.getTime()) / (1000 * 60 * 60 * 24) <= 7
     if (filter === 'month') return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear()
@@ -64,8 +85,6 @@ export function OverviewView() {
   const visibleProjects = projects
 
   // Sort by most-recently-modified first (updatedAt DESC, createdAt DESC fallback)
-  // — harmonized with the Dashboard so the same "newest on top" order is shown
-  // everywhere a worker looks (Dashboard, Statistik & Progress, Tracker).
   const targetProjects = useMemo(
     () =>
       visibleProjects
@@ -73,7 +92,7 @@ export function OverviewView() {
         .sort(sortByRecent),
     [visibleProjects, timeFilter],
   )
-  
+
   const totalProjects = targetProjects.length
   const completedCount = targetProjects.filter(p => p.currentStage === 5).length
   const activeCount = totalProjects - completedCount
@@ -112,7 +131,7 @@ export function OverviewView() {
     const totalTasks = project.tasks.length
     const completedTasks = project.tasks.filter(t => t.status === 'completed').length
     const percentage = totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 100) : 0
-    
+
     // Progress per stage
     const stageProgress: Record<number, { total: number; completed: number }> = {}
     for (let stage = 1; stage <= 4; stage++) {
@@ -122,7 +141,7 @@ export function OverviewView() {
         completed: stageTasks.filter(t => t.status === 'completed').length
       }
     }
-    
+
     // Team members per stage
     const teamByStage: Record<number, Array<{ userId: string | null; name: string; role: string; status: string }>> = {}
     for (let stage = 1; stage <= 4; stage++) {
@@ -131,13 +150,186 @@ export function OverviewView() {
         .map(t => ({
           userId: t.assignedTo,
           name: getUserName(t.assignedTo),
-          role: t.title,
+          role: getRoleDisplayName(t.role),
           status: t.status
         }))
     }
-    
+
     return { totalTasks, completedTasks, percentage, stageProgress, teamByStage }
   }
+
+  // === Clipboard helper with fallback ===
+  // Uses navigator.clipboard.writeText when available (HTTPS / secure context),
+  // falls back to a hidden textarea + document.execCommand('copy') for older
+  // browsers or non-secure contexts (e.g. HTTP dev).
+  const copyToClipboard = useCallback(async (text: string): Promise<boolean> => {
+    try {
+      await navigator.clipboard.writeText(text)
+      return true
+    } catch {
+      try {
+        const textarea = document.createElement('textarea')
+        textarea.value = text
+        textarea.style.position = 'fixed'
+        textarea.style.opacity = '0'
+        document.body.appendChild(textarea)
+        textarea.select()
+        const ok = document.execCommand('copy')
+        document.body.removeChild(textarea)
+        return ok
+      } catch {
+        return false
+      }
+    }
+  }, [])
+
+  // ============================================================================
+  // handleCopyDigest — Manager-only feature
+  // Generates a WhatsApp-friendly digest of all INCOMPLETE projects within
+  // the selected time period, listing which staff haven't completed their
+  // tasks. Designed to be brief so managers can paste it into WA groups
+  // every 2 days (or any cadence) to remind staff.
+  //
+  // Format:
+  //   📢 REMINDER PROGRESS PROYEK
+  //   Periode: Minggu Ini | 9 Jul 2026
+  //   📊 Total: 7 proyek aktif, 0 selesai
+  //
+  //   ⏳ BELUM SELESAI (7):
+  //   1. Workshop Visi, Misi FEBI
+  //      Tahap: Produksi (1/3) — Belum: Achmad Magfur (Reporter), Jamal (Foto)
+  //   2. ...
+  // ============================================================================
+  const handleCopyDigest = useCallback(async () => {
+    // Only incomplete projects (currentStage !== 5)
+    const incompleteProjects = targetProjects.filter(p => p.currentStage !== 5)
+
+    if (incompleteProjects.length === 0) {
+      showAlert('Semua proyek pada periode ini sudah selesai. Tidak ada yang perlu diingatkan. 🎉')
+      return
+    }
+
+    const todayStr = new Date().toLocaleDateString('id-ID', {
+      day: 'numeric', month: 'short', year: 'numeric'
+    })
+
+    const lines: string[] = []
+    lines.push('📢 *REMINDER PROGRESS PROYEK*')
+    lines.push(`Periode: ${FILTER_LABELS[timeFilter] || 'Semua Waktu'} | ${todayStr}`)
+    lines.push(`📊 Total: ${totalProjects} proyek (${activeCount} aktif, ${completedCount} selesai)`)
+    lines.push('')
+    lines.push(`⏳ *BELUM SELESAI (${incompleteProjects.length}):*`)
+    lines.push('')
+
+    incompleteProjects.forEach((project, idx) => {
+      const { completedTasks, totalTasks } = getTaskProgress(project)
+      const stageName = STAGES[project.currentStage] || 'Produksi'
+
+      // Collect pending (not-yet-completed) staff — only those whose task
+      // is at or before the current stage (staff ahead of the current stage
+      // are legitimately waiting, not "late").
+      const pendingStaff = project.tasks.filter(t =>
+        t.status !== 'completed' && t.stage <= project.currentStage
+      )
+
+      lines.push(`${idx + 1}. *${project.title}*`)
+      if (project.executionTime) {
+        lines.push(`   🕒 ${formatTanggalIndonesia(project.executionTime)}`)
+      }
+      lines.push(`   🎯 Tahap: ${stageName} (${completedTasks}/${totalTasks} selesai)`)
+
+      if (pendingStaff.length > 0) {
+        // Group by user to avoid duplicate names (a user may have multiple tasks)
+        const staffSummary = pendingStaff.map(t => {
+          const name = getUserName(t.assignedTo)
+          const role = getRoleDisplayName(t.role)
+          return `${name} (${role})`
+        })
+        lines.push(`   ⏰ Belum selesai: ${staffSummary.join(', ')}`)
+      } else {
+        lines.push(`   ⏰ Menunggu perpindahan tahap`)
+      }
+      lines.push('')
+    })
+
+    lines.push('Mohon segera kerjakan tugas masing-masing. Terima kasih 🙏')
+    lines.push('—')
+    lines.push('Pushakin Flows — Sistem Manajemen Produksi')
+
+    const text = lines.join('\n')
+    const ok = await copyToClipboard(text)
+
+    if (ok) {
+      setCopiedDigest(true)
+      setTimeout(() => setCopiedDigest(false), 2000)
+      showAlert(`✅ Reminder WA berhasil disalin!\n\n${incompleteProjects.length} proyek belum selesai. Tempel ke grup WA untuk mengingatkan petugas.`)
+    } else {
+      showAlert('Gagal menyalin ke clipboard. Coba lagi.')
+    }
+  }, [targetProjects, timeFilter, totalProjects, activeCount, completedCount, copyToClipboard, showAlert])
+
+  // ============================================================================
+  // handleCopyProjectReminder — Manager-only feature
+  // Generates a WhatsApp-friendly reminder for a SINGLE project, listing
+  // the specific staff who haven't completed their tasks. Useful when a
+  // manager wants to remind just one project's team.
+  // ============================================================================
+  const handleCopyProjectReminder = useCallback(async (project: typeof projects[0]) => {
+    const { completedTasks, totalTasks, percentage } = getTaskProgress(project)
+    const stageName = STAGES[project.currentStage] || 'Produksi'
+    const todayStr = new Date().toLocaleDateString('id-ID', {
+      day: 'numeric', month: 'short', year: 'numeric'
+    })
+
+    // All pending staff (at or before current stage)
+    const pendingStaff = project.tasks.filter(t =>
+      t.status !== 'completed' && t.stage <= project.currentStage
+    )
+
+    const lines: string[] = []
+    lines.push('📢 *REMINDER PROYEK*')
+    lines.push(`📌 *${project.title}*`)
+    if (project.location) {
+      lines.push(`📍 ${project.location}`)
+    }
+    if (project.executionTime) {
+      lines.push(`🕒 ${formatTanggalIndonesia(project.executionTime)}`)
+    }
+    lines.push(`🎯 Tahap: ${stageName} (${completedTasks}/${totalTasks} selesai — ${percentage}%)`)
+    lines.push('')
+
+    if (pendingStaff.length > 0) {
+      lines.push('⏰ *Petugas yang belum menyelesaikan tugas:*')
+      // Group by user (a user may have multiple roles)
+      const byUser = new Map<string, string[]>()
+      for (const t of pendingStaff) {
+        const name = getUserName(t.assignedTo)
+        const role = getRoleDisplayName(t.role)
+        if (!byUser.has(name)) byUser.set(name, [])
+        byUser.get(name)!.push(role)
+      }
+      byUser.forEach((roles, name) => {
+        lines.push(`• ${name} — ${roles.join(', ')}`)
+      })
+    } else {
+      lines.push('✅ Semua petugas di tahap ini sudah selesai. Menunggu perpindahan tahap.')
+    }
+
+    lines.push('')
+    lines.push('Mohon segera kerjakan tugas masing-masing. Terima kasih 🙏')
+    lines.push('—')
+    lines.push('Pushakin Flows — Sistem Manajemen Produksi')
+
+    const text = lines.join('\n')
+    const ok = await copyToClipboard(text)
+
+    if (ok) {
+      setCopiedProjectId(project.id)
+      setTimeout(() => setCopiedProjectId(null), 2000)
+    } else {
+      showAlert('Gagal menyalin ke clipboard. Coba lagi.')
+    }
+  }, [copyToClipboard, showAlert])
 
   return (
     <div className="max-w-7xl mx-auto space-y-6">
@@ -164,18 +356,46 @@ export function OverviewView() {
             ))}
           </div>
 
-          <Button
-            onClick={handleSharePublic}
-            disabled={isGenerating}
-            className="gap-2 bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-600 hover:to-emerald-700 text-white shrink-0"
-          >
-            {isGenerating ? (
-              <Loader2 className="w-4 h-4 animate-spin" />
-            ) : (
-              <Share2 className="w-4 h-4" />
+          <div className="flex items-center gap-2 shrink-0 flex-wrap">
+            {/* === Manager-only: Salin Reminder WA === */}
+            {/* Generates a WhatsApp-friendly digest of incomplete projects +
+                pending staff for the selected time period. Lets managers
+                paste it into WA groups to remind staff every few days. */}
+            {isManager && (
+              <Button
+                onClick={handleCopyDigest}
+                className="gap-2 bg-gradient-to-r from-violet-600 to-purple-600 hover:from-violet-700 hover:to-purple-700 text-white"
+                title="Salin rangkuman progress proyek untuk dibagikan ke grup WA"
+              >
+                {copiedDigest ? (
+                  <>
+                    <Check className="w-4 h-4" />
+                    <span>Tersalin!</span>
+                  </>
+                ) : (
+                  <>
+                    <MessageCircle className="w-4 h-4" />
+                    <span className="hidden sm:inline">Salin Reminder WA</span>
+                    <span className="sm:hidden">Reminder WA</span>
+                  </>
+                )}
+              </Button>
             )}
-            <span>Bagikan ke Publik</span>
-          </Button>
+
+            <Button
+              onClick={handleSharePublic}
+              disabled={isGenerating}
+              className="gap-2 bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-600 hover:to-emerald-700 text-white"
+            >
+              {isGenerating ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <Share2 className="w-4 h-4" />
+              )}
+              <span className="hidden sm:inline">Bagikan ke Publik</span>
+              <span className="sm:hidden">Publik</span>
+            </Button>
+          </div>
         </CardContent>
       </Card>
 
@@ -192,7 +412,7 @@ export function OverviewView() {
             <h3 className="text-4xl font-extrabold relative z-10">{totalProjects}</h3>
           </CardContent>
         </Card>
-        
+
         <Card className="bg-gradient-to-br from-orange-500 to-orange-600 text-white relative overflow-hidden">
           <CardContent className="p-5">
             <div className="absolute top-0 right-0 p-4 opacity-20">
@@ -204,7 +424,7 @@ export function OverviewView() {
             <h3 className="text-4xl font-extrabold relative z-10">{activeCount}</h3>
           </CardContent>
         </Card>
-        
+
         <Card className="bg-gradient-to-br from-violet-600 to-purple-700 text-white relative overflow-hidden">
           <CardContent className="p-5">
             <div className="absolute top-0 right-0 p-4 opacity-20">
@@ -258,8 +478,8 @@ export function OverviewView() {
                             <Badge
                               className={cn(
                                 "text-[10px] font-bold uppercase tracking-wider",
-                                isCompleted 
-                                  ? "bg-green-500 text-white border-0" 
+                                isCompleted
+                                  ? "bg-green-500 text-white border-0"
                                   : "bg-orange-500 text-white border-0"
                               )}
                             >
@@ -287,9 +507,37 @@ export function OverviewView() {
                             )}
                           </div>
                         </div>
-                        <div className="text-right shrink-0 ml-3">
-                          <div className="text-3xl font-bold">{percentage}%</div>
-                          <div className="text-xs text-slate-400">{completedTasks}/{totalTasks} tugas</div>
+                        <div className="flex items-center gap-3 shrink-0 ml-3">
+                          {/* === Manager-only: Per-project Salin Info WA === */}
+                          {/* Stops click propagation so it doesn't navigate to
+                              project detail — only copies the reminder text. */}
+                          {isManager && !isCompleted && (
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                handleCopyProjectReminder(project)
+                              }}
+                              className="flex items-center gap-1 text-[11px] font-medium px-2.5 py-1.5 rounded-lg bg-white/10 hover:bg-white/20 text-white border border-white/20 hover:border-white/40 transition-all active:scale-95"
+                              title="Salin reminder proyek ini untuk WA"
+                            >
+                              {copiedProjectId === project.id ? (
+                                <>
+                                  <Check className="w-3.5 h-3.5 text-green-400" />
+                                  <span className="text-green-400">Tersalin!</span>
+                                </>
+                              ) : (
+                                <>
+                                  <Copy className="w-3.5 h-3.5" />
+                                  <span className="hidden sm:inline">Salin Info</span>
+                                </>
+                              )}
+                            </button>
+                          )}
+                          <div className="text-right">
+                            <div className="text-3xl font-bold">{percentage}%</div>
+                            <div className="text-xs text-slate-400">{completedTasks}/{totalTasks} tugas</div>
+                          </div>
                         </div>
                       </div>
                     </div>
@@ -300,8 +548,8 @@ export function OverviewView() {
                         {[1, 2, 3, 4].map((stage, idx) => {
                           const gradient = getStageGradient(stage)
                           const progress = stageProgress[stage] || { total: 0, completed: 0 }
-                          const stagePercent = progress.total > 0 
-                            ? Math.round((progress.completed / progress.total) * 100) 
+                          const stagePercent = progress.total > 0
+                            ? Math.round((progress.completed / progress.total) * 100)
                             : 0
                           // "Completed" = ALL tasks done (not just stage < currentStage)
                           const isStageCompleted = progress.total > 0 && progress.completed === progress.total
@@ -309,7 +557,7 @@ export function OverviewView() {
                           const isCurrent = stage === project.currentStage && !isStageCompleted
                           const isPending = stage > project.currentStage && !isInProgress
                           const members = teamByStage[stage] || []
-                          
+
                           return (
                             <div key={stage} className="flex items-start flex-1">
                               {/* Step Column */}
@@ -351,7 +599,7 @@ export function OverviewView() {
                                     {stagePercent}%
                                   </div>
                                 </div>
-                                
+
                                 {/* Worker Names Aligned Below Stage */}
                                 <div className="mt-2 w-full space-y-1">
                                   {members.length === 0 ? (
@@ -366,9 +614,9 @@ export function OverviewView() {
                                       const avatar = getUserAvatar(member.userId)
                                       const isTaskCompleted = member.status === 'completed'
                                       const isLocked = isPending
-                                      
+
                                       return (
-                                        <div 
+                                        <div
                                           key={midx}
                                           className={cn(
                                             "flex items-center gap-1.5 px-1.5 py-1 rounded-md transition-all",
@@ -379,8 +627,8 @@ export function OverviewView() {
                                         >
                                           {/* Mini Avatar */}
                                           {avatar ? (
-                                            <img 
-                                              src={avatar} 
+                                            <img
+                                              src={avatar}
                                               alt={member.name}
                                               className="w-5 h-5 rounded-full object-cover border border-white shrink-0"
                                             />
@@ -394,7 +642,7 @@ export function OverviewView() {
                                               {member.name.charAt(0).toUpperCase()}
                                             </div>
                                           )}
-                                          
+
                                           {/* Name */}
                                           <span className={cn(
                                             "text-[10px] font-medium truncate leading-tight",
@@ -419,7 +667,7 @@ export function OverviewView() {
                                   )}
                                 </div>
                               </div>
-                              
+
                               {/* Connector Line */}
                               {idx < 4 && (
                                 <div className={cn(
