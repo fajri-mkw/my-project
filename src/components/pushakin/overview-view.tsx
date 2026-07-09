@@ -252,7 +252,7 @@ export function OverviewView() {
       lines.push('')
     })
 
-    lines.push('Mohon segera kerjakan tugas masing-masing. Terima kasih 🙏')
+    lines.push('Mohon segera kerjakan tugas masing-masing. Agar petugas lain dapat melanjutkan dan menyelesaikan proyek. Terima kasih 🙏')
     lines.push('—')
     lines.push('Pushakin Flows — Sistem Manajemen Produksi')
 
@@ -316,7 +316,7 @@ export function OverviewView() {
     }
 
     lines.push('')
-    lines.push('Mohon segera kerjakan tugas masing-masing. Terima kasih 🙏')
+    lines.push('Mohon segera kerjakan tugas masing-masing. Agar petugas lain dapat melanjutkan dan menyelesaikan proyek. Terima kasih 🙏')
     lines.push('—')
     lines.push('Pushakin Flows — Sistem Manajemen Produksi')
 
