@@ -624,34 +624,44 @@ Pushakin Flows — Sistem Manajemen Produksi`
     // === Robust error extraction ===
     // Cloudflare Workers / gateway can return non-JSON bodies (HTML error pages,
     // 502/504 from upstream, empty bodies on network failure). The old code
-    // fell back to a generic "Gagal menyelesaikan tugas" string when the body
-    // wasn't JSON, producing the redundant "Gagal menyelesaikan tugas:
-    // Gagal menyelesaikan tugas" message users kept seeing.
+    // called resp.json() first — which CONSUMES the body stream — then tried
+    // resp.text() on the already-consumed body, which always failed. This
+    // caused the real error message to be lost and the user saw a generic
+    // "Server error 500 (HTTP 500)" instead of the actual error detail.
+    //
+    // FIX: Read the body as text ONCE, then try JSON.parse on the text.
+    // This way we never lose the body content regardless of content-type.
     const extractError = async (resp: Response, attempt: number): Promise<string> => {
-      // Try JSON first
-      try {
-        const data = await resp.json()
-        if (data?.error) return String(data.error)
-      } catch {
-        // Body wasn't JSON — fall through to text/status extraction below
-      }
-      // Try text (truncated) — useful for HTML error pages
-      try {
-        const text = await resp.text()
-        if (text && text.length > 0) {
-          // Strip HTML tags if present, collapse whitespace, truncate
-          const cleaned = text
-            .replace(/<[^>]*>/g, ' ')
-            .replace(/\s+/g, ' ')
-            .trim()
-            .substring(0, 200)
-          if (cleaned) return `Server error ${resp.status}: ${cleaned}`
-        }
-      } catch {
-        // Body couldn't be read at all
-      }
-      // Final fallback: HTTP status text
       if (resp.status === 0) return 'Koneksi terputus (network error)'
+
+      // Read body as text ONCE — works for JSON, HTML, plain text, or empty
+      let bodyText = ''
+      try {
+        bodyText = await resp.text()
+      } catch {
+        // Body couldn't be read at all (e.g., stream error)
+      }
+
+      // Try JSON parse on the text we already have
+      if (bodyText) {
+        try {
+          const data = JSON.parse(bodyText)
+          if (data?.error) return String(data.error)
+          if (data?.message) return String(data.message)
+        } catch {
+          // Not JSON — use the raw text below
+        }
+
+        // Not JSON — strip HTML tags, collapse whitespace, truncate
+        const cleaned = bodyText
+          .replace(/<[^>]*>/g, ' ')
+          .replace(/\s+/g, ' ')
+          .trim()
+          .substring(0, 200)
+        if (cleaned) return `Server error ${resp.status}: ${cleaned}`
+      }
+
+      // Empty body or unreadable — final fallback: HTTP status text
       const statusText = resp.statusText || `HTTP ${resp.status}`
       return `Server error ${resp.status} (${statusText})`
     }

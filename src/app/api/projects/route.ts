@@ -22,6 +22,12 @@ import {
 // Optimization vs. original: 3 flat queries (projects, tasks, drive_folders)
 // joined in JS — avoids Prisma's nested-relation SQL generation + mapping CPU.
 // ============================================================================
+// NOTE: includeQuery: false — the projects API returns ALL projects
+// (filtering by userId/role happens client-side). Using a single cache
+// key (no query params) means invalidateCache('/api/projects') actually
+// busts the cache. With includeQuery: true (default), each user gets
+// their own cache entry and invalidateCache only deletes the base key
+// (which is never used) — stale data persists for 60s.
 export const GET = withEdgeCache(async (request: NextRequest) => {
   const maintenanceBlock = await checkMaintenanceMode(request)
   if (maintenanceBlock) return maintenanceBlock
@@ -161,7 +167,7 @@ export const GET = withEdgeCache(async (request: NextRequest) => {
       { status: 500 },
     )
   }
-}, { ttl: 15 })
+}, { ttl: 15, includeQuery: false })
 
 // ============================================================================
 // POST create project — batch transaction (project + tasks + drive_folders + notifications)
