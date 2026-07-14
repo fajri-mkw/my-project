@@ -145,10 +145,11 @@ export function ReportsView() {
   }
 
   // Build a short human-readable description of the selected date range,
-  // suitable for embedding in a filename.
-  // Examples: "01-07-2026 sd 15-07-2026", "Dari 01-07-2026", "Sampai 15-07-2026", "Semua Waktu"
+  // suitable for both the PDF/Excel display line and the export filename.
+  // Uses full Indonesian month names for readability.
+  // Examples: "01 Juli 2026 sd 15 Juli 2026", "Dari 01 Juli 2026", "Sampai 15 Juli 2026", "Semua Waktu"
   const getRentangWaktuFilename = (): string => {
-    const fmt = (d: string) => new Date(d).toLocaleDateString('id-ID', { day: '2-digit', month: '2-digit', year: 'numeric' })
+    const fmt = (d: string) => new Date(d).toLocaleDateString('id-ID', { day: '2-digit', month: 'long', year: 'numeric' })
     if (dateFrom && dateTo) return `${fmt(dateFrom)} sd ${fmt(dateTo)}`
     if (dateFrom) return `Dari ${fmt(dateFrom)}`
     if (dateTo) return `Sampai ${fmt(dateTo)}`
@@ -157,7 +158,7 @@ export function ReportsView() {
 
   // Build the final export filename.
   // Format: "Laporan Kegiatan_{rentang waktu}_{nama user}_{peran}.{ext}"
-  // Example: "Laporan Kegiatan_01-07-2026 sd 15-07-2026_Baiti Rahmi_Manager.pdf"
+  // Example: "Laporan Kegiatan_01 Juli 2026 sd 15 Juli 2026_Baiti Rahmi_Manager.pdf"
   const buildLaporanFilename = (userName: string, userRole: string, ext: 'xlsx' | 'pdf'): string => {
     const rentang = sanitizeFilename(getRentangWaktuFilename()) || 'Semua Waktu'
     const nama = sanitizeFilename(userName) || 'Semua User'
@@ -510,7 +511,7 @@ export function ReportsView() {
           if (userProjects.length === 0) continue // skip users with no matching projects
           const userName = user?.name || 'User'
           const userRole = getRoleDisplayName(user?.role || '')
-          const blob = generateExcelBlob(userProjects, userName)
+          const blob = generateExcelBlob(userProjects, `${userName} - ${userRole}`)
           downloadBlob(blob, buildLaporanFilename(userName, userRole, 'xlsx'))
           // Stagger downloads so the browser doesn't block subsequent downloads
           if (i < selectedUserIds.length - 1) {
@@ -840,7 +841,7 @@ export function ReportsView() {
           if (userProjects.length === 0) continue // skip users with no matching projects
           const userName = user?.name || 'User'
           const userRole = getRoleDisplayName(user?.role || '')
-          const blob = generatePDFBlob(userProjects, userName, userId)
+          const blob = generatePDFBlob(userProjects, `${userName} - ${userRole}`, userId)
           downloadBlob(blob, buildLaporanFilename(userName, userRole, 'pdf'))
           // Stagger downloads — PDFs are larger, give the browser a bit more time
           if (i < selectedUserIds.length - 1) {
