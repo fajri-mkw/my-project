@@ -171,6 +171,27 @@ export function SuratRekapitulasi({ suratList, users }: SuratRekapitulasiProps) 
     return user?.name || '-'
   }
 
+  // Build a guaranteed-valid, absolute Google Drive VIEW url for a surat
+  // document. Prefer the official webViewLink; fall back to a constructed
+  // view url from driveFileId. Only fall back to downloadUrl last (it
+  // forces a download rather than opening the viewer).
+  // Returns null when no usable URL is available.
+  const getDocLink = (doc: any): string | null => {
+    if (!doc) return null
+    return (
+      doc.webViewLink ||
+      (doc.driveFileId ? `https://drive.google.com/file/d/${doc.driveFileId}/view` : null) ||
+      doc.downloadUrl ||
+      null
+    )
+  }
+
+  // Resolve a friendly display name for a surat document.
+  const getDocName = (doc: any, fallbackIdx: number = 0): string => {
+    if (!doc) return `Dokumen ${fallbackIdx + 1}`
+    return doc.name || doc.originalName || `Dokumen ${fallbackIdx + 1}`
+  }
+
   // ==================== EXPORT EXCEL ====================
   const exportExcel = () => {
     const periodeDesc = getPeriodeDescription()
@@ -197,8 +218,13 @@ export function SuratRekapitulasi({ suratList, users }: SuratRekapitulasiProps) 
       s.tanggalSurat ? formatDateShort(s.tanggalSurat) : '-',
       s.jenisSurat === 'Surat Masuk' ? (s.pengirim || '-') : (s.penerima || '-'),
       s.perihal,
+      // File Surat column — show the first document's name (clickable in Excel).
+      // When multiple documents exist, additional names are appended as plain
+      // text after the first one's name; the cell's hyperlink (set below)
+      // points to the first document. This keeps the cell readable while still
+      // providing a one-click shortcut to open the file.
       (s.documents && s.documents.length > 0)
-        ? s.documents.map((d: any) => d.name || d.originalName || 'Dokumen').join('; ')
+        ? s.documents.map((d: any) => getDocName(d, 0)).join('; ')
         : '-',
       SURAT_STATUS_CONFIG[s.status]?.label || s.status,
       getManagerName(s.managerId),
@@ -213,6 +239,27 @@ export function SuratRekapitulasi({ suratList, users }: SuratRekapitulasiProps) 
     ]
 
     const ws = XLSX.utils.aoa_to_sheet(wsData)
+
+    // Attach clickable hyperlinks to the "File Surat" cells (column H, the
+    // 8th column, 0-indexed = 7). The first data row is at spreadsheet row 5
+    // (1-indexed), because wsData has 3 leading rows (title, periode, blank)
+    // plus 1 header row.
+    // Each cell's hyperlink points to the first document that has a usable
+    // URL (webViewLink > constructed driveFileId view url > downloadUrl).
+    filteredSurat.forEach((s, idx) => {
+      const docs = Array.isArray(s.documents) ? s.documents : []
+      const firstLinkedDoc = docs.find((d: any) => getDocLink(d))
+      if (!firstLinkedDoc) return
+      const link = getDocLink(firstLinkedDoc)
+      if (!link) return
+      const excelRow = 5 + idx // 1-indexed; data starts at row 5
+      const cellAddr = XLSX.utils.encode_cell({ r: excelRow - 1, c: 7 })
+      const cell = ws[cellAddr]
+      if (cell) {
+        // .l.Target is the clickable hyperlink; .l.Tooltip is the hover tooltip.
+        cell.l = { Target: link, Tooltip: `Buka "${getDocName(firstLinkedDoc, 0)}" di Google Drive` }
+      }
+    })
 
     // Set column widths
     ws['!cols'] = [
@@ -293,12 +340,25 @@ export function SuratRekapitulasi({ suratList, users }: SuratRekapitulasiProps) 
       s.tanggalSurat ? formatDateShort(s.tanggalSurat) : '-',
       s.jenisSurat === 'Surat Masuk' ? (s.pengirim || '-') : (s.penerima || '-'),
       s.perihal.length > 50 ? s.perihal.substring(0, 50) + '...' : s.perihal,
+      // File Surat column — join document display names. The cell is made
+      // clickable in didDrawCell below (pointing to the first document that
+      // has a usable URL).
       (s.documents && s.documents.length > 0)
-        ? s.documents.map((d: any) => d.name || d.originalName || 'Dokumen').join(', ')
+        ? s.documents.map((d: any) => getDocName(d, 0)).join(', ')
         : '-',
       SURAT_STATUS_CONFIG[s.status]?.label || s.status,
       getManagerName(s.managerId),
     ])
+
+    // Pre-compute, per body row, the first usable document link (if any).
+    // Used by the willDrawCell/didDrawCell hooks below to (a) color the File
+    // Surat text blue like a hyperlink and (b) attach a clickable link
+    // annotation covering the entire File Surat cell.
+    const rowDocLinks: (string | null)[] = filteredSurat.map(s => {
+      const docs = Array.isArray(s.documents) ? s.documents : []
+      const firstLinkedDoc = docs.find((d: any) => getDocLink(d))
+      return firstLinkedDoc ? getDocLink(firstLinkedDoc) : null
+    })
 
     autoTable(doc, {
       head: [headers],
@@ -329,6 +389,29 @@ export function SuratRekapitulasi({ suratList, users }: SuratRekapitulasiProps) 
         7: { cellWidth: 30 },                       // File Surat
         8: { cellWidth: 20 },                       // Status
         9: { cellWidth: 28 },                       // Manager
+      },
+      // Render the File Surat cell text in blue (like a hyperlink) so users
+      // know it is clickable. Only applied when a link is available.
+      willDrawCell: (hookData) => {
+        if (hookData.section !== 'body') return
+        if (hookData.column.index !== 7) return // File Surat column
+        const rowIndex = hookData.row.index
+        if (rowDocLinks[rowIndex]) {
+          doc.setTextColor(30, 64, 175) // blue-800
+        }
+      },
+      didDrawCell: (hookData) => {
+        if (hookData.section !== 'body') return
+        if (hookData.column.index !== 7) return // File Surat column
+        const rowIndex = hookData.row.index
+        const link = rowDocLinks[rowIndex]
+        if (!link) return
+        // Reset text color for any subsequent cells autoTable draws.
+        doc.setTextColor(0, 0, 0)
+        const { x, y, width, height } = hookData.cell
+        // Attach a clickable link annotation covering the whole File Surat
+        // cell. Clicking opens the document in Google Drive.
+        doc.link(x, y, width, height, { url: link })
       },
       didDrawPage: (data) => {
         // Footer with page numbers
