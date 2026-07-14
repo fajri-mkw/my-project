@@ -1,0 +1,79 @@
+$ bash scripts/patch-libsql-cf.sh && prisma generate && bash scripts/patch-libsql-cf.sh && opennextjs-cloudflare build && wrangler2 deploy
+[patch-libsql] Starting patches...
+[patch-libsql] Found @libsql/client at: node_modules/@prisma/adapter-libsql/node_modules/@libsql/client
+[patch-libsql] Found @libsql/client at: node_modules/@libsql/client
+[patch-libsql] Found @libsql/isomorphic-ws at: node_modules/@libsql/isomorphic-ws
+[patch-libsql] Done.
+[patch-libsql] .prisma/client #main-entry-point → all → wasm.js
+[patch-libsql] .prisma/client/default.js → direct require wasm.js
+[patch-libsql] .prisma/client/index.js runtime → wasm-engine-edge.js
+[patch-libsql] node_modules/.prisma/client/index.js engineType → wasm
+[patch-libsql] node_modules/.prisma/client/wasm.js engineType → wasm
+[patch-libsql] Found node-fetch@? at: node_modules/node-fetch
+[patch-libsql]   ✓ lib/index.js → native fetch shim
+[patch-libsql]   ✓ lib/index.mjs → native fetch shim (ESM)
+[patch-libsql]   ✓ browser.js → native fetch shim
+[patch-libsql] Found node-fetch@? at: node_modules/@prisma/adapter-libsql/node_modules/@libsql/client/node_modules/@libsql/hrana-client/node_modules/node-fetch
+[patch-libsql] Found node-fetch@? at: node_modules/@types/node-fetch
+[patch-libsql] Found node-fetch@? at: node_modules/gaxios/node_modules/node-fetch
+[patch-libsql] Found https-proxy-agent at: node_modules/next/dist/compiled/https-proxy-agent
+[patch-libsql] Found https-proxy-agent at: node_modules/https-proxy-agent
+[patch-libsql]   ✓ dist/index.js → stub
+Environment variables loaded from .env
+Prisma schema loaded from prisma/schema.prisma
+
+✔ Generated Prisma Client (v6.19.2) to ./node_modules/@prisma/client in 191ms
+
+Start by importing your Prisma Client (See: https://pris.ly/d/importing-client)
+
+Tip: Want to turn off tips and other hints? https://pris.ly/tip-4-nohints
+
+[patch-libsql] Starting patches...
+[patch-libsql] Found @libsql/client at: node_modules/@prisma/adapter-libsql/node_modules/@libsql/client
+[patch-libsql] Found @libsql/client at: node_modules/@libsql/client
+[patch-libsql] Found @libsql/isomorphic-ws at: node_modules/@libsql/isomorphic-ws
+[patch-libsql] Done.
+[patch-libsql] .prisma/client #main-entry-point → all → wasm.js
+[patch-libsql] .prisma/client/default.js → direct require wasm.js
+[patch-libsql] .prisma/client/index.js runtime → wasm-engine-edge.js
+[patch-libsql] node_modules/.prisma/client/index.js engineType → wasm
+[patch-libsql] node_modules/.prisma/client/wasm.js engineType → wasm
+[patch-libsql] Found node-fetch@? at: node_modules/node-fetch
+[patch-libsql]   ✓ lib/index.js → native fetch shim
+[patch-libsql]   ✓ lib/index.mjs → native fetch shim (ESM)
+[patch-libsql]   ✓ browser.js → native fetch shim
+[patch-libsql] Found node-fetch@? at: node_modules/@prisma/adapter-libsql/node_modules/@libsql/client/node_modules/@libsql/hrana-client/node_modules/node-fetch
+[patch-libsql] Found node-fetch@? at: node_modules/@types/node-fetch
+[patch-libsql] Found node-fetch@? at: node_modules/gaxios/node_modules/node-fetch
+[patch-libsql] Found https-proxy-agent at: node_modules/next/dist/compiled/https-proxy-agent
+[patch-libsql] Found https-proxy-agent at: node_modules/https-proxy-agent
+[patch-libsql]   ✓ dist/index.js → stub
+
+┌─────────────────────────────┐
+│ OpenNext — Cloudflare build │
+└─────────────────────────────┘
+
+App directory: /home/z/my-project
+Next.js version : 15.5.14
+@opennextjs/cloudflare version: 1.20.1
+@opennextjs/aws version: 4.0.2
+WARN workerd compatibility_date: 2024-09-23, consider updating your wrangler config to a more recent date to benefit from the latest features and fixes.
+
+┌─────────────────────────────────┐
+│ OpenNext — Building Next.js app │
+└─────────────────────────────────┘
+
+$ prisma generate && next build
+Environment variables loaded from .env
+Prisma schema loaded from prisma/schema.prisma
+
+✔ Generated Prisma Client (v6.19.2) to ./node_modules/@prisma/client in 240ms
+
+Start by importing your Prisma Client (See: https://pris.ly/d/importing-client)
+
+Tip: Interested in query caching in just a few lines of code? Try Accelerate today! https://pris.ly/tip-3-accelerate
+
+   ▲ Next.js 15.5.14
+   - Environments: .env
+
+   Creating an optimized production build ...
