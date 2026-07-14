@@ -4,12 +4,14 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Separator } from '@/components/ui/separator'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
+import { Checkbox } from '@/components/ui/checkbox'
+import { ScrollArea } from '@/components/ui/scroll-area'
 import { useAppStore, STAGES, getRoleDisplayName } from '@/lib/store'
-import { 
-  ArrowLeft, 
-  FileSpreadsheet, 
-  Printer, 
+import {
+  ArrowLeft,
+  FileSpreadsheet,
+  Printer,
   FileText,
   CheckCircle2,
   UserCircle,
@@ -18,7 +20,9 @@ import {
   ExternalLink,
   Globe,
   CalendarDays,
-  X
+  X,
+  Check,
+  ChevronsUpDown,
 } from 'lucide-react'
 import { useState, useRef } from 'react'
 import jsPDF from 'jspdf'
@@ -61,7 +65,9 @@ const isPublisherRole = (role: string) => {
 
 export function ReportsView() {
   const { projects, users, selectedProjectId, setSelectedProjectId, suratList } = useAppStore()
-  const [selectedUserId, setSelectedUserId] = useState<string>('all')
+  // Multi-user selection: empty array = "Semua User" (all users).
+  // When one or more users are selected, exports generate one file per user.
+  const [selectedUserIds, setSelectedUserIds] = useState<string[]>([])
   const [dateFrom, setDateFrom] = useState<string>('')
   const [dateTo, setDateTo] = useState<string>('')
   const [isGeneratingPDF, setIsGeneratingPDF] = useState(false)
@@ -100,13 +106,13 @@ export function ReportsView() {
     return { manager, docs: [...suratDocs, ...docs] }
   }
 
-  // Filter completed projects based on selected user and date range
+  // Filter completed projects based on selected user(s) and date range
   const completedProjects = projects.filter(p => p.currentStage === 5)
-  
+
   const filteredProjects = completedProjects.filter(p => {
-    // User filter
-    if (selectedUserId !== 'all') {
-      const isUserMatch = p.tasks.some(t => t.assignedTo === selectedUserId) || p.managerId === selectedUserId
+    // User filter — empty array = all users (no filtering)
+    if (selectedUserIds.length > 0) {
+      const isUserMatch = p.tasks.some(t => selectedUserIds.includes(t.assignedTo)) || selectedUserIds.includes(p.managerId)
       if (!isUserMatch) return false
     }
     // Date range filter (based on createdAt)
@@ -126,7 +132,83 @@ export function ReportsView() {
   })
 
   const hasDateFilter = dateFrom || dateTo
+  const hasUserFilter = selectedUserIds.length > 0
   const clearDateFilter = () => { setDateFrom(''); setDateTo('') }
+
+  // ----- Filename & download helpers -----
+
+  // Sanitize a string for safe use in a filename.
+  // Removes characters invalid on Windows/macOS/Linux filesystems
+  // (\ / : * ? " < > |) and collapses multiple spaces.
+  const sanitizeFilename = (str: string): string => {
+    return (str || '').replace(/[\\/:*?"<>|]/g, '').replace(/\s+/g, ' ').trim()
+  }
+
+  // Build a short human-readable description of the selected date range,
+  // suitable for embedding in a filename.
+  // Examples: "01-07-2026 sd 15-07-2026", "Dari 01-07-2026", "Sampai 15-07-2026", "Semua Waktu"
+  const getRentangWaktuFilename = (): string => {
+    const fmt = (d: string) => new Date(d).toLocaleDateString('id-ID', { day: '2-digit', month: '2-digit', year: 'numeric' })
+    if (dateFrom && dateTo) return `${fmt(dateFrom)} sd ${fmt(dateTo)}`
+    if (dateFrom) return `Dari ${fmt(dateFrom)}`
+    if (dateTo) return `Sampai ${fmt(dateTo)}`
+    return 'Semua Waktu'
+  }
+
+  // Build the final export filename.
+  // Format: "Laporan Kegiatan_{rentang waktu}_{nama user}_{peran}.{ext}"
+  // Example: "Laporan Kegiatan_01-07-2026 sd 15-07-2026_Baiti Rahmi_Manager.pdf"
+  const buildLaporanFilename = (userName: string, userRole: string, ext: 'xlsx' | 'pdf'): string => {
+    const rentang = sanitizeFilename(getRentangWaktuFilename()) || 'Semua Waktu'
+    const nama = sanitizeFilename(userName) || 'Semua User'
+    const peran = sanitizeFilename(userRole) || 'Semua Peran'
+    return `Laporan Kegiatan_${rentang}_${nama}_${peran}.${ext}`
+  }
+
+  // Trigger a browser download of a Blob with the given filename.
+  // Creates a temporary <a> element, clicks it, then cleans up.
+  const downloadBlob = (blob: Blob, filename: string) => {
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = filename
+    a.style.display = 'none'
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+    // Revoke the object URL after a short delay so the download has time to start.
+    setTimeout(() => URL.revokeObjectURL(url), 1500)
+  }
+
+  // Filter completed projects for a specific user (as manager or task assignee),
+  // applying the same date-range filter as the main view.
+  // Used to generate per-user export files.
+  const getProjectsForUser = (userId: string) => {
+    return completedProjects.filter(p => {
+      const isUserMatch = p.tasks.some(t => t.assignedTo === userId) || p.managerId === userId
+      if (!isUserMatch) return false
+      if (dateFrom) {
+        const projectDate = new Date(p.createdAt)
+        const from = new Date(dateFrom)
+        from.setHours(0, 0, 0, 0)
+        if (projectDate < from) return false
+      }
+      if (dateTo) {
+        const projectDate = new Date(p.createdAt)
+        const to = new Date(dateTo)
+        to.setHours(23, 59, 59, 999)
+        if (projectDate > to) return false
+      }
+      return true
+    })
+  }
+
+  // Toggle a user ID in the multi-select. Adds if not present, removes if present.
+  const toggleUserId = (userId: string) => {
+    setSelectedUserIds(prev =>
+      prev.includes(userId) ? prev.filter(id => id !== userId) : [...prev, userId]
+    )
+  }
 
   const formatDateTime = (dateString: string) => {
     if (!dateString) return '-'
@@ -269,144 +351,173 @@ export function ReportsView() {
     XLSX.writeFile(wb, `Laporan_Kegiatan_${project.id}.xlsx`)
   }
 
-  // Export all filtered projects to Excel
+  // Core Excel generator — builds a workbook from the given projects and
+  // returns it as a Blob. Does NOT trigger a download directly, so the caller
+  // can decide whether to download once (all users) or loop (per user).
+  const generateExcelBlob = (projectsToExport: typeof projects, filterLabel: string): Blob => {
+    const wb = XLSX.utils.book_new()
+
+    // Summary Sheet
+    const summaryData: (string | number)[][] = [
+      ['REKAP LAPORAN KEGIATAN PUSHAKIN FLOWS'],
+      [''],
+      ['Tanggal Export', new Date().toLocaleString('id-ID')],
+      ['Total Proyek', projectsToExport.length.toString()],
+      ['Filter User', filterLabel],
+      ['Rentang Waktu', getRentangWaktuFilename()],
+      [''],
+      ['DAFTAR PROYEK'],
+      ['No', 'ID Proyek', 'Judul Kegiatan', 'Unit Pemohon', 'Lokasi', 'PIC', 'Waktu Selesai', 'Jumlah Tugas']
+    ]
+
+    projectsToExport.forEach((project, index) => {
+      summaryData.push([
+        (index + 1).toString(),
+        project.id,
+        project.title,
+        project.requesterUnit,
+        project.location || '-',
+        `${project.picName || '-'} (${project.picWhatsApp || '-'})`,
+        formatDateTime(project.createdAt),
+        project.tasks.length.toString()
+      ])
+    })
+
+    const wsSummary = XLSX.utils.aoa_to_sheet(summaryData)
+    wsSummary['!cols'] = [
+      { wch: 5 },
+      { wch: 20 },
+      { wch: 40 },
+      { wch: 25 },
+      { wch: 20 },
+      { wch: 30 },
+      { wch: 25 },
+      { wch: 12 }
+    ]
+    XLSX.utils.book_append_sheet(wb, wsSummary, 'Rekap')
+
+    // Detail Sheet for each project
+    projectsToExport.forEach((project, projectIndex) => {
+      const detailData: (string | number)[][] = [
+        [`PROYEK ${projectIndex + 1}: ${project.title}`],
+        [''],
+        ['ID Proyek', project.id],
+        ['Judul Kegiatan', project.title],
+        ['Unit Pemohon', project.requesterUnit],
+        ['Lokasi', project.location || '-'],
+        ['Waktu Pelaksanaan', formatDateTime(project.executionTime || project.createdAt)],
+        ['PIC', `${project.picName || '-'} (${project.picWhatsApp || '-'})`],
+        ['Deskripsi', project.description],
+        [''],
+        ['RINCIAN TUGAS DAN HASIL PRODUKSI'],
+        ['Tahap', 'Peran', 'Petugas', 'Status', 'Platform', 'Tautan Hasil Produksi']
+      ]
+
+      // Add Manager row (Tahap 0: Pra-produksi) — selalu tampilkan
+      const mgrEntryAll = getManagerEntry(project)
+      if (mgrEntryAll) {
+        if (mgrEntryAll.docs.length > 0) {
+          mgrEntryAll.docs.forEach((doc, idx) => {
+            detailData.push([
+              idx === 0 ? 'Tahap 0 (Pra-produksi)' : '',
+              idx === 0 ? mgrEntryAll.manager.role : '',
+              idx === 0 ? mgrEntryAll.manager.name : '',
+              idx === 0 ? 'Selesai' : '',
+              idx === 0 ? 'Surat Permohonan' : doc.name,
+              doc.webViewLink || '-'
+            ])
+          })
+        } else {
+          detailData.push([
+            'Tahap 0 (Pra-produksi)',
+            mgrEntryAll.manager.role,
+            mgrEntryAll.manager.name,
+            'Selesai',
+            'Inisiasi Proyek',
+            '-'
+          ])
+        }
+      }
+
+      project.tasks.forEach(t => {
+        const user = users.find(u => u.id === t.assignedTo)
+        const userName = user ? user.name : 'Tidak ada'
+        const links = getTaskResultLinks(t)
+
+        if (links.length > 0) {
+          links.forEach((link, idx) => {
+            detailData.push([
+              idx === 0 ? `Tahap ${t.stage}` : '',
+              idx === 0 ? t.role : '',
+              idx === 0 ? userName : '',
+              idx === 0 ? (t.status === 'completed' ? 'Selesai' : 'Belum') : '',
+              link.label,
+              link.url
+            ])
+          })
+        } else {
+          const notes = getFallbackNotes(t.data?.notes)
+          detailData.push([
+            `Tahap ${t.stage}`,
+            t.role,
+            userName,
+            t.status === 'completed' ? 'Selesai' : 'Belum',
+            '-',
+            notes
+          ])
+        }
+      })
+
+      // Sheet name must be <= 31 chars
+      const sheetName = `Proyek ${projectIndex + 1}`.substring(0, 31)
+      const wsDetail = XLSX.utils.aoa_to_sheet(detailData)
+      wsDetail['!cols'] = [
+        { wch: 12 },
+        { wch: 22 },
+        { wch: 20 },
+        { wch: 10 },
+        { wch: 20 },
+        { wch: 60 }
+      ]
+      XLSX.utils.book_append_sheet(wb, wsDetail, sheetName)
+    })
+
+    // Serialize workbook to Blob
+    const wbout = XLSX.write(wb, { bookType: 'xlsx', type: 'array' })
+    return new Blob([wbout], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' })
+  }
+
+  // Export filtered projects to Excel.
+  // - If no specific users are selected (Semua User): one file containing all
+  //   filtered projects.
+  // - If one or more users are selected: one file PER user, each containing
+  //   only that user's projects. Downloads are staggered (~400ms apart) to
+  //   avoid browser popup-blocker interference.
   const handleExportAllToExcel = async () => {
     setIsExportingExcel(true)
-    
+
     try {
-      const wb = XLSX.utils.book_new()
-      
-      // Summary Sheet
-      const summaryData = [
-        ['REKAP LAPORAN KEGIATAN PUSHAKIN FLOWS'],
-        [''],
-        ['Tanggal Export', new Date().toLocaleString('id-ID')],
-        ['Total Proyek', filteredProjects.length.toString()],
-        selectedUserId !== 'all' ? ['Filter User', users.find(u => u.id === selectedUserId)?.name || 'Semua'] : ['Filter User', 'Semua User'],
-        [''],
-        ['DAFTAR PROYEK'],
-        ['No', 'ID Proyek', 'Judul Kegiatan', 'Unit Pemohon', 'Lokasi', 'PIC', 'Waktu Selesai', 'Jumlah Tugas']
-      ]
-      
-      filteredProjects.forEach((project, index) => {
-        summaryData.push([
-          (index + 1).toString(),
-          project.id,
-          project.title,
-          project.requesterUnit,
-          project.location || '-',
-          `${project.picName || '-'} (${project.picWhatsApp || '-'})`,
-          formatDateTime(project.createdAt),
-          project.tasks.length.toString()
-        ])
-      })
-      
-      const wsSummary = XLSX.utils.aoa_to_sheet(summaryData)
-      wsSummary['!cols'] = [
-        { wch: 5 },
-        { wch: 20 },
-        { wch: 40 },
-        { wch: 25 },
-        { wch: 20 },
-        { wch: 30 },
-        { wch: 25 },
-        { wch: 12 }
-      ]
-      XLSX.utils.book_append_sheet(wb, wsSummary, 'Rekap')
-      
-      // Detail Sheet for each project
-      filteredProjects.forEach((project, projectIndex) => {
-        const detailData = [
-          [`PROYEK ${projectIndex + 1}: ${project.title}`],
-          [''],
-          ['ID Proyek', project.id],
-          ['Judul Kegiatan', project.title],
-          ['Unit Pemohon', project.requesterUnit],
-          ['Lokasi', project.location || '-'],
-          ['Waktu Pelaksanaan', formatDateTime(project.executionTime || project.createdAt)],
-          ['PIC', `${project.picName || '-'} (${project.picWhatsApp || '-'})`],
-          ['Deskripsi', project.description],
-          [''],
-          ['RINCIAN TUGAS DAN HASIL PRODUKSI'],
-          ['Tahap', 'Peran', 'Petugas', 'Status', 'Platform', 'Tautan Hasil Produksi']
-        ]
-        
-        // Add Manager row (Tahap 0: Pra-produksi) — selalu tampilkan
-        const mgrEntryAll = getManagerEntry(project)
-        if (mgrEntryAll) {
-          if (mgrEntryAll.docs.length > 0) {
-            mgrEntryAll.docs.forEach((doc, idx) => {
-              detailData.push([
-                idx === 0 ? 'Tahap 0 (Pra-produksi)' : '',
-                idx === 0 ? mgrEntryAll.manager.role : '',
-                idx === 0 ? mgrEntryAll.manager.name : '',
-                idx === 0 ? 'Selesai' : '',
-                idx === 0 ? 'Surat Permohonan' : doc.name,
-                doc.webViewLink || '-'
-              ])
-            })
-          } else {
-            detailData.push([
-              'Tahap 0 (Pra-produksi)',
-              mgrEntryAll.manager.role,
-              mgrEntryAll.manager.name,
-              'Selesai',
-              'Inisiasi Proyek',
-              '-'
-            ])
+      if (!hasUserFilter) {
+        // Semua User — single file
+        const blob = generateExcelBlob(filteredProjects, 'Semua User')
+        downloadBlob(blob, buildLaporanFilename('Semua User', 'Semua Peran', 'xlsx'))
+      } else {
+        // One file per selected user
+        for (let i = 0; i < selectedUserIds.length; i++) {
+          const userId = selectedUserIds[i]
+          const user = users.find(u => u.id === userId)
+          const userProjects = getProjectsForUser(userId)
+          if (userProjects.length === 0) continue // skip users with no matching projects
+          const userName = user?.name || 'User'
+          const userRole = getRoleDisplayName(user?.role || '')
+          const blob = generateExcelBlob(userProjects, userName)
+          downloadBlob(blob, buildLaporanFilename(userName, userRole, 'xlsx'))
+          // Stagger downloads so the browser doesn't block subsequent downloads
+          if (i < selectedUserIds.length - 1) {
+            await new Promise(r => setTimeout(r, 400))
           }
         }
-
-        project.tasks.forEach(t => {
-          const user = users.find(u => u.id === t.assignedTo)
-          const userName = user ? user.name : 'Tidak ada'
-          const links = getTaskResultLinks(t)
-          
-          if (links.length > 0) {
-            links.forEach((link, idx) => {
-              detailData.push([
-                idx === 0 ? `Tahap ${t.stage}` : '',
-                idx === 0 ? t.role : '',
-                idx === 0 ? userName : '',
-                idx === 0 ? (t.status === 'completed' ? 'Selesai' : 'Belum') : '',
-                link.label,
-                link.url
-              ])
-            })
-          } else {
-            const notes = getFallbackNotes(t.data?.notes)
-            detailData.push([
-              `Tahap ${t.stage}`,
-              t.role,
-              userName,
-              t.status === 'completed' ? 'Selesai' : 'Belum',
-              '-',
-              notes
-            ])
-          }
-        })
-        
-        // Sheet name must be <= 31 chars
-        const sheetName = `Proyek ${projectIndex + 1}`.substring(0, 31)
-        const wsDetail = XLSX.utils.aoa_to_sheet(detailData)
-        wsDetail['!cols'] = [
-          { wch: 12 },
-          { wch: 22 },
-          { wch: 20 },
-          { wch: 10 },
-          { wch: 20 },
-          { wch: 60 }
-        ]
-        XLSX.utils.book_append_sheet(wb, wsDetail, sheetName)
-      })
-      
-      // Generate filename with date
-      const dateStr = new Date().toISOString().split('T')[0]
-      const fileName = selectedUserId === 'all' 
-        ? `Rekap_Laporan_${dateStr}.xlsx`
-        : `Rekap_Laporan_${users.find(u => u.id === selectedUserId)?.name || 'User'}_${dateStr}.xlsx`
-      
-      XLSX.writeFile(wb, fileName)
+      }
     } catch (error) {
       console.error('Error exporting to Excel:', error)
     } finally {
@@ -414,274 +525,300 @@ export function ReportsView() {
     }
   }
 
-  // Export all filtered projects to PDF
-  const handleExportAllToPDF = async () => {
-    setIsGeneratingPDF(true)
-    
-    try {
-      const pdf = new jsPDF({
-        orientation: 'portrait',
-        unit: 'mm',
-        format: 'a4'
-      })
-      
-      const pageWidth = pdf.internal.pageSize.getWidth()
-      const pageHeight = pdf.internal.pageSize.getHeight()
-      const margin = 15
-      const contentWidth = pageWidth - (margin * 2)
-      let yPosition = margin
-      
-      const checkNewPage = (requiredSpace: number) => {
-        if (yPosition + requiredSpace > pageHeight - margin) {
-          pdf.addPage()
-          yPosition = margin
-        }
+  // Core PDF generator — builds a jsPDF document from the given projects and
+  // returns it as a Blob. Does NOT save the file directly, so the caller can
+  // loop over multiple users and download one PDF per user.
+  const generatePDFBlob = (projectsToExport: typeof projects, filterLabel: string): Blob => {
+    const pdf = new jsPDF({
+      orientation: 'portrait',
+      unit: 'mm',
+      format: 'a4'
+    })
+
+    const pageWidth = pdf.internal.pageSize.getWidth()
+    const pageHeight = pdf.internal.pageSize.getHeight()
+    const margin = 15
+    const contentWidth = pageWidth - (margin * 2)
+    let yPosition = margin
+
+    const checkNewPage = (requiredSpace: number) => {
+      if (yPosition + requiredSpace > pageHeight - margin) {
+        pdf.addPage()
+        yPosition = margin
       }
-      
-      // Title Page
-      pdf.setFontSize(24)
+    }
+
+    // Title Page
+    pdf.setFontSize(24)
+    pdf.setFont('helvetica', 'bold')
+    pdf.text('REKAP LAPORAN KEGIATAN', pageWidth / 2, yPosition, { align: 'center' })
+    yPosition += 15
+
+    pdf.setFontSize(14)
+    pdf.setFont('helvetica', 'normal')
+    pdf.text('Pushakin Flows', pageWidth / 2, yPosition, { align: 'center' })
+    yPosition += 10
+
+    pdf.setFontSize(10)
+    pdf.text(`Tanggal Export: ${new Date().toLocaleString('id-ID')}`, pageWidth / 2, yPosition, { align: 'center' })
+    yPosition += 6
+
+    pdf.text(`Total Proyek: ${projectsToExport.length}`, pageWidth / 2, yPosition, { align: 'center' })
+    yPosition += 6
+
+    // Show filter label (user name or "Semua User")
+    pdf.text(`Filter User: ${filterLabel}`, pageWidth / 2, yPosition, { align: 'center' })
+    yPosition += 6
+
+    pdf.text(`Rentang Waktu: ${getRentangWaktuFilename()}`, pageWidth / 2, yPosition, { align: 'center' })
+    yPosition += 6
+
+    yPosition += 10
+    pdf.setLineWidth(0.5)
+    pdf.line(margin, yPosition, pageWidth - margin, yPosition)
+    yPosition += 15
+
+    // Process each project
+    for (let projIndex = 0; projIndex < projectsToExport.length; projIndex++) {
+      const project = projectsToExport[projIndex]
+
+      // Add new page for each project (except first)
+      if (projIndex > 0) {
+        pdf.addPage()
+        yPosition = margin
+      }
+
+      // Project Header
+      pdf.setFontSize(16)
       pdf.setFont('helvetica', 'bold')
-      pdf.text('REKAP LAPORAN KEGIATAN', pageWidth / 2, yPosition, { align: 'center' })
-      yPosition += 15
-      
-      pdf.setFontSize(14)
+      const titleLines = pdf.splitTextToSize(project.title, contentWidth)
+      titleLines.forEach((line: string, idx: number) => {
+        pdf.text(line, margin, yPosition + (idx * 7))
+      })
+      yPosition += titleLines.length * 7 + 5
+
+      pdf.setFontSize(9)
       pdf.setFont('helvetica', 'normal')
-      pdf.text('Pushakin Flows', pageWidth / 2, yPosition, { align: 'center' })
-      yPosition += 10
-      
-      pdf.setFontSize(10)
-      pdf.text(`Tanggal Export: ${new Date().toLocaleString('id-ID')}`, pageWidth / 2, yPosition, { align: 'center' })
-      yPosition += 6
-      
-      pdf.text(`Total Proyek: ${filteredProjects.length}`, pageWidth / 2, yPosition, { align: 'center' })
-      yPosition += 6
-      
-      if (selectedUserId !== 'all') {
-        const userName = users.find(u => u.id === selectedUserId)?.name || 'Unknown'
-        pdf.text(`Filter User: ${userName}`, pageWidth / 2, yPosition, { align: 'center' })
-        yPosition += 6
-      }
-      
-      yPosition += 10
-      pdf.setLineWidth(0.5)
+      pdf.setTextColor(100, 100, 100)
+      pdf.text(`Ref ID: ${project.id}`, margin, yPosition)
+      pdf.setTextColor(0, 0, 0)
+      yPosition += 8
+
+      // Divider
+      pdf.setLineWidth(0.2)
       pdf.line(margin, yPosition, pageWidth - margin, yPosition)
-      yPosition += 15
-      
-      // Process each project
-      for (let projIndex = 0; projIndex < filteredProjects.length; projIndex++) {
-        const project = filteredProjects[projIndex]
-        
-        // Add new page for each project (except first)
-        if (projIndex > 0) {
-          pdf.addPage()
-          yPosition = margin
-        }
-        
-        // Project Header
-        pdf.setFontSize(16)
+      yPosition += 8
+
+      // Project Info
+      pdf.setFontSize(9)
+      const infoItems = [
+        { label: 'Unit Pemohon', value: project.requesterUnit },
+        { label: 'Lokasi', value: project.location || '-' },
+        { label: 'Waktu Selesai', value: formatDateTime(project.createdAt) },
+        { label: 'PIC', value: `${project.picName || '-'} (${project.picWhatsApp || '-'})` }
+      ]
+
+      for (let i = 0; i < infoItems.length; i += 2) {
+        checkNewPage(12)
+
         pdf.setFont('helvetica', 'bold')
-        const titleLines = pdf.splitTextToSize(project.title, contentWidth)
-        titleLines.forEach((line: string, idx: number) => {
-          pdf.text(line, margin, yPosition + (idx * 7))
-        })
-        yPosition += titleLines.length * 7 + 5
-        
-        pdf.setFontSize(9)
+        pdf.setFontSize(7)
+        pdf.text(infoItems[i].label.toUpperCase(), margin, yPosition)
         pdf.setFont('helvetica', 'normal')
-        pdf.setTextColor(100, 100, 100)
-        pdf.text(`Ref ID: ${project.id}`, margin, yPosition)
-        pdf.setTextColor(0, 0, 0)
-        yPosition += 8
-        
-        // Divider
-        pdf.setLineWidth(0.2)
-        pdf.line(margin, yPosition, pageWidth - margin, yPosition)
-        yPosition += 8
-        
-        // Project Info
         pdf.setFontSize(9)
-        const infoItems = [
-          { label: 'Unit Pemohon', value: project.requesterUnit },
-          { label: 'Lokasi', value: project.location || '-' },
-          { label: 'Waktu Selesai', value: formatDateTime(project.createdAt) },
-          { label: 'PIC', value: `${project.picName || '-'} (${project.picWhatsApp || '-'})` }
-        ]
-        
-        for (let i = 0; i < infoItems.length; i += 2) {
-          checkNewPage(12)
-          
+        pdf.text(infoItems[i].value, margin, yPosition + 4)
+
+        if (infoItems[i + 1]) {
           pdf.setFont('helvetica', 'bold')
           pdf.setFontSize(7)
-          pdf.text(infoItems[i].label.toUpperCase(), margin, yPosition)
+          pdf.text(infoItems[i + 1].label.toUpperCase(), pageWidth / 2, yPosition)
           pdf.setFont('helvetica', 'normal')
           pdf.setFontSize(9)
-          pdf.text(infoItems[i].value, margin, yPosition + 4)
-          
-          if (infoItems[i + 1]) {
-            pdf.setFont('helvetica', 'bold')
-            pdf.setFontSize(7)
-            pdf.text(infoItems[i + 1].label.toUpperCase(), pageWidth / 2, yPosition)
-            pdf.setFont('helvetica', 'normal')
-            pdf.setFontSize(9)
-            pdf.text(infoItems[i + 1].value, pageWidth / 2, yPosition + 4)
-          }
-          
-          yPosition += 10
-        }
-        
-        // Tasks section
-        yPosition += 5
-        checkNewPage(15)
-        pdf.setFont('helvetica', 'bold')
-        pdf.setFontSize(10)
-        pdf.text('RINCIAN TIM & HASIL PRODUKSI', margin, yPosition)
-        yPosition += 8
-        
-        // Manager entry (Tahap 0: Pra-produksi) — selalu tampilkan
-        const mgrEntryAllPdf = getManagerEntry(project)
-        if (mgrEntryAllPdf) {
-          const docLinks = mgrEntryAllPdf.docs.filter(d => d.webViewLink)
-          const mgrBoxH = docLinks.length > 0
-            ? Math.max(25, 18 + (docLinks.length * 7))
-            : 18
-          checkNewPage(mgrBoxH)
-          
-          pdf.setDrawColor(5, 150, 105)
-          pdf.setFillColor(240, 253, 244)
-          pdf.roundedRect(margin, yPosition, contentWidth, mgrBoxH, 2, 2, 'FD')
-          
-          const mgrY = yPosition + 5
-          pdf.setFont('helvetica', 'bold')
-          pdf.setFontSize(8)
-          pdf.text('Tahap 0 (Pra-produksi)', margin + 5, mgrY)
-          
-          pdf.setFontSize(9)
-          pdf.text(mgrEntryAllPdf.manager.role, margin + 42, mgrY)
-          
-          pdf.setTextColor(34, 197, 94)
-          pdf.setFontSize(7)
-          pdf.text('TUNTAS', pageWidth - margin - 15, mgrY)
-          pdf.setTextColor(0, 0, 0)
-          
-          pdf.setFont('helvetica', 'normal')
-          pdf.setFontSize(8)
-          pdf.text(`Inisiasi oleh: ${mgrEntryAllPdf.manager.name}`, margin + 5, mgrY + 5)
-          
-          if (docLinks.length > 0) {
-            pdf.setFontSize(7)
-            pdf.setFont('helvetica', 'bold')
-            pdf.text('Surat Permohonan:', margin + 5, mgrY + 11)
-            pdf.setFont('helvetica', 'normal')
-            docLinks.slice(0, 3).forEach((doc, idx) => {
-              const linkY = mgrY + 16 + (idx * 7)
-              pdf.setFontSize(7)
-              pdf.setTextColor(100, 100, 100)
-              pdf.text(`[${doc.name.substring(0, 25)}]:`, margin + 5, linkY)
-              pdf.setTextColor(0, 0, 0)
-              const urlLines = pdf.splitTextToSize(doc.webViewLink, contentWidth - 55)
-              pdf.setFontSize(7)
-              urlLines.slice(0, 1).forEach((line: string) => {
-                pdf.text(line, margin + 50, linkY)
-              })
-            })
-          }
-          yPosition += mgrBoxH + 3
+          pdf.text(infoItems[i + 1].value, pageWidth / 2, yPosition + 4)
         }
 
-        // Task items
-        project.tasks.forEach((task) => {
-          const user = users.find(u => u.id === task.assignedTo)
-          const userName = user ? user.name : 'Unknown'
-          const links = getTaskResultLinks(task)
-          
-          // Calculate required space based on number of links
-          const requiredSpace = Math.max(30, 20 + (links.length * 8))
-          checkNewPage(requiredSpace)
-          
-          // Task box background
-          const boxHeight = Math.max(25, 18 + (links.length * 8))
-          pdf.setDrawColor(200, 200, 200)
-          pdf.setFillColor(249, 250, 251)
-          pdf.roundedRect(margin, yPosition, contentWidth, boxHeight, 2, 2, 'FD')
-          
-          const taskY = yPosition + 5
-          
-          pdf.setFont('helvetica', 'bold')
-          pdf.setFontSize(8)
-          pdf.text(`Tahap ${task.stage}`, margin + 5, taskY)
-          
-          pdf.setFontSize(9)
-          pdf.text(task.role, margin + 25, taskY)
-          
-          pdf.setTextColor(34, 197, 94)
-          pdf.setFontSize(7)
-          pdf.text('TUNTAS', pageWidth - margin - 15, taskY)
-          pdf.setTextColor(0, 0, 0)
-          
-          pdf.setFont('helvetica', 'normal')
-          pdf.setFontSize(8)
-          pdf.text(`Dikerjakan oleh: ${userName}`, margin + 5, taskY + 5)
-          
-          // Show links
-          if (links.length > 0) {
-            pdf.setFontSize(7)
-            pdf.setFont('helvetica', 'bold')
-            pdf.text('Hasil Produksi:', margin + 5, taskY + 11)
-            pdf.setFont('helvetica', 'normal')
-            
-            links.forEach((link, idx) => {
-              const linkY = taskY + 16 + (idx * 7)
-              pdf.setFontSize(7)
-              pdf.setTextColor(100, 100, 100)
-              // Don't use emoji in PDF - jsPDF doesn't support it
-              pdf.text(`[${link.label}]:`, margin + 5, linkY)
-              pdf.setTextColor(0, 0, 0)
-              
-              const urlLines = pdf.splitTextToSize(link.url, contentWidth - 50)
-              pdf.setFontSize(7)
-              pdf.setTextColor(0, 0, 0)
-              urlLines.slice(0, 1).forEach((line: string) => {
-                pdf.text(line, margin + 45, linkY)
-              })
-            })
-          } else {
-            pdf.setFontSize(7)
-            pdf.setFont('helvetica', 'bold')
-            pdf.text('Catatan:', margin + 5, taskY + 11)
-            pdf.setFont('helvetica', 'normal')
-            const notes = getFallbackNotes(task.data?.notes)
-            pdf.text(notes.substring(0, 80), margin + 5, taskY + 16)
-          }
-          
-          yPosition += boxHeight + 3
-        })
-        
-        // Footer for each project
-        yPosition += 5
-        checkNewPage(10)
-        pdf.setLineWidth(0.1)
-        pdf.line(margin, yPosition, pageWidth - margin, yPosition)
-        yPosition += 5
-        pdf.setFontSize(7)
-        pdf.setTextColor(150, 150, 150)
-        pdf.text(`Proyek ${projIndex + 1} dari ${filteredProjects.length}`, pageWidth / 2, yPosition, { align: 'center' })
-        pdf.setTextColor(0, 0, 0)
+        yPosition += 10
       }
-      
-      // Final footer
-      yPosition = pageHeight - 10
+
+      // Tasks section
+      yPosition += 5
+      checkNewPage(15)
+      pdf.setFont('helvetica', 'bold')
+      pdf.setFontSize(10)
+      pdf.text('RINCIAN TIM & HASIL PRODUKSI', margin, yPosition)
+      yPosition += 8
+
+      // Manager entry (Tahap 0: Pra-produksi) — selalu tampilkan
+      const mgrEntryAllPdf = getManagerEntry(project)
+      if (mgrEntryAllPdf) {
+        const docLinks = mgrEntryAllPdf.docs.filter(d => d.webViewLink)
+        const mgrBoxH = docLinks.length > 0
+          ? Math.max(25, 18 + (docLinks.length * 7))
+          : 18
+        checkNewPage(mgrBoxH)
+
+        pdf.setDrawColor(5, 150, 105)
+        pdf.setFillColor(240, 253, 244)
+        pdf.roundedRect(margin, yPosition, contentWidth, mgrBoxH, 2, 2, 'FD')
+
+        const mgrY = yPosition + 5
+        pdf.setFont('helvetica', 'bold')
+        pdf.setFontSize(8)
+        pdf.text('Tahap 0 (Pra-produksi)', margin + 5, mgrY)
+
+        pdf.setFontSize(9)
+        pdf.text(mgrEntryAllPdf.manager.role, margin + 42, mgrY)
+
+        pdf.setTextColor(34, 197, 94)
+        pdf.setFontSize(7)
+        pdf.text('TUNTAS', pageWidth - margin - 15, mgrY)
+        pdf.setTextColor(0, 0, 0)
+
+        pdf.setFont('helvetica', 'normal')
+        pdf.setFontSize(8)
+        pdf.text(`Inisiasi oleh: ${mgrEntryAllPdf.manager.name}`, margin + 5, mgrY + 5)
+
+        if (docLinks.length > 0) {
+          pdf.setFontSize(7)
+          pdf.setFont('helvetica', 'bold')
+          pdf.text('Surat Permohonan:', margin + 5, mgrY + 11)
+          pdf.setFont('helvetica', 'normal')
+          docLinks.slice(0, 3).forEach((doc, idx) => {
+            const linkY = mgrY + 16 + (idx * 7)
+            pdf.setFontSize(7)
+            pdf.setTextColor(100, 100, 100)
+            pdf.text(`[${doc.name.substring(0, 25)}]:`, margin + 5, linkY)
+            pdf.setTextColor(0, 0, 0)
+            const urlLines = pdf.splitTextToSize(doc.webViewLink, contentWidth - 55)
+            pdf.setFontSize(7)
+            urlLines.slice(0, 1).forEach((line: string) => {
+              pdf.text(line, margin + 50, linkY)
+            })
+          })
+        }
+        yPosition += mgrBoxH + 3
+      }
+
+      // Task items
+      project.tasks.forEach((task) => {
+        const user = users.find(u => u.id === task.assignedTo)
+        const userName = user ? user.name : 'Unknown'
+        const links = getTaskResultLinks(task)
+
+        // Calculate required space based on number of links
+        const requiredSpace = Math.max(30, 20 + (links.length * 8))
+        checkNewPage(requiredSpace)
+
+        // Task box background
+        const boxHeight = Math.max(25, 18 + (links.length * 8))
+        pdf.setDrawColor(200, 200, 200)
+        pdf.setFillColor(249, 250, 251)
+        pdf.roundedRect(margin, yPosition, contentWidth, boxHeight, 2, 2, 'FD')
+
+        const taskY = yPosition + 5
+
+        pdf.setFont('helvetica', 'bold')
+        pdf.setFontSize(8)
+        pdf.text(`Tahap ${task.stage}`, margin + 5, taskY)
+
+        pdf.setFontSize(9)
+        pdf.text(task.role, margin + 25, taskY)
+
+        pdf.setTextColor(34, 197, 94)
+        pdf.setFontSize(7)
+        pdf.text('TUNTAS', pageWidth - margin - 15, taskY)
+        pdf.setTextColor(0, 0, 0)
+
+        pdf.setFont('helvetica', 'normal')
+        pdf.setFontSize(8)
+        pdf.text(`Dikerjakan oleh: ${userName}`, margin + 5, taskY + 5)
+
+        // Show links
+        if (links.length > 0) {
+          pdf.setFontSize(7)
+          pdf.setFont('helvetica', 'bold')
+          pdf.text('Hasil Produksi:', margin + 5, taskY + 11)
+          pdf.setFont('helvetica', 'normal')
+
+          links.forEach((link, idx) => {
+            const linkY = taskY + 16 + (idx * 7)
+            pdf.setFontSize(7)
+            pdf.setTextColor(100, 100, 100)
+            // Don't use emoji in PDF - jsPDF doesn't support it
+            pdf.text(`[${link.label}]:`, margin + 5, linkY)
+            pdf.setTextColor(0, 0, 0)
+
+            const urlLines = pdf.splitTextToSize(link.url, contentWidth - 50)
+            pdf.setFontSize(7)
+            pdf.setTextColor(0, 0, 0)
+            urlLines.slice(0, 1).forEach((line: string) => {
+              pdf.text(line, margin + 45, linkY)
+            })
+          })
+        } else {
+          pdf.setFontSize(7)
+          pdf.setFont('helvetica', 'bold')
+          pdf.text('Catatan:', margin + 5, taskY + 11)
+          pdf.setFont('helvetica', 'normal')
+          const notes = getFallbackNotes(task.data?.notes)
+          pdf.text(notes.substring(0, 80), margin + 5, taskY + 16)
+        }
+
+        yPosition += boxHeight + 3
+      })
+
+      // Footer for each project
+      yPosition += 5
+      checkNewPage(10)
+      pdf.setLineWidth(0.1)
+      pdf.line(margin, yPosition, pageWidth - margin, yPosition)
+      yPosition += 5
       pdf.setFontSize(7)
       pdf.setTextColor(150, 150, 150)
-      pdf.text('Dokumen di-generate oleh Sistem Pushakin Flows', pageWidth / 2, yPosition, { align: 'center' })
-      
-      // Save PDF
-      const dateStr = new Date().toISOString().split('T')[0]
-      const fileName = selectedUserId === 'all' 
-        ? `Rekap_Laporan_${dateStr}.pdf`
-        : `Rekap_Laporan_${users.find(u => u.id === selectedUserId)?.name || 'User'}_${dateStr}.pdf`
-      
-      pdf.save(fileName)
-      
+      pdf.text(`Proyek ${projIndex + 1} dari ${projectsToExport.length}`, pageWidth / 2, yPosition, { align: 'center' })
+      pdf.setTextColor(0, 0, 0)
+    }
+
+    // Final footer
+    yPosition = pageHeight - 10
+    pdf.setFontSize(7)
+    pdf.setTextColor(150, 150, 150)
+    pdf.text('Dokumen di-generate oleh Sistem Pushakin Flows', pageWidth / 2, yPosition, { align: 'center' })
+
+    return pdf.output('blob')
+  }
+
+  // Export filtered projects to PDF.
+  // - If no specific users are selected (Semua User): one PDF containing all
+  //   filtered projects.
+  // - If one or more users are selected: one PDF PER user, each containing
+  //   only that user's projects. Downloads are staggered (~500ms apart) to
+  //   avoid browser popup-blocker interference (PDFs are larger than Excel).
+  const handleExportAllToPDF = async () => {
+    setIsGeneratingPDF(true)
+
+    try {
+      if (!hasUserFilter) {
+        // Semua User — single file
+        const blob = generatePDFBlob(filteredProjects, 'Semua User')
+        downloadBlob(blob, buildLaporanFilename('Semua User', 'Semua Peran', 'pdf'))
+      } else {
+        // One file per selected user
+        for (let i = 0; i < selectedUserIds.length; i++) {
+          const userId = selectedUserIds[i]
+          const user = users.find(u => u.id === userId)
+          const userProjects = getProjectsForUser(userId)
+          if (userProjects.length === 0) continue // skip users with no matching projects
+          const userName = user?.name || 'User'
+          const userRole = getRoleDisplayName(user?.role || '')
+          const blob = generatePDFBlob(userProjects, userName)
+          downloadBlob(blob, buildLaporanFilename(userName, userRole, 'pdf'))
+          // Stagger downloads — PDFs are larger, give the browser a bit more time
+          if (i < selectedUserIds.length - 1) {
+            await new Promise(r => setTimeout(r, 500))
+          }
+        }
+      }
     } catch (error) {
       console.error('Error generating PDF:', error)
     } finally {
@@ -1261,19 +1398,78 @@ export function ReportsView() {
                 <Users className="w-5 h-5 text-stone-500" />
                 <span className="text-sm font-medium text-stone-700">User:</span>
               </div>
-              <Select value={selectedUserId} onValueChange={setSelectedUserId}>
-                <SelectTrigger className="w-56">
-                  <SelectValue placeholder="Pilih user..." />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">Semua User</SelectItem>
-                  {users.map(user => (
-                    <SelectItem key={user.id} value={user.id}>
-                      {user.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <Popover>
+                <PopoverTrigger asChild>
+                  <Button
+                    variant="outline"
+                    className="w-64 justify-between font-normal"
+                    title={selectedUserIds.length === 0
+                      ? 'Semua user'
+                      : selectedUserIds.map(id => users.find(u => u.id === id)?.name).filter(Boolean).join(', ')}
+                  >
+                    <span className="truncate">
+                      {selectedUserIds.length === 0
+                        ? 'Semua User'
+                        : selectedUserIds.length === 1
+                          ? users.find(u => u.id === selectedUserIds[0])?.name || '1 user'
+                          : `${selectedUserIds.length} user dipilih`}
+                    </span>
+                    <ChevronsUpDown className="w-4 h-4 opacity-50 shrink-0" />
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-72 p-0" align="start">
+                  {/* Header: Select All / Reset */}
+                  <div className="flex items-center justify-between gap-2 px-3 py-2 border-b border-stone-100">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-7 text-xs"
+                      onClick={() => setSelectedUserIds(users.map(u => u.id))}
+                      disabled={selectedUserIds.length === users.length}
+                    >
+                      <Check className="w-3 h-3 mr-1" />
+                      Pilih Semua
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-7 text-xs text-stone-500 hover:text-red-500"
+                      onClick={() => setSelectedUserIds([])}
+                      disabled={selectedUserIds.length === 0}
+                    >
+                      <X className="w-3 h-3 mr-1" />
+                      Reset
+                    </Button>
+                  </div>
+                  {/* User list with checkboxes */}
+                  <ScrollArea className="h-72">
+                    <div className="p-1">
+                      {users.map(user => {
+                        const checked = selectedUserIds.includes(user.id)
+                        return (
+                          <label
+                            key={user.id}
+                            className="flex items-center gap-2.5 px-2 py-1.5 hover:bg-stone-50 rounded cursor-pointer select-none"
+                          >
+                            <Checkbox
+                              checked={checked}
+                              onCheckedChange={() => toggleUserId(user.id)}
+                            />
+                            <span className="text-sm text-stone-700 truncate flex-1">{user.name}</span>
+                            <span className="text-[11px] text-stone-400 shrink-0">{getRoleDisplayName(user.role)}</span>
+                          </label>
+                        )
+                      })}
+                    </div>
+                  </ScrollArea>
+                  {/* Footer: count */}
+                  <div className="px-3 py-2 border-t border-stone-100 text-[11px] text-stone-500">
+                    {selectedUserIds.length === 0
+                      ? 'Menampilkan semua user'
+                      : `${selectedUserIds.length} dari ${users.length} user dipilih`}
+                  </div>
+                </PopoverContent>
+              </Popover>
 
               <div className="w-px h-8 bg-stone-200 hidden sm:block" />
 
@@ -1314,13 +1510,26 @@ export function ReportsView() {
             {/* Row 2: Export buttons + filter status */}
             <div className="flex flex-wrap items-center justify-between gap-4">
               <div className="flex flex-wrap items-center gap-3">
-                {(selectedUserId !== 'all' || hasDateFilter) && (
+                {(hasUserFilter || hasDateFilter) && (
                   <div className="flex flex-wrap items-center gap-2">
-                    {selectedUserId !== 'all' && (
-                      <Badge variant="secondary" className="gap-1.5 px-3 py-1 text-xs font-medium">
-                        <Users className="w-3 h-3" />
-                        {users.find(u => u.id === selectedUserId)?.name}
-                      </Badge>
+                    {hasUserFilter && (
+                      <>
+                        {/* Show up to 3 user name badges, then a "+N" overflow badge */}
+                        {selectedUserIds.slice(0, 3).map(uid => {
+                          const u = users.find(x => x.id === uid)
+                          return (
+                            <Badge key={uid} variant="secondary" className="gap-1.5 px-3 py-1 text-xs font-medium">
+                              <Users className="w-3 h-3" />
+                              {u?.name || 'Unknown'}
+                            </Badge>
+                          )
+                        })}
+                        {selectedUserIds.length > 3 && (
+                          <Badge variant="secondary" className="gap-1.5 px-3 py-1 text-xs font-medium">
+                            +{selectedUserIds.length - 3} user
+                          </Badge>
+                        )}
+                      </>
                     )}
                     {dateFrom && (
                       <Badge variant="secondary" className="gap-1.5 px-3 py-1 text-xs font-medium">
@@ -1336,6 +1545,11 @@ export function ReportsView() {
                     )}
                     <span className="text-sm text-stone-500">
                       → <strong>{filteredProjects.length}</strong> proyek ditemukan
+                      {hasUserFilter && selectedUserIds.length > 1 && (
+                        <span className="ml-1 text-stone-400">
+                          (export akan menghasilkan {selectedUserIds.length} file)
+                        </span>
+                      )}
                     </span>
                   </div>
                 )}
@@ -1379,9 +1593,9 @@ export function ReportsView() {
             <FileText className="w-16 h-16 text-stone-300 mx-auto mb-4" />
             <h3 className="text-xl font-semibold text-stone-800">Tidak Ada Laporan</h3>
             <p className="text-stone-500 mt-2">
-              {selectedUserId === 'all' 
-                ? 'Laporan akan muncul otomatis ketika sebuah proyek telah menyelesaikan proses Publikasi.'
-                : 'Tidak ada proyek yang dikerjakan oleh user tersebut.'
+              {hasUserFilter
+                ? 'Tidak ada proyek yang dikerjakan oleh user terpilih pada rentang waktu ini.'
+                : 'Laporan akan muncul otomatis ketika sebuah proyek telah menyelesaikan proses Publikasi.'
               }
             </p>
           </CardContent>
