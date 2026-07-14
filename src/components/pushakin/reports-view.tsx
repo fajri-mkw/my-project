@@ -528,7 +528,17 @@ export function ReportsView() {
   // Core PDF generator — builds a jsPDF document from the given projects and
   // returns it as a Blob. Does NOT save the file directly, so the caller can
   // loop over multiple users and download one PDF per user.
-  const generatePDFBlob = (projectsToExport: typeof projects, filterLabel: string): Blob => {
+  //
+  // highlightUserId: when set, the card (Tahap box) belonging to that user is
+  // rendered with a green highlight (border + fill) so the manager can easily
+  // spot the selected user's section in the recap. When null/undefined
+  // (e.g. "Semua User" export), every card uses the neutral gray style and no
+  // card is highlighted.
+  const generatePDFBlob = (
+    projectsToExport: typeof projects,
+    filterLabel: string,
+    highlightUserId?: string | null
+  ): Blob => {
     const pdf = new jsPDF({
       orientation: 'portrait',
       unit: 'mm',
@@ -540,6 +550,22 @@ export function ReportsView() {
     const margin = 15
     const contentWidth = pageWidth - (margin * 2)
     let yPosition = margin
+
+    // Helper: pick green (highlight) vs gray (neutral) box colors based on
+    // whether the given owner matches the selected highlight user.
+    // When highlightUserId is null/undefined (e.g. "Semua User" export),
+    // every box uses the neutral gray style — no card is highlighted.
+    const applyBoxColor = (isOwner: boolean) => {
+      if (highlightUserId && isOwner) {
+        // Green highlight — marks the selected user's section
+        pdf.setDrawColor(5, 150, 105)
+        pdf.setFillColor(240, 253, 244)
+      } else {
+        // Neutral gray — default card style
+        pdf.setDrawColor(200, 200, 200)
+        pdf.setFillColor(249, 250, 251)
+      }
+    }
 
     const checkNewPage = (requiredSpace: number) => {
       if (yPosition + requiredSpace > pageHeight - margin) {
@@ -657,8 +683,10 @@ export function ReportsView() {
           : 18
         checkNewPage(mgrBoxH)
 
-        pdf.setDrawColor(5, 150, 105)
-        pdf.setFillColor(240, 253, 244)
+        // Highlight the manager's card green only when the selected user IS
+        // this project's manager. Otherwise use the neutral gray style.
+        const isMgrHighlighted = !!highlightUserId && mgrEntryAllPdf.manager.id === highlightUserId
+        applyBoxColor(isMgrHighlighted)
         pdf.roundedRect(margin, yPosition, contentWidth, mgrBoxH, 2, 2, 'FD')
 
         const mgrY = yPosition + 5
@@ -709,10 +737,11 @@ export function ReportsView() {
         const requiredSpace = Math.max(30, 20 + (links.length * 8))
         checkNewPage(requiredSpace)
 
-        // Task box background
+        // Task box background — highlight green only when this task's assignee
+        // is the selected user. Otherwise use the neutral gray style.
         const boxHeight = Math.max(25, 18 + (links.length * 8))
-        pdf.setDrawColor(200, 200, 200)
-        pdf.setFillColor(249, 250, 251)
+        const isTaskHighlighted = !!highlightUserId && task.assignedTo === highlightUserId
+        applyBoxColor(isTaskHighlighted)
         pdf.roundedRect(margin, yPosition, contentWidth, boxHeight, 2, 2, 'FD')
 
         const taskY = yPosition + 5
@@ -799,11 +828,11 @@ export function ReportsView() {
 
     try {
       if (!hasUserFilter) {
-        // Semua User — single file
-        const blob = generatePDFBlob(filteredProjects, 'Semua User')
+        // Semua User — single file, no user-specific highlight
+        const blob = generatePDFBlob(filteredProjects, 'Semua User', null)
         downloadBlob(blob, buildLaporanFilename('Semua User', 'Semua Peran', 'pdf'))
       } else {
-        // One file per selected user
+        // One file per selected user — highlight that user's section in each file
         for (let i = 0; i < selectedUserIds.length; i++) {
           const userId = selectedUserIds[i]
           const user = users.find(u => u.id === userId)
@@ -811,7 +840,7 @@ export function ReportsView() {
           if (userProjects.length === 0) continue // skip users with no matching projects
           const userName = user?.name || 'User'
           const userRole = getRoleDisplayName(user?.role || '')
-          const blob = generatePDFBlob(userProjects, userName)
+          const blob = generatePDFBlob(userProjects, userName, userId)
           downloadBlob(blob, buildLaporanFilename(userName, userRole, 'pdf'))
           // Stagger downloads — PDFs are larger, give the browser a bit more time
           if (i < selectedUserIds.length - 1) {
