@@ -607,6 +607,7 @@ export function CreateProjectView() {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               projectTitle: title,
+              executionTime: waktu,
               folderTypes: selectedFolders,
               assignedUsers: assignedUsersData,
               folderUserAccess: filteredFolderUserAccess,

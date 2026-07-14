@@ -27,6 +27,57 @@ const BULAN_INDONESIA = [
   '09 September', '10 Oktober', '11 November', '12 Desember'
 ]
 
+// Indonesian month names (plain, no numeric prefix) — used for building
+// human-readable folder name prefixes like "8 Juli 2026".
+const BULAN_SINGKAT = [
+  'Januari', 'Februari', 'Maret', 'April',
+  'Mei', 'Juni', 'Juli', 'Agustus',
+  'September', 'Oktober', 'November', 'Desember'
+]
+
+/**
+ * Format an executionTime value (datetime-local string like "2026-07-08T14:30"
+ * or an ISO date) into an Indonesian date string like "8 Juli 2026".
+ *
+ * Returns an empty string if the input is empty or cannot be parsed, so the
+ * folder name falls back to just the project title (no broken prefixes).
+ *
+ * Time component is intentionally dropped — the folder name should reflect
+ * the event DATE, not the event time, for easy per-date browsing in Drive.
+ */
+function formatTanggalIndonesia(executionTime?: string): string {
+  if (!executionTime || typeof executionTime !== 'string') return ''
+  // Trim and normalize; reject clearly invalid values
+  const trimmed = executionTime.trim()
+  if (!trimmed) return ''
+  const d = new Date(trimmed)
+  if (isNaN(d.getTime())) return ''
+  const day = d.getDate()
+  const month = BULAN_SINGKAT[d.getMonth()]
+  const year = d.getFullYear()
+  return `${day} ${month} ${year}`
+}
+
+/**
+ * Build the main project folder name.
+ *
+ * Format: "{tanggal pelaksanaan} - {judul proyek}"
+ *   e.g. "8 Juli 2026 - UM Mandiri 2026"
+ *
+ * If executionTime is empty or invalid, falls back to just the project title
+ * (preserving backward compatibility for projects initiated without a date).
+ *
+ * The date prefix makes it easy for managers to locate folders by event date
+ * when retrieving activity evidence from Google Drive.
+ */
+function buildProjectFolderName(projectTitle: string, executionTime?: string): string {
+  const tanggal = formatTanggalIndonesia(executionTime)
+  if (tanggal) {
+    return `${tanggal} - ${projectTitle}`
+  }
+  return projectTitle
+}
+
 // Find or create a category folder inside a parent folder (e.g. PROJECT, SURAT, KEGIATAN)
 async function findOrCreateCategoryFolder(
   drive: ReturnType<typeof google.drive>,
@@ -337,13 +388,14 @@ export async function POST(request: NextRequest) {
   try {
     await ensureDbConnection()
     const body = await request.json()
-    const { projectTitle, folderTypes, assignedUsers, folderUserAccess, workerOutputs, workerCustomOutput } = body as {
+    const { projectTitle, folderTypes, assignedUsers, folderUserAccess, workerOutputs, workerCustomOutput, executionTime } = body as {
       projectTitle: string
       folderTypes: string[]
       assignedUsers?: AssignedUser[] // ALL assigned users with stage info
       folderUserAccess?: Record<string, Record<string, { download: boolean; upload: boolean }>> // DL/UL per folder per user
       workerOutputs?: Record<string, string[]> // userId → list of output types
       workerCustomOutput?: Record<string, string> // userId → custom "Lainnya" text
+      executionTime?: string // datetime-local string, e.g. "2026-07-08T14:30" — used to prefix the folder name
     }
     
     // Get settings
@@ -390,15 +442,19 @@ export async function POST(request: NextRequest) {
       'PROJECT'
     )
     
-    // Create main project folder INSIDE the PROJECT category folder
+    // Create main project folder INSIDE the PROJECT category folder.
+    // Folder name is prefixed with the event date (e.g. "8 Juli 2026 - UM Mandiri 2026")
+    // so managers can easily locate folders per event date when retrieving
+    // activity evidence and other documentation from Google Drive.
+    const folderName = buildProjectFolderName(projectTitle, executionTime)
     const mainFolder = await createFolder(
       drive,
-      projectTitle,
+      folderName,
       projectCategoryFolderId,
       settings.driveSharedDriveId
     )
     
-    console.log(`[DRIVE] Created project folder "${projectTitle}" in PROJECT/${BULAN_INDONESIA[now.getMonth()]} ${now.getFullYear()}`)
+    console.log(`[DRIVE] Created project folder "${folderName}" in PROJECT/${BULAN_INDONESIA[now.getMonth()]} ${now.getFullYear()}`)
     
     // Share main folder with anyone who has the link (no Google account required)
     console.log('[DRIVE] Sharing folder with link (anyone with link can edit)...')
