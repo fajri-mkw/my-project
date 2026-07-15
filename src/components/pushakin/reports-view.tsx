@@ -21,7 +21,6 @@ import {
   Globe,
   CalendarDays,
   X,
-  Check,
   ChevronsUpDown,
 } from 'lucide-react'
 import { useState, useRef } from 'react'
@@ -157,13 +156,15 @@ export function ReportsView() {
   }
 
   // Build the final export filename.
-  // Format: "Laporan Kegiatan_{rentang waktu}_{nama user}_{peran}.{ext}"
-  // Example: "Laporan Kegiatan_01 Juli 2026 sd 15 Juli 2026_Baiti Rahmi_Manager.pdf"
+  // Format: "{nama user}_{peran}_Laporan Kegiatan_{rentang waktu}_.{ext}"
+  // The user's name is placed first so each user can easily find their own
+  // file in a shared folder / download list.
+  // Example: "Baiti Rahmi_Manager_Laporan Kegiatan_01 Juli 2026 sd 15 Juli 2026_.pdf"
   const buildLaporanFilename = (userName: string, userRole: string, ext: 'xlsx' | 'pdf'): string => {
     const rentang = sanitizeFilename(getRentangWaktuFilename()) || 'Semua Waktu'
     const nama = sanitizeFilename(userName) || 'Semua User'
     const peran = sanitizeFilename(userRole) || 'Semua Peran'
-    return `Laporan Kegiatan_${rentang}_${nama}_${peran}.${ext}`
+    return `${nama}_${peran}_Laporan Kegiatan_${rentang}_.${ext}`
   }
 
   // Trigger a browser download of a Blob with the given filename.
@@ -1448,18 +1449,9 @@ export function ReportsView() {
                   </Button>
                 </PopoverTrigger>
                 <PopoverContent className="w-72 p-0" align="start">
-                  {/* Header: Select All / Reset */}
+                  {/* Header: Reset */}
                   <div className="flex items-center justify-between gap-2 px-3 py-2 border-b border-stone-100">
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="h-7 text-xs"
-                      onClick={() => setSelectedUserIds(users.map(u => u.id))}
-                      disabled={selectedUserIds.length === users.length}
-                    >
-                      <Check className="w-3 h-3 mr-1" />
-                      Pilih Semua
-                    </Button>
+                    <span className="text-xs font-semibold text-stone-600">Pilih User</span>
                     <Button
                       variant="ghost"
                       size="sm"
@@ -1474,6 +1466,32 @@ export function ReportsView() {
                   {/* User list with checkboxes */}
                   <ScrollArea className="h-72">
                     <div className="p-1">
+                      {/* Select All checkbox — checked when all users selected,
+                          indeterminate (dash) when some but not all selected. */}
+                      <label
+                        className="flex items-center gap-2.5 px-2 py-2 hover:bg-stone-50 rounded cursor-pointer select-none border-b border-stone-100 mb-1"
+                      >
+                        <Checkbox
+                          checked={
+                            selectedUserIds.length === users.length
+                              ? true
+                              : selectedUserIds.length > 0
+                                ? 'indeterminate'
+                                : false
+                          }
+                          onCheckedChange={() => {
+                            if (selectedUserIds.length === users.length) {
+                              setSelectedUserIds([])
+                            } else {
+                              setSelectedUserIds(users.map(u => u.id))
+                            }
+                          }}
+                        />
+                        <span className="text-sm font-medium text-stone-800 flex-1">Semua User</span>
+                        <span className="text-[11px] text-stone-400 shrink-0">
+                          {selectedUserIds.length}/{users.length}
+                        </span>
+                      </label>
                       {users.map(user => {
                         const checked = selectedUserIds.includes(user.id)
                         return (
