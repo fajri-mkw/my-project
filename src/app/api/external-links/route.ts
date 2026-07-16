@@ -1,5 +1,6 @@
 import { db, ensureDbConnection } from '@/lib/db'
 import { NextRequest, NextResponse } from 'next/server'
+import { getCloudflareContext } from '@opennextjs/cloudflare'
 
 // ============================================================================
 // Public interface for an external link (returned to clients)
@@ -95,11 +96,23 @@ async function writeCache(key: string, response: Response, ttl: number): Promise
       statusText: clone.statusText,
       headers,
     })
-    // @ts-ignore - ctx is available in Workers runtime
-    if (typeof ctx !== 'undefined' && ctx.waitUntil) {
-      // @ts-ignore
-      ctx.waitUntil(cache.put(key, cached))
-    } else {
+    // Defer cache.put via ctx.waitUntil when on Cloudflare Workers (OpenNext),
+    // otherwise await it inline (local dev). The old code checked
+    // `typeof ctx !== 'undefined'` but ctx is NOT a global on OpenNext —
+    // getCloudflareContext() is the correct accessor.
+    let cachePutDeferred = false
+    try {
+      const cfCtx = getCloudflareContext() as
+        | { ctx?: { waitUntil?: (p: Promise<unknown>) => void } }
+        | undefined
+      if (cfCtx?.ctx?.waitUntil) {
+        cfCtx.ctx.waitUntil(cache.put(key, cached))
+        cachePutDeferred = true
+      }
+    } catch {
+      // No active CF context (local dev) — fall through to await
+    }
+    if (!cachePutDeferred) {
       await cache.put(key, cached)
     }
   } catch {}

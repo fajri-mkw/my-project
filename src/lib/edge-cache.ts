@@ -10,6 +10,12 @@
  *   export const GET = withEdgeCache(async (request) => { ... }, { ttl: 60 })
  */
 
+// OpenNext Cloudflare adapter — exposes getCloudflareContext() which returns
+// the Workers execution context (with ctx.waitUntil) for the current request.
+// The module is safe to import at top level (no side effects); the function
+// only throws when CALLED outside a request context, which we guard against.
+import { getCloudflareContext } from '@opennextjs/cloudflare'
+
 interface CacheOptions {
   /** Cache duration in seconds (default: 60) */
   ttl?: number
@@ -109,12 +115,21 @@ export function withEdgeCache<T extends Request>(
           statusText: responseClone.statusText,
           headers,
         })
-        // Use waitUntil to not block the response
-        // @ts-ignore - ctx is available in Workers
-        if (typeof ctx !== 'undefined' && ctx.waitUntil) {
-          // @ts-ignore
-          ctx.waitUntil(cache.put(cacheKey, cachedResponse))
-        } else {
+        // Use waitUntil to not block the response. Same pattern as
+        // deferToBackground: getCloudflareContext() on OpenNext provides ctx.
+        let cachePutDeferred = false
+        try {
+          const cfCtx = getCloudflareContext() as
+            | { ctx?: { waitUntil?: (p: Promise<unknown>) => void } }
+            | undefined
+          if (cfCtx?.ctx?.waitUntil) {
+            cfCtx.ctx.waitUntil(cache.put(cacheKey, cachedResponse))
+            cachePutDeferred = true
+          }
+        } catch {
+          // No active CF context (local dev) — fall through to await
+        }
+        if (!cachePutDeferred) {
           await cache.put(cacheKey, cachedResponse)
         }
       } catch {}
@@ -149,28 +164,47 @@ export async function invalidateCache(prefix: string): Promise<void> {
  *   - Creating notification DB rows for OTHER users (not the requester)
  *   - Creating surat_tugas rows for next-stage workers
  *
- * On local dev (no `ctx` global), the work runs synchronously inline —
- * preserving correctness at the cost of latency.
+ * On local dev (no Cloudflare context), the work runs inline — preserving
+ * correctness at the cost of latency.
+ *
+ * IMPLEMENTATION NOTE:
+ *   The OpenNext Cloudflare adapter does NOT expose `ctx` as a global.
+ *   Instead, the Cloudflare execution context (with `waitUntil`) is stored
+ *   in an AsyncLocalStorage and must be retrieved via `getCloudflareContext()`
+ *   from `@opennextjs/cloudflare`. The previous implementation checked
+ *   `typeof ctx !== 'undefined'` which was ALWAYS false on Workers — meaning
+ *   all "deferred" work actually ran inline in the main request path, causing
+ *   "Worker threw exception" 500 errors when task completion triggered many
+ *   background DB writes + WA/Email sends.
  *
  * IMPORTANT: Only defer work whose FAILURE does not affect the response.
  * The caller has already wrapped such work in try/catch (so a thrown error
  * won't crash the Worker). Deferring just moves it off the response path.
  */
 export function deferToBackground(promise: Promise<void>): void {
+  // Attach a safety-net rejection handler FIRST so the promise can never
+  // become an unhandled rejection (which would crash the Worker on CF).
+  promise.catch(() => {})
+
+  // Try to register the promise with the Cloudflare execution context so it
+  // runs AFTER the response is sent (via ctx.waitUntil). This is the
+  // production path on Cloudflare Workers with OpenNext.
   try {
-    // @ts-ignore — `ctx` is a global injected by the Cloudflare Workers runtime
-    // (via @opennextjs/cloudflare adapter). It is NOT defined in local dev
-    // or in non-Workers environments.
-    if (typeof ctx !== 'undefined' && ctx?.waitUntil) {
-      // @ts-ignore
-      ctx.waitUntil(promise)
+    const cfCtx = getCloudflareContext() as
+      | { ctx?: { waitUntil?: (p: Promise<unknown>) => void } }
+      | undefined
+    if (cfCtx?.ctx?.waitUntil) {
+      cfCtx.ctx.waitUntil(promise)
       return
     }
   } catch {
-    // ctx access threw — fall through to synchronous execution
+    // getCloudflareContext() throws when there's no active request context
+    // (e.g., local dev, cold-start module init, or non-Workers runtime).
+    // Fall through to inline fire-and-forget.
   }
-  // No ctx (local dev / non-Workers) — fire-and-forget synchronously.
-  // Errors are swallowed to match the waitUntil behavior (which also
-  // silently swallows unhandled rejections unless explicitly caught).
-  promise.catch(() => {})
+
+  // No Cloudflare context (local dev / non-Workers / no active request) —
+  // the promise is already running fire-and-forget (started by the IIFE in
+  // the caller). The safety-net .catch() above ensures no unhandled rejection.
+  // In local dev this means the work runs inline, which is fine for dev.
 }
