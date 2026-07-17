@@ -24,8 +24,7 @@ import {
   ChevronsUpDown,
 } from 'lucide-react'
 import { useState, useRef } from 'react'
-import jsPDF from 'jspdf'
-import * as XLSX from 'xlsx'
+import { loadJsPDF, loadXLSX } from '@/lib/export-utils'
 
 // Platform options for displaying publish links
 const PUBLISH_PLATFORMS = [
@@ -260,8 +259,11 @@ export function ReportsView() {
   }
 
   // Export single project to Excel
-  const handleExportProjectToExcel = (project: typeof projects[0]) => {
-    const wb = XLSX.utils.book_new()
+  const handleExportProjectToExcel = async (project: typeof projects[0]) => {
+    setIsExportingExcel(true)
+    try {
+      const XLSX = await loadXLSX()
+      const wb = XLSX.utils.book_new()
     
     // Project Info Sheet
     const projectInfo = [
@@ -348,15 +350,21 @@ export function ReportsView() {
     ]
     
     XLSX.utils.book_append_sheet(wb, ws, 'Laporan Kegiatan')
-    
+
     // Generate and download
     XLSX.writeFile(wb, `Laporan_Kegiatan_${project.id}.xlsx`)
+    } catch (error) {
+      console.error('Error exporting project to Excel:', error)
+    } finally {
+      setIsExportingExcel(false)
+    }
   }
 
   // Core Excel generator — builds a workbook from the given projects and
   // returns it as a Blob. Does NOT trigger a download directly, so the caller
   // can decide whether to download once (all users) or loop (per user).
-  const generateExcelBlob = (projectsToExport: typeof projects, filterLabel: string): Blob => {
+  const generateExcelBlob = async (projectsToExport: typeof projects, filterLabel: string): Promise<Blob> => {
+    const XLSX = await loadXLSX()
     const wb = XLSX.utils.book_new()
 
     // Summary Sheet
@@ -501,7 +509,7 @@ export function ReportsView() {
     try {
       if (!hasUserFilter) {
         // Semua User — single file
-        const blob = generateExcelBlob(filteredProjects, 'Semua User')
+        const blob = await generateExcelBlob(filteredProjects, 'Semua User')
         downloadBlob(blob, buildLaporanFilename('Semua User', 'Semua Peran', 'xlsx'))
       } else {
         // One file per selected user
@@ -512,7 +520,7 @@ export function ReportsView() {
           if (userProjects.length === 0) continue // skip users with no matching projects
           const userName = user?.name || 'User'
           const userRole = getRoleDisplayName(user?.role || '')
-          const blob = generateExcelBlob(userProjects, `${userName} - ${userRole}`)
+          const blob = await generateExcelBlob(userProjects, `${userName} - ${userRole}`)
           downloadBlob(blob, buildLaporanFilename(userName, userRole, 'xlsx'))
           // Stagger downloads so the browser doesn't block subsequent downloads
           if (i < selectedUserIds.length - 1) {
@@ -536,11 +544,12 @@ export function ReportsView() {
   // spot the selected user's section in the recap. When null/undefined
   // (e.g. "Semua User" export), every card uses the neutral gray style and no
   // card is highlighted.
-  const generatePDFBlob = (
+  const generatePDFBlob = async (
     projectsToExport: typeof projects,
     filterLabel: string,
     highlightUserId?: string | null
-  ): Blob => {
+  ): Promise<Blob> => {
+    const { jsPDF } = await loadJsPDF()
     const pdf = new jsPDF({
       orientation: 'portrait',
       unit: 'mm',
@@ -831,7 +840,7 @@ export function ReportsView() {
     try {
       if (!hasUserFilter) {
         // Semua User — single file, no user-specific highlight
-        const blob = generatePDFBlob(filteredProjects, 'Semua User', null)
+        const blob = await generatePDFBlob(filteredProjects, 'Semua User', null)
         downloadBlob(blob, buildLaporanFilename('Semua User', 'Semua Peran', 'pdf'))
       } else {
         // One file per selected user — highlight that user's section in each file
@@ -842,7 +851,7 @@ export function ReportsView() {
           if (userProjects.length === 0) continue // skip users with no matching projects
           const userName = user?.name || 'User'
           const userRole = getRoleDisplayName(user?.role || '')
-          const blob = generatePDFBlob(userProjects, `${userName} - ${userRole}`, userId)
+          const blob = await generatePDFBlob(userProjects, `${userName} - ${userRole}`, userId)
           downloadBlob(blob, buildLaporanFilename(userName, userRole, 'pdf'))
           // Stagger downloads — PDFs are larger, give the browser a bit more time
           if (i < selectedUserIds.length - 1) {
@@ -859,10 +868,11 @@ export function ReportsView() {
 
   const handleGeneratePDF = async () => {
     if (!printRef.current) return
-    
+
     setIsGeneratingPDF(true)
-    
+
     try {
+      const { jsPDF } = await loadJsPDF()
       const pdf = new jsPDF({
         orientation: 'portrait',
         unit: 'mm',
@@ -1174,10 +1184,15 @@ export function ReportsView() {
             <Button
               variant="outline"
               onClick={() => handleExportProjectToExcel(report)}
+              disabled={isExportingExcel}
               className="gap-2 bg-green-50 text-green-700 hover:bg-green-100 border-green-200"
             >
-              <FileSpreadsheet className="w-4 h-4" />
-              <span>Unduh Excel</span>
+              {isExportingExcel ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <FileSpreadsheet className="w-4 h-4" />
+              )}
+              <span>{isExportingExcel ? 'Membuat Excel...' : 'Unduh Excel'}</span>
             </Button>
             <Button
               onClick={handleGeneratePDF}

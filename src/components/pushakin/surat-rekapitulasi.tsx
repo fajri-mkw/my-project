@@ -28,10 +28,9 @@ import {
   Calendar,
   Paperclip,
   ExternalLink,
+  Loader2,
 } from 'lucide-react'
-import * as XLSX from 'xlsx'
-import jsPDF from 'jspdf'
-import autoTable from 'jspdf-autotable'
+import { loadJsPDF, loadXLSX, loadAutoTable } from '@/lib/export-utils'
 
 interface SuratRekapitulasiProps {
   suratList: Surat[]
@@ -47,6 +46,8 @@ export function SuratRekapitulasi({ suratList, users }: SuratRekapitulasiProps) 
   const [filterPeriode, setFilterPeriode] = useState<PeriodeFilter>('all')
   const [tanggalMulai, setTanggalMulai] = useState('')
   const [tanggalAkhir, setTanggalAkhir] = useState('')
+  const [isExportingExcel, setIsExportingExcel] = useState(false)
+  const [isExportingPDF, setIsExportingPDF] = useState(false)
 
   // Summary statistics (based on ALL surat, before filtering)
   const stats = useMemo(() => {
@@ -193,7 +194,10 @@ export function SuratRekapitulasi({ suratList, users }: SuratRekapitulasiProps) 
   }
 
   // ==================== EXPORT EXCEL ====================
-  const exportExcel = () => {
+  const exportExcel = async () => {
+    setIsExportingExcel(true)
+    try {
+    const XLSX = await loadXLSX()
     const periodeDesc = getPeriodeDescription()
     const jenisDesc = getJenisDescription()
 
@@ -283,10 +287,19 @@ export function SuratRekapitulasi({ suratList, users }: SuratRekapitulasiProps) 
 
     const today = new Date().toISOString().slice(0, 10)
     XLSX.writeFile(wb, `Rekapitulasi_Surat_${today}.xlsx`)
+    } catch (error) {
+      console.error('Error exporting to Excel:', error)
+    } finally {
+      setIsExportingExcel(false)
+    }
   }
 
   // ==================== EXPORT PDF ====================
-  const exportPDF = () => {
+  const exportPDF = async () => {
+    setIsExportingPDF(true)
+    try {
+    const [{ jsPDF }, autoTableMod] = await Promise.all([loadJsPDF(), loadAutoTable()])
+    const autoTable = autoTableMod.default
     const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' })
     const pageWidth = doc.internal.pageSize.getWidth()
 
@@ -430,6 +443,11 @@ export function SuratRekapitulasi({ suratList, users }: SuratRekapitulasiProps) 
 
     const today = new Date().toISOString().slice(0, 10)
     doc.save(`Rekapitulasi_Surat_${today}.pdf`)
+    } catch (error) {
+      console.error('Error generating PDF:', error)
+    } finally {
+      setIsExportingPDF(false)
+    }
   }
 
   return (
@@ -614,17 +632,27 @@ export function SuratRekapitulasi({ suratList, users }: SuratRekapitulasiProps) 
       <div className="flex flex-col sm:flex-row gap-3">
         <Button
           onClick={exportExcel}
+          disabled={isExportingExcel}
           className="gap-2 bg-emerald-600 hover:bg-emerald-700 text-white"
         >
-          <FileSpreadsheet className="w-4 h-4" />
-          Export Excel
+          {isExportingExcel ? (
+            <Loader2 className="w-4 h-4 animate-spin" />
+          ) : (
+            <FileSpreadsheet className="w-4 h-4" />
+          )}
+          {isExportingExcel ? 'Membuat Excel...' : 'Export Excel'}
         </Button>
         <Button
           onClick={exportPDF}
+          disabled={isExportingPDF}
           className="gap-2 bg-stone-600 hover:bg-stone-700 text-white"
         >
-          <FileText className="w-4 h-4" />
-          Export PDF
+          {isExportingPDF ? (
+            <Loader2 className="w-4 h-4 animate-spin" />
+          ) : (
+            <FileText className="w-4 h-4" />
+          )}
+          {isExportingPDF ? 'Membuat PDF...' : 'Export PDF'}
         </Button>
         <Badge variant="secondary" className="h-fit px-3 py-1.5 text-xs text-stone-500">
           <Download className="w-3 h-3 mr-1" />
