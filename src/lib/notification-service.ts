@@ -1,5 +1,30 @@
-import { db } from '@/lib/db'
-import { STAGES } from '@/lib/store'
+// ============================================================================
+// IMPORTANT: This module is imported by hot-path API routes
+// (/api/tasks, /api/projects, /api/notification-settings).
+//
+// To keep Cloudflare Worker cold-start CPU low (and avoid "Worker threw
+// exception" 500s), this file MUST NOT import anything that pulls in heavy
+// server-side libraries at module-load time — specifically:
+//   - Do NOT import `db` from '@/lib/db' (loads Prisma + adapter).
+//   - Do NOT import from '@/lib/store' (loads zustand).
+//
+// The previous version had a dead `import { db }` that loaded Prisma on
+// every task-completion request, causing Worker crashes on cold starts.
+// `db` was never actually used in this file — it was left over from an
+// earlier refactor. It has been removed.
+//
+// `STAGES` (previously imported from @/lib/store) is inlined below as a
+// plain constant so we don't drag zustand into the server bundle.
+// ============================================================================
+
+const STAGES: Record<number, string> = {
+  0: 'Perencanaan',
+  1: 'Produksi',
+  2: 'Pasca Produksi',
+  3: 'Review',
+  4: 'Publikasi',
+  5: 'Selesai',
+}
 
 // ---- WhatsApp via Fonnte API ----
 

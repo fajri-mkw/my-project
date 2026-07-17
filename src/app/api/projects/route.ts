@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { checkMaintenanceMode } from '@/lib/maintenance-check'
 import { sendTaskAssignmentNotification } from '@/lib/notification-service'
-import { getRoleDisplayName } from '@/lib/store'
 import { withEdgeCache, invalidateCache } from '@/lib/edge-cache'
 import {
   getLibsql,
@@ -13,6 +12,35 @@ import {
   nowMs,
   type InStatement,
 } from '@/lib/libsql-client'
+
+// ============================================================================
+// ROLE_DISPLAY_NAMES + getRoleDisplayName are inlined here (instead of imported
+// from @/lib/store) because @/lib/store imports zustand + zustand/middleware
+// at module-load time. On Cloudflare Workers, dragging zustand into a server
+// route adds unnecessary module-load CPU. This route is hit on every project
+// list/refetch, so keeping it lean matters.
+// ============================================================================
+const ROLE_DISPLAY_NAMES: Record<string, string> = {
+  'Admin': 'Super Admin',
+  'Administrator': 'Administrator',
+  'Manager': 'Manager',
+  'Reporter': 'Reporter',
+  'ContentCreator': 'Content Creator',
+  'PhotographerVideographerAudio': 'Photographer, Videographer, dan Audio',
+  'EditorVideo': 'Editor (Video)',
+  'EditorWebArticle': 'Editor (Web Article/Author)',
+  'EditorFoto': 'Editor (Foto)',
+  'EditorTemplateSosialMedia': 'Editor (Template Sosial Media)',
+  'GraphicDesigner': 'Graphic Designer',
+  'StreamingOperator': 'Streaming Operator',
+  'PodcastOperator': 'Podcast Operator',
+  'Reviewer': 'Reviewer',
+  'PublisherWeb': 'Publisher Web',
+  'PublisherSocialMedia': 'Publisher Social Media',
+}
+function getRoleDisplayName(role: string): string {
+  return ROLE_DISPLAY_NAMES[role] || role
+}
 
 // ============================================================================
 // GET all projects with relations (tasks + driveFolders)

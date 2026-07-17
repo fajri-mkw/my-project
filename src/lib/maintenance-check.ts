@@ -1,5 +1,21 @@
-import { db } from '@/lib/db'
 import { NextResponse } from 'next/server'
+import { getLibsql, toBool, bind } from '@/lib/libsql-client'
+
+// ============================================================================
+// CRITICAL: This module is imported by ~19 API routes. It MUST NOT import
+// `db` from '@/lib/db' (which loads Prisma + adapter at module-load time).
+//
+// HISTORY: The previous version imported `db` and used Prisma for two queries
+// (settings.findUnique + user.findUnique). On Cloudflare Workers, loading
+// Prisma at module-load time is CPU-intensive and was a leading cause of
+// "Worker threw exception" 500 errors on cold starts — especially on routes
+// like /api/tasks and /api/projects that are hit frequently.
+//
+// FIX: Rewritten to use @libsql/client directly (via getLibsql()). This
+// eliminates Prisma from the module-load path of every route that imports
+// checkMaintenanceMode. The behavior is identical: same caching, same
+// fail-open policy, same admin bypass logic.
+// ============================================================================
 
 // Routes that are always allowed even during maintenance
 const ALLOWED_ROUTES = [
@@ -26,11 +42,34 @@ const adminUserCache = new Map<string, { role: string; expires: number }>()
 const ADMIN_CACHE_TTL = 30000 // 30 seconds cache
 
 /**
+ * Fetch a user's role from the DB via libsql (NO Prisma).
+ * Returns '' if the user is not found or on error.
+ */
+async function fetchUserRole(userId: string): Promise<string> {
+  try {
+    const client = getLibsql()
+    const res = await client.execute({
+      sql: `SELECT role FROM users WHERE id = ? LIMIT 1`,
+      args: [bind(userId)],
+    })
+    if (res.rows.length === 0) return ''
+    return String((res.rows[0] as Record<string, unknown>).role ?? '')
+  } catch {
+    // Fail-open: if we can't check, treat as non-admin
+    return ''
+  }
+}
+
+/**
  * Check if maintenance mode is active.
  * Uses in-memory caching to avoid hitting the database on every API request.
  * Returns null if access is allowed, or a NextResponse blocking the request if maintenance is on.
- * 
+ *
  * Admin users are always allowed through (identified via X-User-Role header or X-User-Id header).
+ *
+ * IMPLEMENTATION: Uses libsql directly (not Prisma) to avoid loading the Prisma
+ * engine on every route that imports this module. This is critical for staying
+ * within Cloudflare Workers' CPU limit on cold starts.
  */
 export async function checkMaintenanceMode(request: Request): Promise<NextResponse | null> {
   const url = new URL(request.url)
@@ -52,12 +91,20 @@ export async function checkMaintenanceMode(request: Request): Promise<NextRespon
 
     // Check cached maintenance status first
     if (cachedMaintenanceMode === null || (now - lastMaintenanceCheck) > MAINTENANCE_CACHE_TTL) {
-      const settings = await db.settings.findUnique({
-        where: { id: 'main' },
-        select: { maintenanceMode: true, maintenanceMessage: true }
+      // libsql direct query (NO Prisma) — keeps the module-load path Prisma-free
+      const client = getLibsql()
+      const res = await client.execute({
+        sql: `SELECT maintenanceMode, maintenanceMessage FROM settings WHERE id = 'main' LIMIT 1`,
+        args: [],
       })
-      cachedMaintenanceMode = settings?.maintenanceMode ?? false
-      cachedMaintenanceMessage = settings?.maintenanceMessage ?? null
+      if (res.rows.length > 0) {
+        const row = res.rows[0] as Record<string, unknown>
+        cachedMaintenanceMode = toBool(row.maintenanceMode)
+        cachedMaintenanceMessage = (row.maintenanceMessage as string | null) ?? null
+      } else {
+        cachedMaintenanceMode = false
+        cachedMaintenanceMessage = null
+      }
       lastMaintenanceCheck = now
     }
 
@@ -73,12 +120,9 @@ export async function checkMaintenanceMode(request: Request): Promise<NextRespon
       if (cachedAdmin && now < cachedAdmin.expires) {
         if (cachedAdmin.role === 'Admin') return null
       } else {
-        const user = await db.user.findUnique({
-          where: { id: headerUserId },
-          select: { role: true }
-        })
-        adminUserCache.set(headerUserId, { role: user?.role ?? '', expires: now + ADMIN_CACHE_TTL })
-        if (user?.role === 'Admin') return null
+        const role = await fetchUserRole(headerUserId)
+        adminUserCache.set(headerUserId, { role, expires: now + ADMIN_CACHE_TTL })
+        if (role === 'Admin') return null
       }
     }
 
@@ -89,12 +133,9 @@ export async function checkMaintenanceMode(request: Request): Promise<NextRespon
       if (cachedAdmin && now < cachedAdmin.expires) {
         if (cachedAdmin.role === 'Admin') return null
       } else {
-        const user = await db.user.findUnique({
-          where: { id: paramUserId },
-          select: { role: true }
-        })
-        adminUserCache.set(paramUserId, { role: user?.role ?? '', expires: now + ADMIN_CACHE_TTL })
-        if (user?.role === 'Admin') return null
+        const role = await fetchUserRole(paramUserId)
+        adminUserCache.set(paramUserId, { role, expires: now + ADMIN_CACHE_TTL })
+        if (role === 'Admin') return null
       }
     }
 
