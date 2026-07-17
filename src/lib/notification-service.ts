@@ -1,4 +1,3 @@
-import nodemailer from 'nodemailer'
 import { db } from '@/lib/db'
 import { STAGES } from '@/lib/store'
 
@@ -27,6 +26,17 @@ export async function sendWhatsApp(phone: string, message: string, token: string
 }
 
 // ---- Email via Nodemailer SMTP ----
+//
+// IMPORTANT: nodemailer is dynamically imported (not top-level imported)
+// because it depends on Node.js built-in modules (net, tls, fs) that may
+// not be fully available on Cloudflare Workers even with nodejs_compat.
+// A top-level import would cause the ENTIRE module (and every route that
+// imports from it, including /api/tasks) to fail at module-load time —
+// producing Cloudflare's "Worker threw exception" before any try/catch
+// can run. By deferring the import to when sendEmail() is actually
+// called, we isolate any nodemailer failure to the email-sending path
+// only, and the try/catch inside sendEmail converts it to a benign
+// `return false` instead of a crash.
 
 export async function sendEmail(
   to: string,
@@ -35,6 +45,9 @@ export async function sendEmail(
   config: { host: string; port: number; user: string; pass: string; fromName: string }
 ): Promise<boolean> {
   try {
+    // Dynamic import — only loads nodemailer when email is actually sent
+    const { default: nodemailer } = await import('nodemailer')
+
     const transporter = nodemailer.createTransport({
       host: config.host,
       port: config.port,
