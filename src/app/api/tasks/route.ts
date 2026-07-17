@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { checkMaintenanceMode } from '@/lib/maintenance-check'
 import { sendStageAdvanceNotification, sendReviewRejectionNotification } from '@/lib/notification-service'
 import { invalidateCache, deferToBackground } from '@/lib/edge-cache'
 import {
@@ -33,6 +32,17 @@ import {
 //      (ctx.waitUntil). The frontend already adds them optimistically.
 //   4. Main path is now ~5 DB queries instead of 20+.
 //   5. All JSON.parse calls are wrapped to prevent crashes on bad data.
+//
+// ADDITIONAL FIX (Worker threw exception):
+//   The original rewrite still called checkMaintenanceMode() which uses
+//   Prisma — adding CPU overhead AND running OUTSIDE the try/catch. If
+//   the Prisma query or the libsql client init threw, the exception was
+//   completely unhandled, producing Cloudflare's "Worker threw exception"
+//   HTML error page (not a JSON response the frontend could parse).
+//
+//   Now: (a) maintenance mode is checked via libsql directly (no Prisma),
+//   (b) EVERYTHING including client init is inside the try/catch, and
+//   (c) step-by-step console logging helps identify any future crash point.
 // ============================================================================
 
 const STAGE_NAMES: Record<number, string> = {
@@ -58,13 +68,67 @@ function mapTaskRow(r: Record<string, unknown>) {
   }
 }
 
-export async function PUT(request: NextRequest) {
-  const maintenanceBlock = await checkMaintenanceMode(request)
-  if (maintenanceBlock) return maintenanceBlock
+// ---------------------------------------------------------------------------
+// Lightweight maintenance-mode check using libsql directly (NO Prisma).
+//
+// WHY: The original checkMaintenanceMode() in @/lib/maintenance-check uses
+// Prisma (db.settings.findUnique). On Cloudflare Workers, Prisma adds
+// significant CPU overhead per query. This route already uses libsql
+// directly for all other queries — using Prisma just for the maintenance
+// check negates much of the optimization. Worse, if the Prisma engine
+// throws (e.g., on a cold start or adapter issue), the error runs OUTSIDE
+// the route's try/catch and produces "Worker threw exception".
+//
+// This helper does the same check with a single libsql query and never
+// throws — on any error it allows the request through (fail-open).
+// ---------------------------------------------------------------------------
+let _maintenanceCached: boolean = false
+let _maintenanceCachedAt = 0
+const _MAINTENANCE_TTL = 5000 // 5s cache, same as the Prisma version
 
-  const client = getLibsql()
+async function isMaintenanceMode(request: NextRequest): Promise<boolean> {
+  // Admin role bypasses maintenance
+  const role = request.headers.get('X-User-Role')
+  if (role === 'Admin') return false
+
+  const now = Date.now()
+  if (now - _maintenanceCachedAt < _MAINTENANCE_TTL) {
+    return _maintenanceCached
+  }
 
   try {
+    const client = getLibsql()
+    const res = await client.execute({
+      sql: `SELECT maintenanceMode FROM settings WHERE id = 'main' LIMIT 1`,
+      args: [],
+    })
+    _maintenanceCached = res.rows.length > 0 ? toBool((res.rows[0] as Record<string, unknown>).maintenanceMode) : false
+    _maintenanceCachedAt = now
+  } catch {
+    // Fail-open: if we can't check, allow the request
+    _maintenanceCached = false
+    _maintenanceCachedAt = now
+  }
+  return _maintenanceCached
+}
+
+export async function PUT(request: NextRequest) {
+  // Unique ID for correlating log lines for this single request
+  const reqId = Date.now().toString(36) + Math.random().toString(36).slice(2, 6)
+
+  try {
+    // Step 1: Maintenance check (libsql, no Prisma, never throws)
+    const inMaintenance = await isMaintenanceMode(request)
+    if (inMaintenance) {
+      return NextResponse.json(
+        { error: 'MODE_MAINTENANCE', message: 'Sistem sedang dalam maintenance. Silakan coba beberapa saat lagi.' },
+        { status: 503 }
+      )
+    }
+
+    // Step 2: Get DB client (inside try/catch — previously was outside)
+    const client = getLibsql()
+
     const body = await request.json()
     const { projectId, taskId, taskData, isReviewReject, rejectReason } = body
 
@@ -169,6 +233,7 @@ export async function PUT(request: NextRequest) {
     const { isRevision, isAdminOverride } = body
     const requestUserRole = request.headers.get('X-User-Role')
     const isSuperAdmin = requestUserRole === 'Admin'
+    console.log(`[TASKS ${reqId}] start task completion: project=${projectId} task=${taskId} role=${requestUserRole} revision=${!!isRevision}`)
 
     // Fetch the task + project in 2 queries (instead of separate findUnique calls)
     const taskRes = await client.execute({
@@ -228,6 +293,7 @@ export async function PUT(request: NextRequest) {
       sql: `UPDATE tasks SET status = 'completed', data = ?, revisionCount = ?, updatedAt = ? WHERE id = ?`,
       args: [JSON.stringify(taskData || {}), revisionCount, nowMs(), bind(taskId)],
     })
+    console.log(`[TASKS ${reqId}] task marked completed, fetching all project tasks`)
 
     // Fetch ALL project tasks (single query, used for all downstream logic)
     const allTasksRes = await client.execute({
@@ -235,6 +301,7 @@ export async function PUT(request: NextRequest) {
       args: [bind(projectId)],
     })
     const projectTasks = allTasksRes.rows.map(r => mapTaskRow(r as Record<string, unknown>))
+    console.log(`[TASKS ${reqId}] got ${projectTasks.length} tasks, currentStage=${projCurrentStage}, isFastProduction=${isFastProduction}`)
 
     let newStage = projCurrentStage
     let stageAdvanced = false
@@ -436,6 +503,7 @@ export async function PUT(request: NextRequest) {
         if (nextStageNum > 4) nextStageNum = 5
         newStage = nextStageNum
         stageAdvanced = true
+        console.log(`[TASKS ${reqId}] stage advancing ${projCurrentStage} → ${newStage}`)
 
         // Update project stage
         await client.execute({
@@ -451,6 +519,7 @@ export async function PUT(request: NextRequest) {
           try {
             const stageName = STAGE_NAMES[newStage] || `Tahap ${newStage}`
             const nextStageUserIds = [...new Set(nextStagePendingTasks.map(t => t.assignedTo))]
+            console.log(`[TASKS ${reqId}] BG: starting deferred work, ${nextStagePendingTasks.length} next-stage tasks, newStage=${newStage}`)
 
             // Create notifications
             for (const nextTask of nextStagePendingTasks) {
@@ -530,7 +599,7 @@ export async function PUT(request: NextRequest) {
               }
             }
           } catch (err) {
-            console.error('[TASKS] Background stage-advance work failed:', err)
+            console.error(`[TASKS ${reqId}] BG: stage-advance work failed:`, err)
           }
         })())
       }
@@ -566,38 +635,52 @@ export async function PUT(request: NextRequest) {
     await invalidateCache('/api/projects')
     await invalidateCache('/api/notifications')
     await invalidateCache('/api/surat-tugas')
+    console.log(`[TASKS ${reqId}] caches invalidated, building response`)
 
-    // Return full project state for store sync
-    return NextResponse.json({
-      success: true,
-      task: {
-        id: String(existingTask.id),
-        status: 'completed',
-        data: taskData || {},
-        revisionCount,
-      },
-      newStage,
-      stageAdvanced,
-      nextStageTasks: stageAdvanced ? nextStagePendingTasks.map(t => ({
-        assignedTo: t.assignedTo,
-        role: t.role,
-        stage: t.stage,
-      })) : [],
-      projectState: {
-        currentStage: newStage,
-        tasks: projectTasks.map(t => ({
-          id: t.id,
+    // Return full project state for store sync.
+    // Wrap in try/catch — if JSON serialization fails (e.g., due to an
+    // unexpected BigInt or circular reference in task data), we still
+    // return a valid JSON error instead of "Worker threw exception".
+    try {
+      const responseBody = {
+        success: true,
+        task: {
+          id: String(existingTask.id),
+          status: 'completed',
+          data: taskData || {},
+          revisionCount,
+        },
+        newStage,
+        stageAdvanced,
+        nextStageTasks: stageAdvanced ? nextStagePendingTasks.map(t => ({
+          assignedTo: t.assignedTo,
           role: t.role,
           stage: t.stage,
-          status: t.status,
-          assignedTo: t.assignedTo,
-          data: t.data,
-          revisionCount: t.revisionCount,
-        })),
-      },
-    })
+        })) : [],
+        projectState: {
+          currentStage: newStage,
+          tasks: projectTasks.map(t => ({
+            id: t.id,
+            role: t.role,
+            stage: t.stage,
+            status: t.status,
+            assignedTo: t.assignedTo,
+            data: t.data,
+            revisionCount: t.revisionCount,
+          })),
+        },
+      }
+      console.log(`[TASKS ${reqId}] success, stageAdvanced=${stageAdvanced}, newStage=${newStage}`)
+      return NextResponse.json(responseBody)
+    } catch (serializeErr) {
+      console.error(`[TASKS ${reqId}] response serialization failed:`, serializeErr)
+      return NextResponse.json(
+        { error: 'Gagal membuat response server. Tugas mungkin sudah tersimpan — silakan refresh halaman.' },
+        { status: 500 }
+      )
+    }
   } catch (error) {
-    console.error('[TASKS] Update task error:', error)
+    console.error(`[TASKS ${reqId}] Update task error:`, error)
     const detail = error instanceof Error ? error.message : 'Unknown error'
     return NextResponse.json(
       { error: `Gagal memperbarui tugas di server: ${detail}` },
