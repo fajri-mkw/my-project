@@ -364,29 +364,43 @@ Pushakin Flows — Sistem Manajemen Produksi`
    * upload without hitting "Folder tidak valid".
    */
   const handleRegenerateDriveFolders = () => {
+    const hasNoFolders = project.driveFolders.length === 0
     showConfirm(
-      `Buat ulang folder Google Drive untuk proyek "${project.title}"?\n\n` +
+      (hasNoFolders
+        ? `Buat folder Google Drive untuk proyek "${project.title}"?\n\n`
+        : `Buat ulang folder Google Drive untuk proyek "${project.title}"?\n\n`) +
       `Tindakan ini akan:\n` +
-      `• Membuat folder BARU di Google Drive (struktur sama: PRODUKSI, PASCA PRODUKSI, DESAIN, Additional Asset + subfolder per petugas & output)\n` +
-      `• Mengganti folder lama (mock/placeholder) dengan folder asli yang dapat menerima upload\n\n` +
+      `• Membuat folder BARU di Google Drive (struktur: PRODUKSI, PASCA PRODUKSI, DESAIN, Additional Asset + subfolder per petugas & output)\n` +
+      (hasNoFolders
+        ? `• Folder belum pernah dibuat untuk proyek ini — semua 4 folder standar akan dibuat dan seluruh petugas mendapat akses upload/download\n\n`
+        : `• Mengganti folder lama (mock/placeholder) dengan folder asli yang dapat menerima upload\n\n`) +
       `Pastikan koneksi Google Drive sudah aktif di Pengaturan. Lanjutkan?`,
       async () => {
         setIsRegeneratingDrive(true)
         try {
-          // 1) Reconstruct the folder-creation payload from existing project data
+          // 1) Reconstruct the folder-creation payload from existing project data.
+          //
+          // IMPORTANT: When a project has NO drive folders yet (driveFolders.length
+          // === 0) — e.g. because folder creation failed during initiation or the
+          // project predates the auto-create logic — we cannot reconstruct the
+          // folder config from existing records. In that case we fall back to
+          // creating ALL FOUR standard folder types (raw, revised, desain, lainnya)
+          // and grant every assigned worker both download & upload access. This
+          // makes the "Buat Ulang Folder Drive" button usable for projects that
+          // were created without any folders at all.
           const PARENT_TYPES = ['raw', 'revised', 'desain', 'lainnya']
           const parentFolders = project.driveFolders.filter(
             f => PARENT_TYPES.includes(f.folderId),
           )
-          const folderTypes = parentFolders.map(f => f.folderId)
+          let folderTypes = parentFolders.map(f => f.folderId)
 
-          if (folderTypes.length === 0) {
-            showAlert(
-              'Tidak ada folder induk (PRODUKSI/PASCA/DESAIN/Additional) pada proyek ini. ' +
-              'Tidak dapat membuat ulang folder.',
-            )
-            setIsRegeneratingDrive(false)
-            return
+          // Fallback: no existing parent folders → create all 4 standard types.
+          // This is the fix for the "folder tidak dibuat otomatis" + "button tidak
+          // bisa diklik" bug: previously the handler early-returned with an error
+          // here, leaving the project permanently stuck without folders.
+          const hasNoExistingFolders = folderTypes.length === 0
+          if (hasNoExistingFolders) {
+            folderTypes = [...PARENT_TYPES]
           }
 
           // Build assignedUsers list from tasks (all stages)
@@ -402,26 +416,43 @@ Pushakin Flows — Sistem Manajemen Produksi`
               }
             })
 
-          // Build folderUserAccess from existing parent folders' assignedUsers
+          // Build folderUserAccess from existing parent folders' assignedUsers.
+          // When there are no existing folders (hasNoExistingFolders), default to
+          // granting ALL assigned users both download AND upload access to every
+          // folder type. Without this, no user subfolders would be created and
+          // workers still couldn't upload even after recreation.
           const folderUserAccess: Record<string, Record<string, { download: boolean; upload: boolean }>> = {}
-          for (const pf of parentFolders) {
-            folderUserAccess[pf.folderId] = {}
-            if (pf.assignedUsers && Array.isArray(pf.assignedUsers)) {
-              for (const au of pf.assignedUsers) {
-                folderUserAccess[pf.folderId][au.userId] = {
-                  download: au.download,
-                  upload: au.upload,
+          if (hasNoExistingFolders) {
+            for (const ft of folderTypes) {
+              folderUserAccess[ft] = {}
+              for (const au of assignedUsersData) {
+                folderUserAccess[ft][au.userId] = { download: true, upload: true }
+              }
+            }
+          } else {
+            for (const pf of parentFolders) {
+              folderUserAccess[pf.folderId] = {}
+              if (pf.assignedUsers && Array.isArray(pf.assignedUsers)) {
+                for (const au of pf.assignedUsers) {
+                  folderUserAccess[pf.folderId][au.userId] = {
+                    download: au.download,
+                    upload: au.upload,
+                  }
                 }
               }
             }
           }
 
-          // 2) Call /api/drive POST to create real folders
+          // 2) Call /api/drive POST to create real folders.
+          // Pass executionTime so the drive API can prefix the folder name with
+          // the event date (e.g. "8 Juli 2026 - Title") — matching the format
+          // used during initial project creation.
           const driveResponse = await fetch('/api/drive', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               projectTitle: project.title,
+              executionTime: project.executionTime,
               folderTypes,
               assignedUsers: assignedUsersData,
               folderUserAccess,
@@ -1577,9 +1608,11 @@ Pushakin Flows — Sistem Manajemen Produksi`
                       variant="outline"
                       size="sm"
                       onClick={handleRegenerateDriveFolders}
-                      disabled={isRegeneratingDrive || project.driveFolders.length === 0}
+                      disabled={isRegeneratingDrive}
                       className="gap-2 text-violet-600 border-violet-200 hover:bg-violet-50"
-                      title="Buat ulang folder Google Drive asli (menggantikan folder mock/placeholder yang menyebabkan error upload)"
+                      title={project.driveFolders.length === 0
+                        ? 'Buat folder Google Drive untuk proyek ini (folder belum pernah dibuat)'
+                        : 'Buat ulang folder Google Drive asli (menggantikan folder mock/placeholder yang menyebabkan error upload)'}
                     >
                       {isRegeneratingDrive ? (
                         <Loader2 className="w-3 h-3 animate-spin" />
