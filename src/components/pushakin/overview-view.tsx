@@ -16,8 +16,11 @@ import {
   MapPin,
   Copy,
   Check,
-  MessageCircle
+  MessageCircle,
+  Search,
+  X
 } from 'lucide-react'
+import { Input } from '@/components/ui/input'
 import { useState, useMemo, useCallback } from 'react'
 import { cn } from '@/lib/utils'
 import { formatTanggalIndonesia, sortByRecent } from '@/lib/date-utils'
@@ -60,6 +63,9 @@ export function OverviewView() {
   const [isGenerating, setIsGenerating] = useState(false)
   const [copiedDigest, setCopiedDigest] = useState(false)
   const [copiedProjectId, setCopiedProjectId] = useState<string | null>(null)
+  // Search query for finding projects by name/keyword (manager-friendly filter).
+  // Applied AFTER the time filter, scoped to the "Detail Progress Berjalan" list.
+  const [searchQuery, setSearchQuery] = useState('')
 
   // === Manager-only feature gate ===
   // The "Salin Reminder WA" (Copy WA Reminder) feature is exclusive to
@@ -93,6 +99,46 @@ export function OverviewView() {
     [visibleProjects, timeFilter],
   )
 
+  // === Project search ===
+  // Filters the time-filtered list by user-typed keyword. Matches across
+  // multiple fields so managers can find a project by name, requester,
+  // location, PIC, activity types, or even assigned staff names — covers
+  // the common case where a manager remembers *who* worked on a project
+  // but not its exact title. Case-insensitive, ignores leading/trailing
+  // whitespace. Empty query returns the full list unchanged.
+  const filteredProjects = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase()
+    if (!q) return targetProjects
+
+    return targetProjects.filter(p => {
+      // Build the haystack of searchable text fields
+      const haystackParts: string[] = [
+        p.title,
+        p.description,
+        p.requesterUnit,
+        p.location,
+        p.picName,
+        ...(p.activityTypes || []),
+        ...(p.outputNeeds || []),
+      ]
+
+      // Include assigned staff names (managers often search by who's on it)
+      for (const t of p.tasks || []) {
+        if (t.assignedTo) {
+          const u = users.find(uu => uu.id === t.assignedTo)
+          if (u?.name) haystackParts.push(u.name)
+        }
+        if (t.role) haystackParts.push(t.role)
+      }
+
+      const haystack = haystackParts.filter(Boolean).join(' ').toLowerCase()
+      return haystack.includes(q)
+    })
+  }, [targetProjects, searchQuery, users])
+
+  // Aggregate metrics reflect the broader time filter (not the search box)
+  // so managers always see the overall workload picture for the period,
+  // while the list below drills down to matching projects.
   const totalProjects = targetProjects.length
   const completedCount = targetProjects.filter(p => p.currentStage === 5).length
   const activeCount = totalProjects - completedCount
@@ -335,7 +381,7 @@ export function OverviewView() {
     <div className="max-w-7xl mx-auto space-y-6">
       {/* Header & Filter Controls */}
       <Card>
-        <CardContent className="p-4 sm:p-6 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+        <CardContent className="p-4 sm:p-6 flex flex-col md:flex-row md:flex-wrap justify-between items-start md:items-center gap-4">
           <div className="flex items-center w-full md:w-auto overflow-x-auto pb-2 md:pb-0 gap-2">
             <div className="bg-gradient-to-br from-violet-100 to-purple-100 p-2 rounded-xl text-violet-600 mr-2 shrink-0">
               <Calendar className="w-5 h-5" />
@@ -396,6 +442,34 @@ export function OverviewView() {
               <span className="sm:hidden">Publik</span>
             </Button>
           </div>
+
+          {/* === Project search ===
+              Placed below the time filter chips so managers can quickly
+              locate a specific project by name, requester, location, PIC,
+              activity type, or assigned staff. Wraps to its own line on
+              mobile. The clear button (X) resets the query in one tap. */}
+          <div className="w-full md:basis-full relative mt-1">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
+            <Input
+              type="text"
+              value={searchQuery}
+              onChange={e => setSearchQuery(e.target.value)}
+              placeholder="Cari project: nama, peminjam, lokasi, PIC, petugas, atau jenis aktivitas..."
+              className="pl-9 pr-9 h-10 w-full bg-white border-slate-200 focus-visible:border-violet-400 focus-visible:ring-violet-200"
+              aria-label="Cari project"
+            />
+            {searchQuery && (
+              <button
+                type="button"
+                onClick={() => setSearchQuery('')}
+                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-700 transition-colors p-1 rounded-md hover:bg-slate-100"
+                aria-label="Hapus pencarian"
+                title="Hapus pencarian"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            )}
+          </div>
         </CardContent>
       </Card>
 
@@ -452,9 +526,27 @@ export function OverviewView() {
               <FolderKanban className="w-12 h-12 text-slate-300 mx-auto mb-3" />
               <p>Tidak ada proyek yang sesuai dengan filter waktu terpilih.</p>
             </div>
+          ) : filteredProjects.length === 0 ? (
+            <div className="text-center py-12 text-slate-500 bg-slate-50 rounded-2xl border border-slate-100 border-dashed">
+              <Search className="w-12 h-12 text-slate-300 mx-auto mb-3" />
+              <p className="font-medium text-slate-600">Tidak ada project yang cocok dengan “{searchQuery}”.</p>
+              <p className="text-sm mt-1">Coba kata kunci lain atau
+                <button
+                  type="button"
+                  onClick={() => setSearchQuery('')}
+                  className="ml-1 text-violet-600 hover:text-violet-700 underline font-medium"
+                >hapus pencarian</button>.</p>
+            </div>
           ) : (
             <div className="space-y-4">
-              {targetProjects.map(project => {
+              {/* Result count hint — shows how many projects match the search */}
+              {searchQuery.trim() && (
+                <div className="text-xs text-slate-500 flex items-center gap-1.5">
+                  <Search className="w-3.5 h-3.5" />
+                  Menampilkan <span className="font-semibold text-slate-700">{filteredProjects.length}</span> dari {targetProjects.length} project untuk “<span className="font-semibold text-slate-700">{searchQuery.trim()}</span>”
+                </div>
+              )}
+              {filteredProjects.map(project => {
                 const { percentage, completedTasks, totalTasks, stageProgress, teamByStage } = getTaskProgress(project)
                 const isCompleted = project.currentStage === 5
 
