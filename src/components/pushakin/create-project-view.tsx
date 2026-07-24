@@ -290,7 +290,21 @@ export function CreateProjectView() {
   //   di bagian "Pembagian Tim & Penugasan" dan terhindar dari keliru lupa
   //   memilih petugas. Manager tetap bisa mengganti pilihan secara manual
   //   setelah auto-check — ref mencegah auto-check berulang kali.
+  // - PENTING: Auto-check DILEWATI saat Fast Track aktif. Fast Track hanya
+  //   menggunakan Tahap 4 (Publisher), sehingga auto-check Editor Tahap 2
+  //   akan menampilkan petugas yang tidak relevan di "Penugasan Petugas &
+  //   Kebutuhan Output" dan memicu validasi "Wajib pilih minimal 1 output"
+  //   yang memblokir submit. Ref di-reset saat Fast Track ON agar auto-check
+  //   bisa berjalan normal jika Fast Track dimatikan kembali.
   useEffect(() => {
+    // Fast Track aktif → skip auto-check, reset ref agar bisa auto-check
+    // lagi nanti jika Fast Track dimatikan.
+    if (isFastTrack) {
+      hasAutoCheckedFotoRef.current = false
+      hasAutoCheckedTemplateRef.current = false
+      return
+    }
+
     if (!enableFotoEditor) {
       // Fitur dimatikan → reset ref + bersihkan pilihan.
       hasAutoCheckedFotoRef.current = false
@@ -333,7 +347,69 @@ export function CreateProjectView() {
         })
       }
     }
-  }, [enableFotoEditor, enableTemplateEditor, users]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [enableFotoEditor, enableTemplateEditor, users, isFastTrack]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Fast Track cleanup: Saat Fast Track diaktifkan, hapus semua selectedUsers
+  // untuk role yang BUKAN Tahap 4 (Publisher). Ini mencegah petugas Tahap 2
+  // (yang mungkin sudah ter-auto-check atau dipilih manual sebelum Fast Track
+  // dinyalakan) muncul di "Penugasan Petugas & Kebutuhan Output" dan memicu
+  // validasi "Wajib pilih minimal 1 output" yang memblokir submit.
+  //
+  // Juga cleanup workerOutputs & workerCustomOutput untuk userId yang tidak
+  // lagi terpilih, agar state tidak menyimpan data usang.
+  useEffect(() => {
+    if (!isFastTrack) return
+
+    // Kumpulkan semua userId yang masih valid (hanya Tahap 4)
+    const validUserIds = new Set<string>()
+    Object.entries(selectedUsers).forEach(([role, userIds]) => {
+      if (ROLE_CONFIG[role]?.stage === 4) {
+        userIds.forEach(id => validUserIds.add(id))
+      }
+    })
+
+    // Hapus selectedUsers untuk role non-Tahap-4
+    setSelectedUsers(prev => {
+      const next: Record<string, string[]> = {}
+      let changed = false
+      Object.entries(prev).forEach(([role, userIds]) => {
+        if (ROLE_CONFIG[role]?.stage === 4) {
+          next[role] = userIds
+        } else {
+          changed = true
+        }
+      })
+      return changed ? next : prev
+    })
+
+    // Cleanup workerOutputs untuk userId yang tidak lagi terpilih
+    setWorkerOutputs(prev => {
+      const next: Record<string, string[]> = {}
+      let changed = false
+      Object.entries(prev).forEach(([uid, outputs]) => {
+        if (validUserIds.has(uid)) {
+          next[uid] = outputs
+        } else {
+          changed = true
+        }
+      })
+      return changed ? next : prev
+    })
+
+    // Cleanup workerCustomOutput untuk userId yang tidak lagi terpilih
+    setWorkerCustomOutput(prev => {
+      const next: Record<string, string> = {}
+      let changed = false
+      Object.entries(prev).forEach(([uid, val]) => {
+        if (validUserIds.has(uid)) {
+          next[uid] = val
+        } else {
+          changed = true
+        }
+      })
+      return changed ? next : prev
+    })
+  }, [isFastTrack]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const toggleFolder = (folderId: string) => {
     if (selectedFolders.includes(folderId)) {
@@ -483,9 +559,15 @@ export function CreateProjectView() {
     // === Mandatory output selection per assigned worker ===
     // Every selected worker MUST have at least 1 output chosen from the
     // "Tambah output" dropdown so the personnel know exactly what to produce.
+    // PENTING: Saat Fast Track aktif, hanya worker Tahap 4 (Publisher) yang
+    // divalidasi. Worker Tahap 1-3 seharusnya sudah di-cleanup oleh useEffect
+    // isFastTrack, tetapi defensive filter di sini memastikan validasi tidak
+    // pernah memblokir submit karena worker non-Tahap-4 yang lolos.
     {
       const workersMissingOutput: Array<{ name: string; role: string }> = []
       Object.entries(selectedUsers).forEach(([role, userIds]) => {
+        // Fast Track: skip non-stage-4 workers (they are auto-skipped)
+        if (isFastTrack && ROLE_CONFIG[role]?.stage !== 4) return
         userIds.forEach(uid => {
           const outputs = workerOutputs[uid] || []
           if (outputs.length === 0) {
@@ -542,10 +624,16 @@ export function CreateProjectView() {
         return
       }
 
-      // Create one task per selected user per role
+      // Create one task per selected user per role.
+      // PENTING: Saat Fast Track aktif, HANYA buat task untuk Tahap 4 (Publisher).
+      // Task Tahap 1-3 tidak dibuat sama sekali (bukan hanya auto-completed di API)
+      // karena petugas tersebut tidak akan mengerjakan apa-apa — membuat task hanya
+      // menambah baris DB usang dan bisa memicu bug stage-progression di frontend.
       const tasks: Array<{ role: string; stage: number; assignedTo: string }> = []
       activeRoles.forEach(role => {
         const config = ROLE_CONFIG[role]
+        // Fast Track: skip non-stage-4 roles entirely
+        if (isFastTrack && config?.stage !== 4) return
         const userIds = selectedUsers[role] || []
         userIds.forEach(userId => {
           tasks.push({
@@ -2044,12 +2132,18 @@ export function CreateProjectView() {
             {/* Get all selected workers across all roles */}
             {(() => {
               const selectedWorkers = Object.entries(selectedUsers)
-                .flatMap(([role, userIds]) => 
-                  userIds.map(uid => {
+                .flatMap(([role, userIds]) => {
+                  // Fast Track: only show stage 4 (Publisher) workers.
+                  // Non-stage-4 workers (e.g. auto-checked Tahap 2 editors)
+                  // are filtered out here so they don't appear in the
+                  // "Penugasan Petugas & Kebutuhan Output" section and
+                  // trigger the "Wajib pilih minimal 1 output" validation.
+                  if (isFastTrack && ROLE_CONFIG[role]?.stage !== 4) return []
+                  return userIds.map(uid => {
                     const user = users.find(u => u.id === uid)
                     return user ? { userId: uid, name: user.name, role, avatar: user.avatar } : null
                   })
-                )
+                })
                 .filter(Boolean) as Array<{ userId: string; name: string; role: string; avatar: string }>
 
               if (selectedWorkers.length === 0) {
