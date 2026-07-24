@@ -388,7 +388,7 @@ export async function POST(request: NextRequest) {
   try {
     await ensureDbConnection()
     const body = await request.json()
-    const { projectTitle, folderTypes, assignedUsers, folderUserAccess, workerOutputs, workerCustomOutput, executionTime } = body as {
+    const { projectTitle, folderTypes, assignedUsers, folderUserAccess, workerOutputs, workerCustomOutput, executionTime, customFolderDefs } = body as {
       projectTitle: string
       folderTypes: string[]
       assignedUsers?: AssignedUser[] // ALL assigned users with stage info
@@ -396,6 +396,7 @@ export async function POST(request: NextRequest) {
       workerOutputs?: Record<string, string[]> // userId → list of output types
       workerCustomOutput?: Record<string, string> // userId → custom "Lainnya" text
       executionTime?: string // datetime-local string, e.g. "2026-07-08T14:30" — used to prefix the folder name
+      customFolderDefs?: Array<{ id: string; name: string; desc?: string }> // user-created custom folders (id starts with "custom-")
     }
     
     // Get settings
@@ -462,21 +463,50 @@ export async function POST(request: NextRequest) {
     console.log('[DRIVE] Link sharing result:', linkShared)
     
     // Create subfolders
+    // Standard folder types → predefined names. Custom folders (id starts with
+    // "custom-") → use the user-provided name from customFolderDefs.
+    // Previously, custom folders were SILENTLY SKIPPED because they weren't in
+    // the folderNames lookup — this caused the "folder tidak dibuat otomatis"
+    // bug when managers added custom folders during project initiation.
     const folderNames: Record<string, string> = {
       raw: '1. PRODUKSI (Berkas Mentah)',
       revised: '2. PASCA PRODUKSI (Draft & Editing)',
       desain: '3. DESAIN FOLDER (Aset Visual)',
       lainnya: '4. Additional Asset (Tambahan Foto/Footage)'
     }
-    
+
+    // Build a lookup for custom folder definitions so we can resolve names
+    // for any folderType that starts with "custom-".
+    const customLookup: Record<string, { name: string; desc?: string }> = {}
+    if (customFolderDefs && Array.isArray(customFolderDefs)) {
+      for (const cf of customFolderDefs) {
+        if (cf.id && cf.name) {
+          customLookup[cf.id] = { name: cf.name, desc: cf.desc }
+        }
+      }
+    }
+
     const createdFolders: CreatedFolder[] = []
     const folderIdMap: Record<string, string> = {} // folderType -> Drive folder ID
-    
+
     for (const folderType of folderTypes) {
-      if (folderNames[folderType]) {
+      // Resolve the folder name: standard lookup first, then custom folder defs
+      let folderNameToUse: string | undefined = folderNames[folderType]
+      if (!folderNameToUse && folderType.startsWith('custom-')) {
+        const customDef = customLookup[folderType]
+        if (customDef) {
+          folderNameToUse = customDef.name
+        } else {
+          // Custom folder ID without a matching definition — skip with a warning
+          console.warn(`[DRIVE] Custom folder "${folderType}" has no matching definition in customFolderDefs — skipping`)
+          continue
+        }
+      }
+
+      if (folderNameToUse) {
         const subFolder = await createFolder(
           drive,
-          folderNames[folderType],
+          folderNameToUse,
           mainFolder.id,
           settings.driveSharedDriveId
         )

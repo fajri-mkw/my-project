@@ -93,14 +93,22 @@ export async function PUT(request: NextRequest) {
       updateData.maintenanceMessage = maintenanceMessage || null
     }
 
-    const settings = await db.settings.upsert({
-      where: { id: 'main' },
-      update: updateData,
-      create: {
-        id: 'main',
-        ...updateData
-      }
-    })
+    // Use findUnique + update/create instead of upsert.
+    // The upsert() call was causing 500 errors on Turso/libsql adapter
+    // (the GET route uses the same findUnique+create pattern successfully,
+    //  but upsert consistently failed — likely an adapter quirk with the
+    //  @updatedAt field on the update path). This mirrors the GET pattern.
+    let settings = await db.settings.findUnique({ where: { id: 'main' } })
+    if (!settings) {
+      settings = await db.settings.create({
+        data: { id: 'main', ...updateData }
+      })
+    } else if (Object.keys(updateData).length > 0) {
+      settings = await db.settings.update({
+        where: { id: 'main' },
+        data: updateData
+      })
+    }
 
     // Invalidate maintenance mode cache when settings change
     if (typeof maintenanceMode === 'boolean' || maintenanceMessage !== undefined) {
@@ -120,6 +128,11 @@ export async function PUT(request: NextRequest) {
     })
   } catch (error) {
     console.error('Update settings error:', error)
-    return NextResponse.json({ error: 'Failed to update settings' }, { status: 500 })
+    // Return detailed error info so the frontend can show a useful message
+    const errMsg = error instanceof Error ? error.message : String(error)
+    return NextResponse.json(
+      { error: 'Failed to update settings', details: errMsg },
+      { status: 500 }
+    )
   }
 }

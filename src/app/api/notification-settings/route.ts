@@ -57,11 +57,17 @@ export async function PUT(request: NextRequest) {
     if (body.notifEmailPass !== undefined) updateData.notifEmailPass = body.notifEmailPass || null
     if (body.notifEmailFromName !== undefined) updateData.notifEmailFromName = body.notifEmailFromName || null
 
-    const settings = await db.settings.upsert({
-      where: { id: 'main' },
-      update: updateData,
-      create: { id: 'main', ...updateData }
-    })
+    // Use findUnique + update/create instead of upsert (same fix as settings route —
+    // upsert was causing 500 errors on Turso/libsql adapter).
+    let settings = await db.settings.findUnique({ where: { id: 'main' } })
+    if (!settings) {
+      settings = await db.settings.create({ data: { id: 'main', ...updateData } })
+    } else if (Object.keys(updateData).length > 0) {
+      settings = await db.settings.update({
+        where: { id: 'main' },
+        data: updateData
+      })
+    }
 
     return NextResponse.json({
       success: true,

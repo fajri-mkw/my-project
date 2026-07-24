@@ -612,7 +612,10 @@ export function CreateProjectView() {
               assignedUsers: assignedUsersData,
               folderUserAccess: filteredFolderUserAccess,
               workerOutputs,
-              workerCustomOutput
+              workerCustomOutput,
+              // Pass custom folder definitions so the Drive API can create
+              // them with the user-provided names (instead of silently skipping).
+              customFolderDefs: customFolders.map(cf => ({ id: cf.id, name: cf.name, desc: cf.desc }))
             })
           })
           
@@ -623,8 +626,12 @@ export function CreateProjectView() {
               generatedFolders = driveData.folders.map((f: { folderId: string; name: string; webViewLink: string }) => {
                 const optionInfo = FOLDER_OPTIONS.find(opt => opt.id === f.folderId)
                 const assignedToFolder = (folderRoles[f.folderId] || []).filter((r: string) => activeRoles.includes(r))
+                // Custom folders (id starts with "custom-") are PARENT folders, NOT subfolders.
+                // Without this guard, the dash in "custom-123" would trick isSub into true,
+                // sending custom folders through the subfolder parsing logic (broken data).
+                const isCustom = f.folderId.startsWith('custom-')
                 // Check if this is a subfolder (folderId contains dashes like 'raw-reporter-userId')
-                const isSub = f.folderId.includes('-') && !['raw', 'revised', 'final', 'desain', 'lainnya'].includes(f.folderId)
+                const isSub = !isCustom && f.folderId.includes('-') && !['raw', 'revised', 'final', 'desain', 'lainnya'].includes(f.folderId)
                 
                 if (isSub) {
                   // Check if this is a direct output subfolder for stage 1 workers (pattern: raw-output-userId-idx)
@@ -717,14 +724,15 @@ export function CreateProjectView() {
                   }
                 }
                 
-                // Parent folder
+                // Parent folder (standard OR custom)
+                const customInfo = isCustom ? customFolders.find(cf => cf.id === f.folderId) : null
                 return {
                   folderId: f.folderId,
                   name: f.name,
-                  desc: optionInfo?.desc || '',
-                  color: optionInfo?.color || 'text-stone-600',
-                  bg: optionInfo?.bg || 'bg-stone-100',
-                  border: optionInfo?.border || 'border-stone-200',
+                  desc: isCustom ? (customInfo?.desc || '') : (optionInfo?.desc || ''),
+                  color: isCustom ? 'text-teal-600' : (optionInfo?.color || 'text-stone-600'),
+                  bg: isCustom ? 'bg-teal-50' : (optionInfo?.bg || 'bg-stone-100'),
+                  border: isCustom ? 'border-teal-200' : (optionInfo?.border || 'border-stone-200'),
                   link: f.webViewLink,
                   assignedRoles: assignedToFolder,
                   assignedUsers: Object.entries(folderUserAccess[f.folderId] || {}).map(([userId, access]) => {

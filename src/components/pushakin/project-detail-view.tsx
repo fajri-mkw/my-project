@@ -389,10 +389,18 @@ Pushakin Flows — Sistem Manajemen Produksi`
           // makes the "Buat Ulang Folder Drive" button usable for projects that
           // were created without any folders at all.
           const PARENT_TYPES = ['raw', 'revised', 'desain', 'lainnya']
+          // Include custom folders (id starts with "custom-") as parent folders
+          // so they are recreated too — not just the 4 standard types.
           const parentFolders = project.driveFolders.filter(
-            f => PARENT_TYPES.includes(f.folderId),
+            f => PARENT_TYPES.includes(f.folderId) || f.folderId.startsWith('custom-'),
           )
           let folderTypes = parentFolders.map(f => f.folderId)
+
+          // Build customFolderDefs from existing custom folders so the Drive API
+          // knows the user-provided names to use when recreating them.
+          const customFolderDefs = project.driveFolders
+            .filter(f => f.folderId.startsWith('custom-'))
+            .map(f => ({ id: f.folderId, name: f.name, desc: f.desc }))
 
           // Fallback: no existing parent folders → create all 4 standard types.
           // This is the fix for the "folder tidak dibuat otomatis" + "button tidak
@@ -447,6 +455,8 @@ Pushakin Flows — Sistem Manajemen Produksi`
           // Pass executionTime so the drive API can prefix the folder name with
           // the event date (e.g. "8 Juli 2026 - Title") — matching the format
           // used during initial project creation.
+          // Pass customFolderDefs so custom folders are recreated with their
+          // original user-provided names (not silently skipped).
           const driveResponse = await fetch('/api/drive', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -458,6 +468,7 @@ Pushakin Flows — Sistem Manajemen Produksi`
               folderUserAccess,
               workerOutputs: project.workerOutputs || {},
               workerCustomOutput: project.workerCustomOutput || {},
+              customFolderDefs,
             }),
           })
 
@@ -488,7 +499,11 @@ Pushakin Flows — Sistem Manajemen Produksi`
 
           const newFolders: DriveFolder[] = driveData.folders.map((f: { folderId: string; name: string; webViewLink: string }) => {
             const optionInfo = FOLDER_OPTION_MAP[f.folderId]
-            const isSub = f.folderId.includes('-') && !PARENT_TYPES.includes(f.folderId)
+            // Custom folders (id starts with "custom-") are PARENT folders, NOT subfolders.
+            // Without this guard, the dash in "custom-123" would trick isSub into true,
+            // sending custom folders through the subfolder parsing logic (broken data).
+            const isCustom = f.folderId.startsWith('custom-')
+            const isSub = !isCustom && f.folderId.includes('-') && !PARENT_TYPES.includes(f.folderId)
 
             if (isSub) {
               // Direct output subfolder (pattern: raw-output-userId-idx)
@@ -572,19 +587,22 @@ Pushakin Flows — Sistem Manajemen Produksi`
               }
             }
 
-            // Parent folder
+            // Parent folder (standard OR custom)
             const assignedUsers = Object.entries(folderUserAccess[f.folderId] || {}).map(([userId, access]) => {
               const u = users.find(usr => usr.id === userId)
               return { userId, userName: u?.name || '', download: access.download, upload: access.upload }
             })
+            // For custom folders, use the name/desc from the existing project data
+            // (preserved in customFolderDefs) and apply the teal color scheme.
+            const existingCustom = isCustom ? project.driveFolders.find(df => df.folderId === f.folderId) : null
             return {
               id: `${project.id}-${f.folderId}`,
               folderId: f.folderId,
               name: f.name,
-              desc: optionInfo?.desc || '',
-              color: optionInfo?.color || 'text-stone-600',
-              bg: optionInfo?.bg || 'bg-stone-100',
-              border: optionInfo?.border || 'border-stone-200',
+              desc: isCustom ? (existingCustom?.desc || '') : (optionInfo?.desc || ''),
+              color: isCustom ? 'text-teal-600' : (optionInfo?.color || 'text-stone-600'),
+              bg: isCustom ? 'bg-teal-50' : (optionInfo?.bg || 'bg-stone-100'),
+              border: isCustom ? 'border-teal-200' : (optionInfo?.border || 'border-stone-200'),
               link: f.webViewLink,
               assignedRoles: [],
               assignedUsers,

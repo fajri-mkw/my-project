@@ -63,15 +63,23 @@ export async function PUT(request: Request) {
       updateData.maintenanceMessage = maintenanceMessage || null
     }
 
-    const settings = await db.settings.upsert({
-      where: { id: 'main' },
-      update: updateData,
-      create: {
-        id: 'main',
-        maintenanceMode: updateData.maintenanceMode,
-        maintenanceMessage: updateData.maintenanceMessage ?? null
-      }
-    })
+    // Use findUnique + update/create instead of upsert (same fix as settings route —
+    // upsert was causing 500 errors on Turso/libsql adapter).
+    let settings = await db.settings.findUnique({ where: { id: 'main' } })
+    if (!settings) {
+      settings = await db.settings.create({
+        data: {
+          id: 'main',
+          maintenanceMode: updateData.maintenanceMode,
+          maintenanceMessage: updateData.maintenanceMessage ?? null
+        }
+      })
+    } else {
+      settings = await db.settings.update({
+        where: { id: 'main' },
+        data: updateData
+      })
+    }
 
     return NextResponse.json({
       success: true,
