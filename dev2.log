@@ -1,0 +1,22 @@
+[Fri Jul 24 04:25:26 UTC 2026] Starting dev server...
+$ node scripts/setup-db.js && next dev
+[DB Setup] Detected SQLite database (local development)
+[DB Setup] Schema patched for SQLite
+[DB Setup] Generating Prisma Client...
+[DB Setup] Prisma Client generated successfully
+   ▲ Next.js 15.5.14
+   - Local:        http://localhost:3000
+   - Network:      http://21.0.14.198:3000
+   - Environments: .env
+
+ ✓ Starting...
+ ✓ Ready in 1453ms
+ ○ Compiling / ...
+
+
+Retrying 1/3...
+Request timed out after 3000ms
+
+Retrying 1/3...
+ ✓ Compiled / in 13.7s (1717 modules)
+ GET / 200 in 14372ms
