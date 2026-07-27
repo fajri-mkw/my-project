@@ -317,23 +317,44 @@ export async function chunkedUploadFile(
     throw new Error('Upload selesai tetapi tidak ada file ID yang dikembalikan')
   }
 
-  // ===== STEP 3: Final fallback — get metadata if webViewLink is missing =====
-  if (!uploadedFile.webViewLink) {
-    try {
-      const shareResponse = await fetch('/api/drive/upload-complete', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ fileId: uploadedFile.id }),
-        signal,
-      })
-      if (shareResponse.ok) {
-        const shareData = await shareResponse.json()
-        if (shareData.file) {
-          uploadedFile = { ...uploadedFile, ...shareData.file }
+  // ===== STEP 3: Finalize — share file & fetch metadata via upload-complete =====
+  //
+  // ALWAYS call /api/drive/upload-complete after a successful upload, even
+  // if Google Drive's response already included webViewLink. This is because
+  // the upload-chunk endpoint is now TRULY minimal — it does NOT do any
+  // sharing or metadata fetching (to avoid exceeding the Cloudflare Workers
+  // 10ms CPU limit on cold isolates via RSA-256 JWT signing). The sharing
+  // (shareWithAnyone) MUST happen here, in a separate request, to ensure
+  // the uploaded file is accessible to anyone with the link.
+  if (uploadedFile.id) {
+    onProgress?.(97, 'Menyelesaikan & membagikan file...')
+    // Retry up to 3 times — upload-complete may hit a cold Cloudflare
+    // Workers isolate (JWT signing for access token can exceed the 10ms
+    // CPU limit). A retry usually lands on a warm isolate.
+    for (let attempt = 0; attempt < 3; attempt++) {
+      if (signal?.aborted) break
+      try {
+        const shareResponse = await fetch('/api/drive/upload-complete', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ fileId: uploadedFile.id }),
+          signal,
+        })
+        if (shareResponse.ok) {
+          const shareData = await shareResponse.json()
+          if (shareData.file) {
+            uploadedFile = { ...uploadedFile, ...shareData.file }
+          }
+          break // success
         }
+        // 5xx — retry. 4xx — don't retry (client error).
+        if (shareResponse.status < 500) break
+      } catch (e) {
+        // Network error — retry
       }
-    } catch (e) {
-      console.error('[CHUNKED-UPLOAD] Share fallback failed:', e)
+      if (attempt < 2) {
+        await new Promise((r) => setTimeout(r, 1000 * (attempt + 1)))
+      }
     }
   }
 
