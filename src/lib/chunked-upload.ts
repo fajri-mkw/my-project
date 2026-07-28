@@ -90,9 +90,11 @@ export async function chunkedUploadFile(
 
   // ===== STEP 1: Get resumable upload URL from server =====
   // Retry on 5xx + network errors — Cloudflare Workers free-plan 10ms CPU
-  // limit can cause transient 5xx responses on cold isolates (Prisma WASM
-  // init + JWT signing + subfolder creation can exceed the limit).
-  const MAX_URL_RETRIES = 3
+  // limit can cause transient 5xx responses on cold isolates (JWT signing
+  // + subfolder creation can exceed the limit). Also, cold isolates may
+  // timeout (504) on the first OAuth token fetch. 5 retries gives enough
+  // chances to hit a warm isolate.
+  const MAX_URL_RETRIES = 5
   let uploadUrl: string | null = null
   let autoFileName: string | undefined
   let targetFolderId: string | undefined

@@ -55,9 +55,12 @@ const CHUNK_SIZE = 8 * 1024 * 1024 // 8 MB per chunk
 const MAX_CHUNK_RETRIES = 5
 
 // Maximum retry attempts for the upload-url session creation.
-// Previously this had ZERO retry — a single transient Drive 5xx killed the
-// whole file. Now we retry up to 3 times.
-const MAX_URL_RETRIES = 3
+// On cold Cloudflare Workers isolates, the first request may timeout (504)
+// because the OAuth token fetch + Drive API init takes >20s on a cold
+// connection. The retry usually lands on a warmer isolate (or the same
+// isolate now has cached connections). 5 retries gives enough chances to
+// hit a warm isolate.
+const MAX_URL_RETRIES = 5
 
 // Uploads are sequential (one file at a time). Parallel uploads caused
 // Cloudflare Workers subrequest contention and Google Drive API 429

@@ -128,8 +128,11 @@ async function findOrCreateSubfolder(
   return parentFolderId
 }
 
-// 20 second timeout for Google Drive API calls (init + subfolder creation)
-const DRIVE_API_TIMEOUT_MS = 20_000
+// 25 second timeout for Google Drive API calls (init + subfolder creation).
+// On cold isolates, the TLS handshake + API call can take 5-10s. 25s gives
+// enough headroom while staying under the 30s Cloudflare Workers wall-clock limit.
+// Note: getCachedAccessToken has its own 15s timeout for the OAuth fetch.
+const DRIVE_API_TIMEOUT_MS = 25_000
 
 async function fetchWithTimeout(url: string, init: RequestInit): Promise<Response> {
   const controller = new AbortController()

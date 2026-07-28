@@ -322,15 +322,35 @@ export async function getAccessToken(serviceAccountKey: string): Promise<string>
   // Build the final JWT
   const jwt = `${signInput}.${signatureB64}`
 
-  // Exchange the JWT for an access token
-  const tokenResponse = await fetch('https://oauth2.googleapis.com/token', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: new URLSearchParams({
-      grant_type: 'urn:ietf:params:oauth:grant-type:jwt-bearer',
-      assertion: jwt,
-    }),
-  })
+  // Exchange the JWT for an access token.
+  // Use a 15s timeout — on cold isolates, the TLS handshake to Google's
+  // OAuth server can take 3-5s. 15s gives enough headroom while preventing
+  // the Worker from hanging indefinitely (which would hit the 30s wall-clock
+  // limit and return a Cloudflare error page instead of our JSON error).
+  const OAUTH_TIMEOUT_MS = 15_000
+  const oauthController = new AbortController()
+  const oauthTimeout = setTimeout(() => oauthController.abort(), OAUTH_TIMEOUT_MS)
+  let tokenResponse: Response
+  try {
+    tokenResponse = await fetch('https://oauth2.googleapis.com/token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        grant_type: 'urn:ietf:params:oauth:grant-type:jwt-bearer',
+        assertion: jwt,
+      }),
+      signal: oauthController.signal,
+    })
+  } catch (fetchErr) {
+    const aborted = fetchErr instanceof Error && fetchErr.name === 'AbortError'
+    throw new Error(
+      aborted
+        ? `Timeout autentikasi Google (>${OAUTH_TIMEOUT_MS / 1000}s). Coba lagi.`
+        : 'Gagal terhubung ke server Google OAuth',
+    )
+  } finally {
+    clearTimeout(oauthTimeout)
+  }
 
   if (!tokenResponse.ok) {
     const errText = await tokenResponse.text()
