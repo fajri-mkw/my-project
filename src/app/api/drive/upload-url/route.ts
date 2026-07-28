@@ -128,11 +128,13 @@ async function findOrCreateSubfolder(
   return parentFolderId
 }
 
-// 25 second timeout for Google Drive API calls (init + subfolder creation).
-// On cold isolates, the TLS handshake + API call can take 5-10s. 25s gives
-// enough headroom while staying under the 30s Cloudflare Workers wall-clock limit.
+// 15 second timeout for Google Drive API calls (init + subfolder creation).
+// On cold isolates, the TLS handshake + API call can take 5-10s. We use a
+// shorter timeout (15s) + internal retry (2 attempts) instead of one long
+// timeout. This way, if the first attempt times out on a cold TLS connection,
+// the retry benefits from the now-warm connection and completes quickly.
 // Note: getCachedAccessToken has its own 15s timeout for the OAuth fetch.
-const DRIVE_API_TIMEOUT_MS = 25_000
+const DRIVE_API_TIMEOUT_MS = 15_000
 
 async function fetchWithTimeout(url: string, init: RequestInit): Promise<Response> {
   const controller = new AbortController()
@@ -242,33 +244,63 @@ export async function POST(request: NextRequest) {
       ? buildAutoFileName(fileName, autoNameMeta)
       : fileName
 
-    // Initiate resumable upload session
+    // Initiate resumable upload session.
+    // Retry up to 2 times on transient failures (timeout, 5xx). On a cold
+    // isolate, the first attempt may timeout during TLS handshake to Google
+    // Drive. The retry benefits from the now-warm TLS connection.
     const initUrl = new URL('https://www.googleapis.com/upload/drive/v3/files')
     initUrl.searchParams.set('uploadType', 'resumable')
     initUrl.searchParams.set('fields', 'id,name,webViewLink,webContentLink')
     initUrl.searchParams.set('supportsAllDrives', 'true')
 
-    const response = await fetchWithTimeout(initUrl.toString(), {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${accessToken}`,
-        'Content-Type': 'application/json; charset=UTF-8',
-      },
-      body: JSON.stringify({
-        name: finalFileName,
-        mimeType: mimeType || 'application/octet-stream',
-        parents: [targetFolderId],
-      }),
+    const initBody = JSON.stringify({
+      name: finalFileName,
+      mimeType: mimeType || 'application/octet-stream',
+      parents: [targetFolderId],
     })
+    const initHeaders = {
+      'Authorization': `Bearer ${accessToken}`,
+      'Content-Type': 'application/json; charset=UTF-8',
+    }
+
+    let response: Response | null = null
+    let lastInitError: Error | null = null
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        response = await fetchWithTimeout(initUrl.toString(), {
+          method: 'POST',
+          headers: initHeaders,
+          body: initBody,
+        })
+        // Success or 4xx (client error — don't retry)
+        break
+      } catch (fetchErr) {
+        lastInitError = fetchErr instanceof Error ? fetchErr : new Error(String(fetchErr))
+        const isAbort = lastInitError.name === 'AbortError'
+        console.error(`[UPLOAD-URL] Drive init attempt ${attempt + 1} failed:`, isAbort ? 'TIMEOUT' : lastInitError.message)
+        // Retry only on timeout/abort (cold TLS). Other errors will be caught below.
+        if (!isAbort) break
+      }
+    }
+
+    if (!response) {
+      const aborted = lastInitError?.name === 'AbortError'
+      return NextResponse.json(
+        {
+          error: aborted
+            ? 'Permintaan ke Google Drive timeout. Coba lagi.'
+            : 'Gagal menghubungi Google Drive. Coba lagi.',
+        },
+        { status: aborted ? 504 : 502 },
+      )
+    }
 
     if (!response.ok) {
       const errorText = await response.text()
       console.error('[UPLOAD-URL] Google API error:', response.status, errorText.substring(0, 300))
-      // 5xx from Google = transient, retry-worthy. Frontend will retry.
-      const status = response.status >= 500 ? 502 : 502
       return NextResponse.json(
         { error: `Gagal membuat sesi upload: HTTP ${response.status}` },
-        { status },
+        { status: 502 },
       )
     }
 
