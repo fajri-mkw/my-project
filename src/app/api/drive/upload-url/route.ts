@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getLibsql } from '@/lib/libsql-client'
+import { getCachedSettings } from '@/lib/drive-settings-cache'
 import { getCachedAccessToken } from '@/lib/drive-service'
 
 /**
@@ -175,23 +175,14 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // === Use lightweight libsql client instead of Prisma ===
-    // Prisma's client initialization + query building adds ~3-5ms CPU per call.
-    // On Cloudflare Workers free plan (10ms CPU limit), every millisecond counts.
-    let settings: { driveServiceAccountKey: string | null; driveSharedDriveId: string | null } | null = null
+    // === Use CACHED settings (module-level, 5-min TTL) ===
+    // The /api/drive/warmup endpoint pre-caches settings + access token.
+    // If the frontend called warmup first (which it should), this is a
+    // cache hit — zero DB query, zero CPU cost. Even without warmup,
+    // the cache avoids redundant DB queries across multiple uploads.
+    let settings
     try {
-      const client = getLibsql()
-      const result = await client.execute({
-        sql: `SELECT driveServiceAccountKey, driveSharedDriveId FROM settings WHERE id = 'main' LIMIT 1`,
-        args: [],
-      })
-      if (result.rows.length > 0) {
-        const row = result.rows[0]
-        settings = {
-          driveServiceAccountKey: (row.driveServiceAccountKey as string) || null,
-          driveSharedDriveId: (row.driveSharedDriveId as string) || null,
-        }
-      }
+      settings = await getCachedSettings()
     } catch (dbErr) {
       console.error('[UPLOAD-URL] settings fetch error:', dbErr)
       return NextResponse.json(

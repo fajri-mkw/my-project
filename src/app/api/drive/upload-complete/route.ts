@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getLibsql } from '@/lib/libsql-client'
+import { getCachedSettings } from '@/lib/drive-settings-cache'
 import { getCachedAccessToken, shareWithAnyone } from '@/lib/drive-service'
 
 // 20 second timeout for Google Drive API calls
@@ -23,17 +23,11 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'fileId wajib diisi' }, { status: 400 })
     }
 
-    // Use lightweight libsql client (skip Prisma overhead)
-    let serviceAccountKey: string | null = null
+    // Use CACHED settings (module-level, 5-min TTL) — avoids DB query
+    // on every upload-complete call. The warmup endpoint pre-caches this.
+    let settings
     try {
-      const client = getLibsql()
-      const result = await client.execute({
-        sql: `SELECT driveServiceAccountKey FROM settings WHERE id = 'main' LIMIT 1`,
-        args: [],
-      })
-      if (result.rows.length > 0) {
-        serviceAccountKey = (result.rows[0].driveServiceAccountKey as string) || null
-      }
+      settings = await getCachedSettings()
     } catch (dbErr) {
       console.error('[UPLOAD-COMPLETE] settings fetch error:', dbErr)
       return NextResponse.json(
@@ -41,6 +35,8 @@ export async function POST(request: NextRequest) {
         { status: 500 },
       )
     }
+
+    const serviceAccountKey = settings?.driveServiceAccountKey || null
 
     if (!serviceAccountKey) {
       return NextResponse.json({ error: 'Google Drive belum dikonfigurasi' }, { status: 400 })

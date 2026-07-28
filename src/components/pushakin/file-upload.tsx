@@ -15,7 +15,8 @@ import {
   FileText,
   Archive
 } from 'lucide-react'
-import { useState, useRef, useCallback } from 'react'
+import { useState, useRef, useCallback, useEffect } from 'react'
+import { warmupDrive } from '@/lib/drive-warmup'
 
 interface FileUploadProps {
   folderLink: string // Google Drive folder link
@@ -114,6 +115,22 @@ export function FileUpload({ folderLink, projectId, onUploadComplete, className,
   const updateFile = useCallback((fileId: string, updater: (f: UploadingFile) => UploadingFile) => {
     setUploadingFiles(prev => prev.map(f => f.id === fileId ? updater(f) : f))
   }, [])
+
+  // === Proactive warmup ===
+  // Fire-and-forget: pre-warm the Cloudflare Workers isolate when the upload
+  // component mounts. This caches the Google Drive access token at the module
+  // level so that when the user actually starts uploading, the upload-url
+  // endpoint only needs to do the Drive API init (not JWT signing + OAuth).
+  // This eliminates the "Gagal menyiapkan upload (HTTP 500)" error that
+  // occurs when a cold isolate exceeds the 10ms CPU limit.
+  useEffect(() => {
+    // Only warmup if there's a valid folder link
+    if (!folderLink || !extractFolderId(folderLink)) return
+    // Fire and forget — don't block the UI
+    warmupDrive(3).catch(() => {
+      // Silent failure — the blocking warmup in uploadFile will retry
+    })
+  }, [folderLink])
 
   const uploadFile = useCallback(async (file: File): Promise<void> => {
     const fileId = `file-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
@@ -228,8 +245,26 @@ export function FileUpload({ folderLink, projectId, onUploadComplete, className,
     }
 
     try {
+      // ===== STEP 0: Warm up the Cloudflare Workers isolate =====
+      // This pre-caches the Google Drive access token at the module level.
+      // Without this, the upload-url endpoint may hit a cold isolate and
+      // exceed the 10ms CPU limit (DB query + JWT signing + OAuth + Drive
+      // init all in one request), resulting in an empty HTTP 500 response
+      // that shows as "Gagal menyiapkan upload (HTTP 500)".
+      updateFile(fileId, f => ({ ...f, progress: 1, error: 'Menyiapkan koneksi Google Drive...' }))
+      const warmupResult = await warmupDrive(5, abortController.signal)
+      if (!warmupResult.ok) {
+        // If warmup fails with a 4xx (Drive not configured), show that error.
+        // If it fails with 5xx (cold isolate), proceed anyway — upload-url
+        // has its own retry and might land on a warmer isolate.
+        if (warmupResult.error && warmupResult.error.includes('belum dikonfigurasi')) {
+          throw new Error(warmupResult.error)
+        }
+        // Otherwise, continue to upload-url (it has its own retry logic)
+      }
+
       // ===== STEP 1: Get resumable upload URL from server (with retry) =====
-      updateFile(fileId, f => ({ ...f, progress: 2 }))
+      updateFile(fileId, f => ({ ...f, progress: 2, error: undefined }))
       seriesCounterRef.current += 1
 
       let { uploadUrl, autoFileName } = await createUploadSession()

@@ -6,12 +6,16 @@
  * This module provides a single, reusable function to upload files of ANY size
  * (up to Google Drive's 5 TB limit) using the chunked resumable upload path:
  *
- *   1. POST /api/drive/upload-url  → get resumable session URL
- *   2. POST /api/drive/upload-chunk (loop) → upload 8 MB chunks
+ *   0. POST /api/drive/warmup        → pre-cache settings + access token
+ *   1. POST /api/drive/upload-url    → get resumable session URL
+ *   2. POST /api/drive/upload-chunk  → upload 8 MB chunks (loop)
+ *   3. POST /api/drive/upload-complete → share file + fetch metadata
  *
- * This bypasses the memory bottleneck that existed in the old multipart/related
- * upload path (which loaded the ENTIRE file into memory as a Uint8Array, causing
- * OOM crashes on Cloudflare Workers for files > ~40 MB).
+ * Step 0 (warmup) is CRITICAL: it pre-caches the Google Drive access token
+ * on the Cloudflare Workers isolate. Without it, the upload-url endpoint
+ * may hit a cold isolate and exceed the 10ms CPU limit (DB query + JWT
+ * signing + OAuth + Drive init all in one request), resulting in an empty
+ * HTTP 500 that shows as "Gagal menyiapkan upload (HTTP 500)".
  *
  * Used by:
  *   - Surat document uploads (surat-management-view.tsx)
@@ -19,6 +23,8 @@
  *   - Project supporting document uploads (project-detail-view.tsx)
  *   - Petugas task file uploads (file-upload.tsx — uses its own inline implementation)
  */
+
+import { warmupDrive } from '@/lib/drive-warmup'
 
 const CHUNK_SIZE = 8 * 1024 * 1024 // 8 MB — must match backend upload-chunk/route.ts
 // Increased from 2 → 5 to match file-upload.tsx — gives large files (100MB+)
@@ -85,6 +91,23 @@ export async function chunkedUploadFile(
   options: ChunkedUploadOptions,
 ): Promise<UploadedFile> {
   const { file, folderId, onProgress, autoNameMeta, signal, subfolderName } = options
+
+  onProgress?.(1, 'Menyiapkan koneksi Google Drive...')
+
+  // ===== STEP 0: Warm up the Cloudflare Workers isolate =====
+  // Pre-caches settings + access token at the module level. Without this,
+  // the upload-url endpoint may hit a cold isolate and exceed the 10ms CPU
+  // limit, resulting in an empty HTTP 500 ("Gagal menyiapkan upload").
+  // Retry up to 5 times — the first warmup may also hit a cold isolate.
+  const warmupResult = await warmupDrive(5, signal)
+  if (!warmupResult.ok) {
+    // If warmup fails with a 4xx (Drive not configured), throw immediately.
+    if (warmupResult.error && warmupResult.error.includes('belum dikonfigurasi')) {
+      throw new Error(warmupResult.error)
+    }
+    // For 5xx errors (cold isolate), proceed to upload-url anyway — it has
+    // its own retry logic and might land on a warmer isolate.
+  }
 
   onProgress?.(2, 'Menyiapkan upload...')
 
