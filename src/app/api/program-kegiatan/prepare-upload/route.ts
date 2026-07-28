@@ -144,7 +144,7 @@ export async function POST(request: NextRequest) {
       })
     }
 
-    const drive = getDriveClient(settings.driveServiceAccountKey)
+    const drive = await getDriveClient(settings.driveServiceAccountKey)
     const kegiatanDate = kegiatan.tanggalKegiatan ? new Date(kegiatan.tanggalKegiatan) : new Date()
     const dateStr = kegiatanDate.toLocaleDateString('id-ID', { day: '2-digit', month: '2-digit', year: 'numeric' })
     const folderName = `${kegiatan.perihal} - ${dateStr}`

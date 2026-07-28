@@ -145,7 +145,7 @@ export async function DELETE(request: NextRequest) {
       try {
         const settings = await db.settings.findUnique({ where: { id: 'main' } })
         if (settings?.driveServiceAccountKey) {
-          const drive = getDriveClient(settings.driveServiceAccountKey)
+          const drive = await getDriveClient(settings.driveServiceAccountKey)
           await drive.files.delete({
             fileId: docToRemove.driveFileId,
             supportsAllDrives: true,

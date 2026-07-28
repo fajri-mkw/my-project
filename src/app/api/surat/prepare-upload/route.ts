@@ -155,7 +155,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Create folder hierarchy: Year > Month > SURAT > "Surat - {nomorSurat} - {perihal}"
-    const drive = getDriveClient(settings.driveServiceAccountKey)
+    const drive = await getDriveClient(settings.driveServiceAccountKey)
     const suratDate = surat.tanggalSurat ? new Date(surat.tanggalSurat) : new Date()
 
     const suratParentFolderId = await findOrCreateSuratMonthFolder(

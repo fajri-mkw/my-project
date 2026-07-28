@@ -179,7 +179,7 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    const drive = getDriveClient(settings.driveServiceAccountKey)
+    const drive = await getDriveClient(settings.driveServiceAccountKey)
 
     // Determine target folder: use kegiatan's driveFolderId, or create a new one
     let targetFolderId = kegiatan.driveFolderId
@@ -353,7 +353,7 @@ export async function DELETE(request: NextRequest) {
       try {
         const settings = await db.settings.findUnique({ where: { id: 'main' } })
         if (settings?.driveServiceAccountKey) {
-          const drive = getDriveClient(settings.driveServiceAccountKey)
+          const drive = await getDriveClient(settings.driveServiceAccountKey)
           await drive.files.delete({
             fileId: docToRemove.driveFileId,
             supportsAllDrives: true,

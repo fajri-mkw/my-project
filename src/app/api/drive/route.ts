@@ -424,7 +424,7 @@ export async function POST(request: NextRequest) {
       }, { status: 400 })
     }
     
-    const drive = getDriveClient(settings.driveServiceAccountKey)
+    const drive = await getDriveClient(settings.driveServiceAccountKey)
     
     // Find or create Year > Month > PROJECT folder structure based on current date
     const now = new Date()
@@ -582,7 +582,7 @@ export async function PUT(request: NextRequest) {
       }, { status: 400 })
     }
     
-    const drive = getDriveClient(settings.driveServiceAccountKey)
+    const drive = await getDriveClient(settings.driveServiceAccountKey)
     
     // Enable link sharing (works for non-Google accounts too)
     const linkShared = await shareWithLink(drive, folderId, role || 'writer')
@@ -627,7 +627,7 @@ export async function GET(request: NextRequest) {
       })
     }
     
-    const drive = getDriveClient(settings.driveServiceAccountKey)
+    const drive = await getDriveClient(settings.driveServiceAccountKey)
     
     // Test by checking the shared drive
     try {
