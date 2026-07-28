@@ -43,6 +43,28 @@ function getRoleDisplayName(role: string): string {
 }
 
 // ============================================================================
+// ROLE_CANONICAL_STAGE — inline copy of ROLE_CONFIG[role].stage from @/lib/store.
+// Used to clamp task.stage saat create project, agar tidak pernah ada task dengan
+// stage yang tidak sesuai perannya (defensive against client-side bugs / corrupt
+// payloads). Lihat fix V10 migration di src/lib/db-sync.ts untuk konteks lengkap.
+// ============================================================================
+const ROLE_CANONICAL_STAGE: Record<string, number> = {
+  'Reporter': 1,
+  'ContentCreator': 1,
+  'PhotographerVideographerAudio': 1,
+  'GraphicDesigner': 1,
+  'EditorVideo': 2,
+  'EditorWebArticle': 2,
+  'EditorFoto': 2,
+  'EditorTemplateSosialMedia': 2,
+  'StreamingOperator': 2,
+  'PodcastOperator': 2,
+  'Reviewer': 3,
+  'PublisherWeb': 4,
+  'PublisherSocialMedia': 4,
+}
+
+// ============================================================================
 // GET all projects with relations (tasks + driveFolders)
 // Rewritten to use @libsql/client directly (bypasses Prisma CPU overhead).
 // Edge-cached for 60s to reduce CPU usage on Workers free plan.
@@ -247,13 +269,18 @@ export async function POST(request: NextRequest) {
     // --- Build task records in JS (mirrors original Prisma nested-create logic) ---
     const taskRecords = filteredTasks.map(
       (t: { role: string; stage: number; assignedTo: string }) => {
+        // Defensive: clamp stage ke nilai kanonik sesuai ROLE_CANONICAL_STAGE.
+        // Ini mencegah task.stage terkorupsi dari payload client yang salah,
+        // yang sebelumnya menyebabkan bug "Reviewer muncul di tahap Publikasi"
+        // (lihat V10 migration di src/lib/db-sync.ts).
+        const canonicalStage = ROLE_CANONICAL_STAGE[t.role] ?? t.stage
         let status: 'pending' | 'completed' = 'pending'
         let data = '{}'
-        if (isFastTrack && t.stage < 4) {
+        if (isFastTrack && canonicalStage < 4) {
           // Fast Track: auto-complete stages 1-3
           status = 'completed'
           data = JSON.stringify({ fastTracked: true })
-        } else if (isFastProduction && t.stage === 3) {
+        } else if (isFastProduction && canonicalStage === 3) {
           // Fast Production: auto-approve reviewer tasks (stage 3)
           status = 'completed'
           data = JSON.stringify({ autoApproved: true })
@@ -261,7 +288,7 @@ export async function POST(request: NextRequest) {
         return {
           id: genId(),
           role: t.role,
-          stage: t.stage,
+          stage: canonicalStage,
           status,
           assignedTo: t.assignedTo,
           data,

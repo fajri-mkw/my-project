@@ -3,7 +3,7 @@
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
-import { useAppStore, STAGES, getRoleDisplayName } from '@/lib/store'
+import { useAppStore, STAGES, ROLE_CONFIG, getRoleDisplayName } from '@/lib/store'
 import {
   Calendar,
   Share2,
@@ -181,7 +181,8 @@ export function OverviewView() {
     // Progress per stage
     const stageProgress: Record<number, { total: number; completed: number }> = {}
     for (let stage = 1; stage <= 4; stage++) {
-      const stageTasks = project.tasks.filter(t => t.stage === stage)
+      // Defensive: gunakan stage kanonik dari ROLE_CONFIG (bukan t.stage mentah).
+      const stageTasks = project.tasks.filter(t => (ROLE_CONFIG[t.role]?.stage ?? t.stage) === stage)
       stageProgress[stage] = {
         total: stageTasks.length,
         completed: stageTasks.filter(t => t.status === 'completed').length
@@ -192,7 +193,7 @@ export function OverviewView() {
     const teamByStage: Record<number, Array<{ userId: string | null; name: string; role: string; status: string }>> = {}
     for (let stage = 1; stage <= 4; stage++) {
       teamByStage[stage] = project.tasks
-        .filter(t => t.stage === stage)
+        .filter(t => (ROLE_CONFIG[t.role]?.stage ?? t.stage) === stage)
         .map(t => ({
           userId: t.assignedTo,
           name: getUserName(t.assignedTo),

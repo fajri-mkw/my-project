@@ -185,7 +185,9 @@ export function ProjectDetailView() {
 
     let workerText = ''
     for (const stage of [1, 2, 3, 4]) {
-      const stageTasks = project.tasks.filter(t => t.stage === stage)
+      // Gunakan stage kanonik dari ROLE_CONFIG (defensive: jika task.stage terkorupsi
+      // di DB, task tetap tampil di kolom yang benar berdasarkan rolenya).
+      const stageTasks = project.tasks.filter(t => (ROLE_CONFIG[t.role]?.stage ?? t.stage) === stage)
       if (stageTasks.length === 0) continue
       workerText += `\n📋 ${stageLabels[stage]}\n`
       stageTasks.forEach(t => {
@@ -1276,7 +1278,9 @@ Pushakin Flows — Sistem Manajemen Produksi`
                   not just currentStage. This ensures the progress bar reflects real progress. */}
               {(() => {
                 const completedStagesCount = [1, 2, 3, 4].filter(s => {
-                  const ts = project.tasks.filter(t => t.stage === s)
+                  // Defensive: gunakan stage kanonik dari ROLE_CONFIG agar progress bar
+                  // akurat meski task.stage terkorupsi di DB.
+                  const ts = project.tasks.filter(t => (ROLE_CONFIG[t.role]?.stage ?? t.stage) === s)
                   return ts.length > 0 && ts.every(t => t.status === 'completed')
                 }).length
                 const fastTrackSkipped = project.isFastTrack ? 3 : 0  // stages 1-3 skipped
@@ -1306,7 +1310,7 @@ Pushakin Flows — Sistem Manajemen Produksi`
                 // reached a later stage while earlier tasks are still pending (edge case).
                 // Exception: Fast Track skips stages 1-3 (no tasks) → treat as "skipped/completed".
                 const isFastTrackSkipped = project.isFastTrack && stageNum >= 1 && stageNum <= 3
-                const stageTasks = stageNum < 5 ? project.tasks.filter(t => t.stage === stageNum) : []
+                const stageTasks = stageNum < 5 ? project.tasks.filter(t => (ROLE_CONFIG[t.role]?.stage ?? t.stage) === stageNum) : []
                 const allStageTasksDone = stageTasks.length > 0 && stageTasks.every(t => t.status === 'completed')
                 const isCompleted = stageNum === 5
                   ? project.currentStage === 5
@@ -1392,7 +1396,9 @@ Pushakin Flows — Sistem Manajemen Produksi`
             {/* Desktop: horizontal columns aligned with timeline stages */}
             <div className="hidden sm:grid sm:grid-cols-5 gap-3">
               {[1, 2, 3, 4, 5].map(stageNum => {
-                const stageTasks = project.tasks.filter(t => t.stage === stageNum)
+                // Defensive: gunakan stage kanonik dari ROLE_CONFIG (bukan t.stage mentah)
+                // agar task tampil di kolom tahap yang benar meski datanya terkorupsi.
+                const stageTasks = project.tasks.filter(t => (ROLE_CONFIG[t.role]?.stage ?? t.stage) === stageNum)
                 const isCompleted = stageNum < project.currentStage
                 const isCurrent = stageNum === project.currentStage
                 const isFPAutoApproved = project.isFastProduction && stageNum === 3
@@ -1496,7 +1502,8 @@ Pushakin Flows — Sistem Manajemen Produksi`
             {/* Mobile: vertical list grouped by stage */}
             <div className="sm:hidden space-y-4">
               {[1, 2, 3, 4, 5].map(stageNum => {
-                const stageTasks = project.tasks.filter(t => t.stage === stageNum)
+                // Defensive: gunakan stage kanonik dari ROLE_CONFIG (mobile view).
+                const stageTasks = project.tasks.filter(t => (ROLE_CONFIG[t.role]?.stage ?? t.stage) === stageNum)
                 const isCompleted = stageNum < project.currentStage
                 const isCurrent = stageNum === project.currentStage
                 const isFPAutoApproved = project.isFastProduction && stageNum === 3
@@ -1891,7 +1898,8 @@ Pushakin Flows — Sistem Manajemen Produksi`
             // Group tasks by stage
             const tasksByStage = new Map<number, Array<{ task: Task; userName: string; outputs: string[]; customOutput: string }>>()
             for (const stage of stagesToShow) {
-              const stageTasks = project.tasks.filter(t => t.stage === stage)
+              // Defensive: gunakan stage kanonik dari ROLE_CONFIG.
+              const stageTasks = project.tasks.filter(t => (ROLE_CONFIG[t.role]?.stage ?? t.stage) === stage)
               if (stageTasks.length === 0) continue
               
               const entries = stageTasks.map(t => {
@@ -1913,7 +1921,11 @@ Pushakin Flows — Sistem Manajemen Produksi`
             if (!hasWorkerData) return null
             
             // Count totals
-            const totalWorkers = project.tasks.filter(t => t.stage >= 1 && t.stage <= 4).length
+            // Defensive: hitung worker berdasarkan stage kanonik dari ROLE_CONFIG.
+            const totalWorkers = project.tasks.filter(t => {
+              const s = ROLE_CONFIG[t.role]?.stage ?? t.stage
+              return s >= 1 && s <= 4
+            }).length
             const totalWithOutputs = Object.keys(workerOutputsMap).filter(uid => 
               workerOutputsMap[uid] && workerOutputsMap[uid].length > 0
             ).length

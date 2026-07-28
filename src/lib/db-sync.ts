@@ -9,7 +9,7 @@
 import { db } from './db'
 
 // Increment this when adding new migrations
-const SCHEMA_VERSION = 9
+const SCHEMA_VERSION = 10
 
 let syncPerformed = false
 let syncPromise: Promise<boolean> | null = null
@@ -205,6 +205,47 @@ async function syncSqlite(): Promise<void> {
     "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" DATETIME NOT NULL
   )`)
+
+  // === Version 10: Repair corrupted task.stage & surat_tugas.stage & project.currentStage ===
+  // Bug historis: V4 asli (commit b364722, 25 Mei 2026 09:33) bersifat UNCONDITIONAL
+  // dan berjalan beberapa kali saat cold start karena SCHEMA_VERSION tracking belum
+  // ada (baru ditambahkan di commit cdf79c3, 25 Mei 2026 12:12). Setiap run V4
+  // menggeser: shift 4→5 LALU shift 3→4 (unconditional). Akibatnya:
+  //   - Run 1: Publisher 4→5, Reviewer 3→4
+  //   - Run 2: Reviewer (yg ada di 4) → 5
+  //   - Run 3+: tidak ada perubahan (reviewer & publisher sudah di 5)
+  // Hasil akhir: Reviewer nyangkut di stage 5 (seharusnya 3), Publisher di stage 5
+  // (seharusnya 4). V5 (Reviewer 4→3) tidak menangkap Reviewer di 5. V7 (5→4
+  // unconditional) seharusnya mengembalikan ke 4 tetapi (a) tidak menangani Reviewer
+  // yg seharusnya 3, dan (b) rupanya tidak tereksekusi konsisten di production karena
+  // SCHEMA_VERSION tracking menganggap migration sudah beres.
+  //
+  // Gejala user: petugas "Fajrianor" (Reviewer) muncul di tahap "Publikasi" pada
+  // beberapa project karena UI mengelompokkan task by t.stage — Reviewer (stage 5)
+  // dan Publisher (stage 5) tampil di kolom yang sama.
+  //
+  // Fix: clamp setiap task/surat_tugas ke stage kanoniknya sesuai ROLE_CONFIG, dan
+  // clamp project.currentStage 6 → 5 (Selesai) karena STAGES tidak mendefinisikan 6.
+  // Role-conditional + idempoten: aman dijalankan berulang (tidak ada row yang match
+  // setelah perbaikan pertama).
+  await Promise.all([
+    // Reviewer: kembalikan ke stage 3 (dari stage 4 atau 5)
+    shiftSqliteStageWithCondition('tasks', 'stage', 5, 3, "role = 'Reviewer'"),
+    shiftSqliteStageWithCondition('tasks', 'stage', 4, 3, "role = 'Reviewer'"),
+    shiftSqliteStageWithCondition('surat_tugas', 'stage', 5, 3, "role = 'Reviewer'"),
+    shiftSqliteStageWithCondition('surat_tugas', 'stage', 4, 3, "role = 'Reviewer'"),
+    // Publisher: kembalikan ke stage 4 (dari stage 5)
+    shiftSqliteStageWithCondition('tasks', 'stage', 5, 4, "role IN ('PublisherWeb', 'PublisherSocialMedia')"),
+    shiftSqliteStageWithCondition('surat_tugas', 'stage', 5, 4, "role IN ('PublisherWeb', 'PublisherSocialMedia')"),
+    // EditorTemplateSosialMedia: kembalikan ke stage 2 (dari stage 4). V6 hanya
+    // memigrasi project dgn currentStage<=2, jadi project in-flight/completed
+    // saat V6 jalan masih punya EditorTemplateSosialMedia di stage 4 (Finalization
+    // lama). Sesuai ROLE_CONFIG, rolenya harus di stage 2 (Pasca Produksi).
+    shiftSqliteStageWithCondition('tasks', 'stage', 4, 2, "role = 'EditorTemplateSosialMedia'"),
+    shiftSqliteStageWithCondition('surat_tugas', 'stage', 4, 2, "role = 'EditorTemplateSosialMedia'"),
+  ])
+  // Clamp project.currentStage 6 → 5 (Selesai). Project complete = 5 (Selesai).
+  await shiftSqliteStage('projects', 'currentStage', 6, 5)
 }
 
 async function addSqliteColumnIfNotExists(
@@ -387,6 +428,26 @@ async function syncPostgres(): Promise<void> {
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL
   )`)
+
+  // === Version 10: Repair corrupted task.stage & surat_tugas.stage & project.currentStage ===
+  // (See syncSqlite Version 10 for full explanation of the historical V4 bug.)
+  // Gejala: Reviewer (mis. Fajrianor) tampil di tahap Publikasi karena stage-nya
+  // terkorupsi ke 5 (seharusnya 3), sama dengan Publisher (seharusnya 4).
+  await Promise.all([
+    // Reviewer: kembalikan ke stage 3 (dari stage 4 atau 5)
+    shiftPostgresStageWithCondition('tasks', 'stage', 5, 3, "role = 'Reviewer'"),
+    shiftPostgresStageWithCondition('tasks', 'stage', 4, 3, "role = 'Reviewer'"),
+    shiftPostgresStageWithCondition('surat_tugas', 'stage', 5, 3, "role = 'Reviewer'"),
+    shiftPostgresStageWithCondition('surat_tugas', 'stage', 4, 3, "role = 'Reviewer'"),
+    // Publisher: kembalikan ke stage 4 (dari stage 5)
+    shiftPostgresStageWithCondition('tasks', 'stage', 5, 4, "role IN ('PublisherWeb', 'PublisherSocialMedia')"),
+    shiftPostgresStageWithCondition('surat_tugas', 'stage', 5, 4, "role IN ('PublisherWeb', 'PublisherSocialMedia')"),
+    // EditorTemplateSosialMedia: kembalikan ke stage 2 (dari stage 4). (See syncSqlite V10.)
+    shiftPostgresStageWithCondition('tasks', 'stage', 4, 2, "role = 'EditorTemplateSosialMedia'"),
+    shiftPostgresStageWithCondition('surat_tugas', 'stage', 4, 2, "role = 'EditorTemplateSosialMedia'"),
+  ])
+  // Clamp project.currentStage 6 → 5 (Selesai).
+  await shiftPostgresStage('projects', 'currentStage', 6, 5)
 }
 
 async function addPostgresColumnIfNotExists(

@@ -1,7 +1,7 @@
 'use client'
 
 import { Badge } from '@/components/ui/badge'
-import { useAppStore, STAGES } from '@/lib/store'
+import { useAppStore, STAGES, ROLE_CONFIG } from '@/lib/store'
 import { 
   CheckCircle2,
   Clock,
@@ -396,7 +396,8 @@ export function PublicTrackerView({ onBack }: PublicTrackerViewProps) {
     
     const stageProgress: Record<number, { total: number; completed: number }> = {}
     for (let stage = 1; stage <= 4; stage++) {
-      const stageTasks = project.tasks.filter(t => t.stage === stage)
+      // Defensive: gunakan stage kanonik dari ROLE_CONFIG (bukan t.stage mentah).
+      const stageTasks = project.tasks.filter(t => (ROLE_CONFIG[t.role]?.stage ?? t.stage) === stage)
       stageProgress[stage] = {
         total: stageTasks.length,
         completed: stageTasks.filter(t => t.status === 'completed').length
@@ -406,7 +407,7 @@ export function PublicTrackerView({ onBack }: PublicTrackerViewProps) {
     const teamByStage: Record<number, Array<{ name: string; status: string; avatar: string | null }>> = {}
     for (let stage = 1; stage <= 4; stage++) {
       teamByStage[stage] = project.tasks
-        .filter(t => t.stage === stage)
+        .filter(t => (ROLE_CONFIG[t.role]?.stage ?? t.stage) === stage)
         .map(t => ({
           name: t.assignee.name,
           status: t.status,
