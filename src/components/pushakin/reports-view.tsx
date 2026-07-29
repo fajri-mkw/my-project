@@ -23,7 +23,7 @@ import {
   X,
   ChevronsUpDown,
 } from 'lucide-react'
-import { useState, useRef } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { loadJsPDF, loadXLSX } from '@/lib/export-utils'
 
 // Platform options for displaying publish links
@@ -1165,10 +1165,24 @@ export function ReportsView() {
   }
 
   // Detail View
-  if (selectedProjectId) {
-    const report = filteredProjects.find(p => p.id === selectedProjectId)
-    if (!report) return null
+  // NOTE: `selectedProjectId` is persisted to localStorage (see store.ts
+  // `partialize`). If a previously-opened report is no longer in the filtered
+  // list (e.g. its stage changed after a data refresh / migration, it was
+  // deleted, or a filter excludes it), we must NOT `return null` — that would
+  // render a completely blank screen with no header, list, or empty state.
+  // Instead, clear the stale selection via an effect and fall through to the
+  // list view so the user always sees the report list.
+  const selectedReport = selectedProjectId
+    ? filteredProjects.find(p => p.id === selectedProjectId)
+    : null
 
+  useEffect(() => {
+    if (selectedProjectId && !selectedReport) {
+      setSelectedProjectId(null)
+    }
+  }, [selectedProjectId, selectedReport, setSelectedProjectId])
+
+  if (selectedProjectId && selectedReport) {
     return (
       <div className="max-w-4xl mx-auto space-y-6">
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
@@ -1183,7 +1197,7 @@ export function ReportsView() {
           <div className="flex gap-2 sm:gap-3">
             <Button
               variant="outline"
-              onClick={() => handleExportProjectToExcel(report)}
+              onClick={() => handleExportProjectToExcel(selectedReport)}
               disabled={isExportingExcel}
               className="gap-2 bg-green-50 text-green-700 hover:bg-green-100 border-green-200"
             >
@@ -1216,9 +1230,9 @@ export function ReportsView() {
               <h1 className="text-3xl font-bold text-stone-900 uppercase tracking-widest mb-2">
                 Laporan Kegiatan
               </h1>
-              <p className="text-lg text-stone-600">{report.title}</p>
+              <p className="text-lg text-stone-600">{selectedReport.title}</p>
               <div className="mt-4 inline-block bg-stone-100 px-4 py-1 rounded-full text-xs font-mono text-stone-600 font-bold border border-stone-200">
-                Ref ID: {report.id}
+                Ref ID: {selectedReport.id}
               </div>
             </div>
 
@@ -1227,26 +1241,26 @@ export function ReportsView() {
                 <p className="text-xs font-bold text-stone-400 uppercase tracking-wider mb-1">
                   Unit Pemohon
                 </p>
-                <p className="font-semibold text-stone-800 text-lg">{report.requesterUnit}</p>
+                <p className="font-semibold text-stone-800 text-lg">{selectedReport.requesterUnit}</p>
               </div>
               <div>
                 <p className="text-xs font-bold text-stone-400 uppercase tracking-wider mb-1">
                   Waktu Selesai Keseluruhan
                 </p>
-                <p className="font-semibold text-stone-800 text-lg">{formatDateTime(report.createdAt)}</p>
+                <p className="font-semibold text-stone-800 text-lg">{formatDateTime(selectedReport.createdAt)}</p>
               </div>
               <div>
                 <p className="text-xs font-bold text-stone-400 uppercase tracking-wider mb-1">
                   Lokasi Pelaksanaan
                 </p>
-                <p className="font-semibold text-stone-800">{report.location || '-'}</p>
+                <p className="font-semibold text-stone-800">{selectedReport.location || '-'}</p>
               </div>
               <div>
                 <p className="text-xs font-bold text-stone-400 uppercase tracking-wider mb-1">
                   Penanggung Jawab (PIC)
                 </p>
                 <p className="font-semibold text-stone-800">
-                  {report.picName || '-'} ({report.picWhatsApp || '-'})
+                  {selectedReport.picName || '-'} ({selectedReport.picWhatsApp || '-'})
                 </p>
               </div>
             </div>
@@ -1256,15 +1270,15 @@ export function ReportsView() {
                 Rincian Instruksi Manager
               </h3>
               <p className="text-sm text-stone-700 leading-relaxed whitespace-pre-line">
-                {report.description}
+                {selectedReport.description}
               </p>
               <div className="mt-4 flex flex-wrap gap-2">
-                {report.activityTypes.map(k => (
+                {selectedReport.activityTypes.map(k => (
                   <Badge key={k} variant="outline" className="bg-stone-100 text-stone-600">
                     {k}
                   </Badge>
                 ))}
-                {report.outputNeeds.map(o => (
+                {selectedReport.outputNeeds.map(o => (
                   <Badge key={o} variant="outline" className="bg-violet-50 text-violet-700">
                     {o}
                   </Badge>
@@ -1278,7 +1292,7 @@ export function ReportsView() {
               </h3>
               <div className="space-y-4">
                 {(() => {
-                  const mgr = getManagerEntry(report)
+                  const mgr = getManagerEntry(selectedReport)
                   if (!mgr) return null
                   return (
                     <div className="bg-emerald-50/60 border border-emerald-200 rounded-xl p-4">
@@ -1335,7 +1349,7 @@ export function ReportsView() {
                     </div>
                   )
                 })()}
-                {report.tasks.map(task => {
+                {selectedReport.tasks.map(task => {
                   const user = users.find(u => u.id === task.assignedTo)
                   const links = getTaskResultLinks(task)
                   const isPublisher = isPublisherRole(task.role)
