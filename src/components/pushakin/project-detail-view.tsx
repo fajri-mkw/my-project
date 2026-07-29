@@ -64,7 +64,9 @@ import {
   Check,
   Hourglass,
   User,
-  ChevronLeft
+  ChevronLeft,
+  UserCog,
+  RefreshCw
 } from 'lucide-react'
 import { useState, useMemo, useCallback, useEffect, useRef } from 'react'
 import { cn } from '@/lib/utils'
@@ -881,6 +883,69 @@ Pushakin Flows — Sistem Manajemen Produksi`
       setIsEditProjectModalOpen(false)
     } catch {
       showAlert('Gagal menyimpan perubahan')
+    }
+  }
+
+  // === Ganti Petugas (Reassign Task) ===
+  // Manager/Admin can replace the assigned worker for a task when the original
+  // worker becomes unavailable. Resets the task to 'pending' with empty data
+  // so the new assignee starts fresh. Server also: closes old surat_tugas,
+  // creates new surat_tugas for replacement, sends notification.
+  const handleReassignPetugas = async (taskId: string, newAssigneeId: string): Promise<boolean> => {
+    if (!project) return false
+    try {
+      const response = await fetch('/api/projects/reassign-task', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          projectId: project.id,
+          taskId,
+          newAssigneeId,
+        }),
+      })
+
+      if (!response.ok) {
+        let errMsg = 'Gagal mengganti petugas'
+        try {
+          const data = await response.json()
+          if (data?.error) errMsg = data.error
+        } catch {}
+        showAlert(errMsg)
+        return false
+      }
+
+      const result = await response.json()
+
+      // Optimistically update the store with the new assignee + reset task state
+      const updatedProject = {
+        ...project,
+        tasks: project.tasks.map(t =>
+          t.id === taskId
+            ? {
+                ...t,
+                assignedTo: newAssigneeId,
+                status: 'pending' as const,
+                data: {},
+                revisionCount: 0,
+                stage: result.task?.stage ?? t.stage,
+              }
+            : t
+        ),
+      }
+      updateProject(updatedProject)
+
+      const newAssignee = users.find(u => u.id === newAssigneeId)
+      showAlert(
+        `Petugas berhasil diganti menjadi ${newAssignee?.name || 'petugas baru'}. ` +
+        `Tugas direset ke status "Menunggu Aksi".`
+      )
+      return true
+    } catch (err) {
+      showAlert(
+        'Gagal mengganti petugas: ' +
+        (err instanceof Error ? err.message : 'Koneksi terputus')
+      )
+      return false
     }
   }
 
@@ -2209,6 +2274,8 @@ Pushakin Flows — Sistem Manajemen Produksi`
                   }
                 }
               }}
+              onReassignPetugas={handleReassignPetugas}
+              currentAssigneeName={getUserDetails(task.assignedTo).name}
             />
           )
         })}
@@ -2526,13 +2593,16 @@ interface TaskCardProps {
   onRemovePublishLink: (linkId: string) => void
   onUpdatePublishLink: (linkId: string, field: 'platform' | 'url', value: string) => void
   onFileUploaded: (file: { name: string; webViewLink: string }) => void
+  onReassignPetugas: (taskId: string, newAssigneeId: string) => Promise<boolean>
+  currentAssigneeName: string
 }
 
 function TaskCard({
   task, project, config, Icon, isCurrentStage, isAssignedToMe, canActOnTask,
   isMyActiveTask, isBlockedByDependency, waitingForDisplayName, canManageProject, currentUser, inputValue, setInputValue,
   isVerified, setIsVerified, onComplete, onReject, onRevision, onCancelRevision, isRevising,
-  visibleFolders, publishLinks, onAddPublishLink, onRemovePublishLink, onUpdatePublishLink, onFileUploaded
+  visibleFolders, publishLinks, onAddPublishLink, onRemovePublishLink, onUpdatePublishLink, onFileUploaded,
+  onReassignPetugas, currentAssigneeName
 }: TaskCardProps) {
   // Hooks must run before any early return (Rules of Hooks).
   // uploadedFilesCount: tracks how many files the worker has uploaded in this session.
@@ -2545,6 +2615,15 @@ function TaskCard({
   // isSubmitting: tracks whether the "Selesaikan & Serahkan" / approve / revise
   // action is currently in flight, so we can show a spinner on the button.
   const [isSubmitting, setIsSubmitting] = useState(false)
+
+  // === Ganti Petugas (Reassign) dialog state ===
+  const [isReassignOpen, setIsReassignOpen] = useState(false)
+  const [selectedNewAssignee, setSelectedNewAssignee] = useState('')
+  const [isReassigning, setIsReassigning] = useState(false)
+
+  // Fetch users from store to populate the "Ganti Petugas" dropdown.
+  // Filtered by task.role on the fly (only same-role users are eligible).
+  const users = useAppStore(state => state.users)
 
   if (!config) return null
 
@@ -2786,6 +2865,28 @@ function TaskCard({
                   <span>Mode Override {getRoleDisplayName(currentUser?.role || '')}{!isCurrentStage ? ' (Bypass Tahap)' : ''}</span>
                 </div>
               )}
+              {/* Current assignee name + Ganti Petugas button (Manager/Admin only) */}
+              <div className="flex items-center gap-2 mt-1.5 flex-wrap">
+                <span className="flex items-center gap-1 text-xs text-stone-600">
+                  <User className="w-3 h-3" />
+                  <span className="font-medium">{currentAssigneeName || '—'}</span>
+                </span>
+                {canManageProject && task.status === 'pending' && !task.data?.fastTracked && (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      setSelectedNewAssignee('')
+                      setIsReassignOpen(true)
+                    }}
+                    className="h-6 px-2 py-0 text-[11px] gap-1 text-teal-700 border-teal-300 hover:bg-teal-50 hover:border-teal-400 font-semibold"
+                  >
+                    <UserCog className="w-3 h-3" />
+                    <span>Ganti Petugas</span>
+                  </Button>
+                )}
+              </div>
             </div>
           </div>
           <Badge
@@ -3337,6 +3438,125 @@ function TaskCard({
           </div>
         )}
       </CardContent>
+
+      {/* === Dialog Ganti Petugas (Manager/Admin only) ===
+          Allows replacing the assigned worker for this task with another
+          worker who has the same role. The task is reset to 'pending' with
+          empty data so the new assignee starts fresh. */}
+      <Dialog open={isReassignOpen} onOpenChange={(open) => {
+        if (!isReassigning) setIsReassignOpen(open)
+      }}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <UserCog className="w-5 h-5 text-teal-600" />
+              <span>Ganti Petugas</span>
+            </DialogTitle>
+            <DialogDescription>
+              Ganti petugas untuk peran <strong className="text-stone-700">{getRoleDisplayName(task.role)}</strong>
+              {' '}pada proyek <strong className="text-stone-700">{project.title}</strong>.
+              Tugas akan direset ke status &quot;Menunggu Aksi&quot;.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4 py-2">
+            {/* Current assignee */}
+            <div className="bg-stone-50 border border-stone-200 rounded-lg p-3">
+              <div className="text-[10px] font-bold uppercase tracking-wider text-stone-500 mb-1">
+                Petugas Saat Ini
+              </div>
+              <div className="flex items-center gap-2">
+                <Avatar className="h-7 w-7 border border-stone-200">
+                  <AvatarFallback className="text-[10px] bg-stone-100 text-stone-600">
+                    {currentAssigneeName?.charAt(0) || '?'}
+                  </AvatarFallback>
+                </Avatar>
+                <span className="text-sm font-medium text-stone-800">
+                  {currentAssigneeName || 'Tidak ada'}
+                </span>
+              </div>
+            </div>
+
+            {/* Select new assignee */}
+            <div className="space-y-2">
+              <Label className="text-xs font-bold uppercase tracking-wider text-stone-600">
+                Pilih Petugas Pengganti
+              </Label>
+              <Select
+                value={selectedNewAssignee}
+                onValueChange={setSelectedNewAssignee}
+              >
+                <SelectTrigger className="w-full">
+                  <SelectValue placeholder="— Pilih petugas —" />
+                </SelectTrigger>
+                <SelectContent>
+                  {users
+                    .filter(u => u.role === task.role && u.id !== task.assignedTo)
+                    .map(u => (
+                      <SelectItem key={u.id} value={u.id}>
+                        {u.name}
+                      </SelectItem>
+                    ))}
+                </SelectContent>
+              </Select>
+              {users.filter(u => u.role === task.role && u.id !== task.assignedTo).length === 0 && (
+                <p className="text-xs text-amber-600 bg-amber-50 border border-amber-200 rounded-md p-2">
+                  Tidak ada petugas lain dengan peran {getRoleDisplayName(task.role)} yang tersedia.
+                  Tambahkan petugas dengan peran ini terlebih dahulu.
+                </p>
+              )}
+            </div>
+
+            <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-xs text-amber-800 flex items-start gap-2">
+              <AlertCircle className="w-4 h-4 mt-0.5 shrink-0" />
+              <div>
+                <strong className="block mb-0.5">Perhatian:</strong>
+                Tugas akan direset (status, berkas/link, riwayat revisi). Petugas lama akan dinotifikasi
+                melalui sistem surat tugas, dan petugas baru akan menerima notifikasi tugas baru.
+              </div>
+            </div>
+          </div>
+
+          <DialogFooter className="gap-2">
+            <Button
+              type="button"
+              variant="ghost"
+              onClick={() => setIsReassignOpen(false)}
+              disabled={isReassigning}
+              className="text-xs sm:text-sm"
+            >
+              Batal
+            </Button>
+            <Button
+              type="button"
+              onClick={async () => {
+                if (!selectedNewAssignee) return
+                setIsReassigning(true)
+                const ok = await onReassignPetugas(task.id, selectedNewAssignee)
+                setIsReassigning(false)
+                if (ok) {
+                  setIsReassignOpen(false)
+                  setSelectedNewAssignee('')
+                }
+              }}
+              disabled={!selectedNewAssignee || isReassigning}
+              className="gap-2 text-xs sm:text-sm bg-teal-600 hover:bg-teal-700 text-white"
+            >
+              {isReassigning ? (
+                <>
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  <span>Menyimpan...</span>
+                </>
+              ) : (
+                <>
+                  <RefreshCw className="w-3.5 h-3.5" />
+                  <span>Ganti Petugas</span>
+                </>
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </Card>
   )
 }
