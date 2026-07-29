@@ -74,16 +74,57 @@ export function OverviewView() {
   // Editor, etc.) do not see these buttons.
   const isManager = currentUser ? ['Manager', 'Admin'].includes(currentUser.role) : false
 
+  // Time-based filter for the "Statistik & Progress" list.
+  //
+  // IMPORTANT: we filter by the project's SCHEDULED execution date
+  // (`p.executionTime`), NOT by `p.createdAt` (when the project record was
+  // created in the system). The cards in this view display `executionTime`
+  // (e.g. "Kamis, 30 Juli 2026 08.00"), so the time chips ("Hari Ini",
+  // "Minggu Ini", …) must match the same field the user sees.
+  //
+  // Previously this used `createdAt`, which meant a project scheduled for
+  // today but created days ago would NOT appear under "Hari Ini" — even
+  // though its card showed today's date. The week filter "accidentally"
+  // surfaced it because `createdAt` was within the last 7 days.
+  //
+  // `executionTime` can legitimately be in the future (an upcoming
+  // activity), so "Minggu Ini" / "Bulan Ini" use calendar-window logic
+  // (current week / current month) rather than a rolling "X days back"
+  // window — otherwise every future event would match the old
+  // `(now - d) <= 7` check.
+  //
+  // Falls back to `createdAt` when `executionTime` is empty/missing so
+  // projects without a scheduled time are not silently hidden.
   const isDateInRange = (dateString: string, filter: string) => {
     if (filter === 'all') return true
     if (!dateString) return false
     const d = new Date(dateString)
+    if (isNaN(d.getTime())) return false
     const now = new Date()
 
-    if (filter === 'day') return d.toDateString() === now.toDateString()
-    if (filter === 'week') return (now.getTime() - d.getTime()) / (1000 * 60 * 60 * 24) <= 7
-    if (filter === 'month') return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear()
-    if (filter === 'year') return d.getFullYear() === now.getFullYear()
+    if (filter === 'day') {
+      // Same calendar day (Y/M/D) in local time.
+      return d.toDateString() === now.toDateString()
+    }
+    if (filter === 'week') {
+      // Current calendar week (Monday → Sunday) in local time.
+      // Includes future events scheduled later this week, and excludes
+      // events from adjacent weeks.
+      const dayOfWeek = now.getDay() // 0 = Sunday, 1 = Monday, …, 6 = Saturday
+      const mondayOffset = dayOfWeek === 0 ? -6 : 1 - dayOfWeek
+      const startOfWeek = new Date(now)
+      startOfWeek.setHours(0, 0, 0, 0)
+      startOfWeek.setDate(now.getDate() + mondayOffset)
+      const endOfWeek = new Date(startOfWeek)
+      endOfWeek.setDate(startOfWeek.getDate() + 7) // start of next Monday
+      return d >= startOfWeek && d < endOfWeek
+    }
+    if (filter === 'month') {
+      return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear()
+    }
+    if (filter === 'year') {
+      return d.getFullYear() === now.getFullYear()
+    }
     return true
   }
 
@@ -94,7 +135,7 @@ export function OverviewView() {
   const targetProjects = useMemo(
     () =>
       visibleProjects
-        .filter(p => isDateInRange(p.createdAt, timeFilter))
+        .filter(p => isDateInRange(p.executionTime || p.createdAt, timeFilter))
         .sort(sortByRecent),
     [visibleProjects, timeFilter],
   )
