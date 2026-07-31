@@ -36,11 +36,29 @@ export const GET = withEdgeCache(async (_request: NextRequest) => {
 }, { ttl: 30 })
 
 // PUT update settings
+//
+// SAFEGUARD against "Drive auto-create deactivates itself" bug:
+// The Shared Drive ID, Parent Folder ID, and Service Account Key are treated
+// as "protected" fields. If a PUT request sends an EMPTY value for one of
+// these fields but the DB already has a NON-EMPTY value, the empty value is
+// IGNORED (the existing value is preserved). This prevents accidental wiping
+// when the frontend form fails to load current values (e.g. cold-start 5xx on
+// Cloudflare Workers free plan) and the user clicks "Save" — the empty form
+// state would otherwise overwrite the real DB values with null.
+//
+// To EXPLICITLY clear a protected field (e.g. admin wants to disconnect Drive),
+// the request must include `forceClear: true` OR send the field as an explicit
+// `null` with `forceClear: true`. An empty string alone is treated as an
+// accidental submission and is ignored.
 export async function PUT(request: NextRequest) {
   try {
     await ensureDbConnection()
     const body = await request.json()
-    const { driveAutoCreate, driveParentFolderId, driveSharedDriveId, driveServiceAccountKey, driveApiKey, maintenanceMode, maintenanceMessage } = body
+    const { driveAutoCreate, driveParentFolderId, driveSharedDriveId, driveServiceAccountKey, driveApiKey, maintenanceMode, maintenanceMessage, forceClear } = body
+
+    // Fetch the existing settings so we can protect non-empty values from
+    // being overwritten by accidental empty-string submissions.
+    const existing = await db.settings.findUnique({ where: { id: 'main' } })
 
     const updateData: {
       driveAutoCreate?: boolean
@@ -56,10 +74,25 @@ export async function PUT(request: NextRequest) {
       updateData.driveAutoCreate = driveAutoCreate
     }
     if (driveParentFolderId !== undefined) {
-      updateData.driveParentFolderId = driveParentFolderId || null
+      // Protected field: don't overwrite an existing non-empty value with
+      // an empty string unless forceClear is explicitly true.
+      const newVal = driveParentFolderId || null
+      const oldVal = existing?.driveParentFolderId || null
+      if (newVal || !oldVal || forceClear === true) {
+        updateData.driveParentFolderId = newVal
+      } else {
+        console.warn('[SETTINGS] Ignored empty driveParentFolderId (existing value preserved). Pass forceClear:true to override.')
+      }
     }
     if (driveSharedDriveId !== undefined) {
-      updateData.driveSharedDriveId = driveSharedDriveId || null
+      // Protected field: same safeguard as driveParentFolderId.
+      const newVal = driveSharedDriveId || null
+      const oldVal = existing?.driveSharedDriveId || null
+      if (newVal || !oldVal || forceClear === true) {
+        updateData.driveSharedDriveId = newVal
+      } else {
+        console.warn('[SETTINGS] Ignored empty driveSharedDriveId (existing value preserved). Pass forceClear:true to override.')
+      }
     }
     if (driveServiceAccountKey !== undefined) {
       if (driveServiceAccountKey) {
@@ -79,8 +112,12 @@ export async function PUT(request: NextRequest) {
           clientEmail: validation.clientEmail,
           projectId: validation.projectId
         })
-      } else {
+      } else if (forceClear === true) {
+        // Only clear the service account key if explicitly requested.
         updateData.driveServiceAccountKey = null
+        console.log('[SETTINGS] Service account key cleared (forceClear:true)')
+      } else {
+        console.warn('[SETTINGS] Ignored empty driveServiceAccountKey (existing value preserved). Pass forceClear:true to override.')
       }
     }
     if (driveApiKey !== undefined) {
@@ -98,7 +135,7 @@ export async function PUT(request: NextRequest) {
     // (the GET route uses the same findUnique+create pattern successfully,
     //  but upsert consistently failed — likely an adapter quirk with the
     //  @updatedAt field on the update path). This mirrors the GET pattern.
-    let settings = await db.settings.findUnique({ where: { id: 'main' } })
+    let settings = existing
     if (!settings) {
       settings = await db.settings.create({
         data: { id: 'main', ...updateData }

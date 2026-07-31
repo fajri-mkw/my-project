@@ -43,10 +43,28 @@ interface SettingsData {
 export function SettingsView() {
   const { currentUser, showAlert, updateUser } = useAppStore()
   const [isLoading, setIsLoading] = useState(true)
+  const [loadError, setLoadError] = useState<string | null>(null)
   const [isSaving, setIsSaving] = useState(false)
   const [isSavingMaintenance, setIsSavingMaintenance] = useState(false)
   const [isTesting, setIsTesting] = useState(false)
   const [connectionStatus, setConnectionStatus] = useState<'unknown' | 'connected' | 'disconnected'>('unknown')
+
+  // Track which fields the user has explicitly modified ("dirty" fields).
+  // Only dirty fields are sent in handleSave — this prevents accidentally
+  // wiping Drive credentials (Shared Drive ID, Service Account Key) when
+  // the form failed to load current values from the API (e.g. cold-start 5xx
+  // on Cloudflare Workers free plan). Previously, handleSave ALWAYS sent
+  // driveParentFolderId & driveSharedDriveId, so an empty form submission
+  // would overwrite the DB with null — making Drive "deactivate itself".
+  const [dirtyFields, setDirtyFields] = useState<Set<string>>(new Set())
+  const markDirty = (field: string) => {
+    setDirtyFields(prev => {
+      if (prev.has(field)) return prev
+      const next = new Set(prev)
+      next.add(field)
+      return next
+    })
+  }
 
   const [settings, setSettings] = useState<SettingsData>({
     driveAutoCreate: false,
@@ -97,41 +115,51 @@ export function SettingsView() {
   useEffect(() => {
     const loadSettings = async () => {
       try {
+        setLoadError(null)
         const [settingsRes, notifRes] = await Promise.all([
           fetch('/api/settings'),
           fetch('/api/notification-settings')
         ])
-        if (settingsRes.ok) {
-          const data = await settingsRes.json()
-          setSettings({
-            driveAutoCreate: data.driveAutoCreate || false,
-            driveParentFolderId: data.driveParentFolderId || '',
-            driveSharedDriveId: data.driveSharedDriveId || '',
-            hasServiceAccountKey: data.hasServiceAccountKey || false,
-            driveApiKey: data.driveApiKey || '',
-            maintenanceMode: data.maintenanceMode || false,
-            maintenanceMessage: data.maintenanceMessage || ''
-          })
+        // If the settings GET failed (e.g. cold-start 5xx on Workers free plan),
+        // we must NOT render the editable form — otherwise the default empty
+        // state would be saved on "Save", wiping the real DB values.
+        if (!settingsRes.ok) {
+          setLoadError(`Gagal memuat pengaturan (HTTP ${settingsRes.status}). Klik "Coba Lagi" untuk memuat ulang. Jangan menyimpan form dalam keadaan kosong — data Drive yang tersimpan bisa terhapus.`)
+          setIsLoading(false)
+          return
         }
+        const data = await settingsRes.json()
+        setSettings({
+          driveAutoCreate: data.driveAutoCreate || false,
+          driveParentFolderId: data.driveParentFolderId || '',
+          driveSharedDriveId: data.driveSharedDriveId || '',
+          hasServiceAccountKey: data.hasServiceAccountKey || false,
+          driveApiKey: data.driveApiKey || '',
+          maintenanceMode: data.maintenanceMode || false,
+          maintenanceMessage: data.maintenanceMessage || ''
+        })
+        // Reset dirty tracking — form now matches DB, nothing is modified yet.
+        setDirtyFields(new Set())
         if (notifRes.ok) {
-          const data = await notifRes.json()
+          const notifData = await notifRes.json()
           setNotifSettings({
-            notifWaEnabled: data.notifWaEnabled || false,
-            hasNotifWaToken: data.hasNotifWaToken || false,
-            notifWaTokenMasked: data.notifWaTokenMasked || '',
-            notifWaDeviceId: data.notifWaDeviceId || '',
-            notifWaSenderNumber: data.notifWaSenderNumber || '',
-            notifEmailEnabled: data.notifEmailEnabled || false,
-            hasNotifEmailPass: data.hasNotifEmailPass || false,
-            notifEmailPassMasked: data.notifEmailPassMasked || '',
-            notifEmailHost: data.notifEmailHost || '',
-            notifEmailPort: data.notifEmailPort || 587,
-            notifEmailUser: data.notifEmailUser || '',
-            notifEmailFromName: data.notifEmailFromName || ''
+            notifWaEnabled: notifData.notifWaEnabled || false,
+            hasNotifWaToken: notifData.hasNotifWaToken || false,
+            notifWaTokenMasked: notifData.notifWaTokenMasked || '',
+            notifWaDeviceId: notifData.notifWaDeviceId || '',
+            notifWaSenderNumber: notifData.notifWaSenderNumber || '',
+            notifEmailEnabled: notifData.notifEmailEnabled || false,
+            hasNotifEmailPass: notifData.hasNotifEmailPass || false,
+            notifEmailPassMasked: notifData.notifEmailPassMasked || '',
+            notifEmailHost: notifData.notifEmailHost || '',
+            notifEmailPort: notifData.notifEmailPort || 587,
+            notifEmailUser: notifData.notifEmailUser || '',
+            notifEmailFromName: notifData.notifEmailFromName || ''
           })
         }
       } catch (error) {
         console.error('Failed to load settings:', error)
+        setLoadError('Gagal memuat pengaturan karena kesalahan jaringan. Klik "Coba Lagi" untuk memuat ulang.')
       } finally {
         setIsLoading(false)
       }
@@ -157,8 +185,11 @@ export function SettingsView() {
   }
 
   // Toggle driveAutoCreate and auto-save
+  // This only sends { driveAutoCreate } — it does NOT touch any other field,
+  // so it cannot wipe Shared Drive ID / Service Account Key. Safe to auto-save.
   const handleToggleAutoCreate = async (checked: boolean) => {
     setSettings(prev => ({ ...prev, driveAutoCreate: checked }))
+    markDirty('driveAutoCreate')
     try {
       const response = await fetch('/api/settings', {
         method: 'PUT',
@@ -176,23 +207,40 @@ export function SettingsView() {
   }
 
   // Save settings
+  // IMPORTANT: Only send fields the user explicitly modified (dirty fields).
+  // This prevents wiping Drive credentials (Shared Drive ID, Parent Folder ID)
+  // when the form was loaded but the user didn't change those fields —
+  // previously, handleSave always sent driveParentFolderId & driveSharedDriveId
+  // (even empty strings from a failed load), which the backend converted to
+  // null, destroying the stored values. Now, unmodified fields are omitted
+  // entirely so the backend leaves them untouched.
   const handleSave = async () => {
     setIsSaving(true)
     try {
-      const updateData: {
-        driveAutoCreate: boolean
-        driveParentFolderId: string
-        driveSharedDriveId: string
-        driveServiceAccountKey?: string
-      } = {
-        driveAutoCreate: settings.driveAutoCreate,
-        driveParentFolderId: settings.driveParentFolderId,
-        driveSharedDriveId: settings.driveSharedDriveId
+      const updateData: Record<string, unknown> = {}
+
+      // Only include a field if the user actually modified it.
+      // This is the key fix: unmodified fields are NOT sent, so the backend
+      // cannot accidentally overwrite them with empty values.
+      if (dirtyFields.has('driveAutoCreate')) {
+        updateData.driveAutoCreate = settings.driveAutoCreate
+      }
+      if (dirtyFields.has('driveParentFolderId')) {
+        updateData.driveParentFolderId = settings.driveParentFolderId
+      }
+      if (dirtyFields.has('driveSharedDriveId')) {
+        updateData.driveSharedDriveId = settings.driveSharedDriveId
       }
 
-      // Only include service account key if it was changed
+      // Service account key: only sent when the user types a new one.
+      // (Textarea is always empty on load — we never pre-fill secrets.)
       if (serviceAccountKey.trim()) {
         updateData.driveServiceAccountKey = serviceAccountKey
+      }
+
+      if (Object.keys(updateData).length === 0) {
+        showAlert('Tidak ada perubahan untuk disimpan.')
+        return
       }
 
       const response = await fetch('/api/settings', {
@@ -211,9 +259,11 @@ export function SettingsView() {
           hasServiceAccountKey: data.hasServiceAccountKey
         }))
         setServiceAccountKey('')
+        setDirtyFields(new Set())
         showAlert('Pengaturan berhasil disimpan!')
       } else {
-        showAlert('Gagal menyimpan pengaturan')
+        const errData = await response.json().catch(() => ({}))
+        showAlert(errData?.error || 'Gagal menyimpan pengaturan')
       }
     } catch {
       showAlert('Terjadi kesalahan saat menyimpan')
@@ -394,6 +444,37 @@ export function SettingsView() {
         <CardContent className="p-8 text-center">
           <Loader2 className="w-8 h-8 animate-spin text-indigo-600 mx-auto" />
           <p className="text-stone-500 mt-4">Memuat pengaturan...</p>
+        </CardContent>
+      </Card>
+    )
+  }
+
+  // Load-error guard: if GET /api/settings failed, show an error + retry
+  // instead of the editable form. This is the PRIMARY fix for the "Drive
+  // auto-create deactivates itself" bug — previously, a failed load left the
+  // form in its default empty state, and clicking "Save" would overwrite the
+  // real DB values (Shared Drive ID, etc.) with empty strings → null.
+  if (loadError) {
+    return (
+      <Card className="max-w-4xl mx-auto">
+        <CardContent className="p-8 text-center space-y-4">
+          <AlertCircle className="w-12 h-12 text-amber-500 mx-auto" />
+          <h2 className="text-lg font-semibold text-stone-800">Gagal Memuat Pengaturan</h2>
+          <p className="text-stone-600 text-sm max-w-md mx-auto whitespace-pre-line">{loadError}</p>
+          <Button
+            onClick={() => {
+              setIsLoading(true)
+              setLoadError(null)
+              // Re-trigger the load effect by toggling a state the effect depends on.
+              // Since the effect has [] deps, we reload the page section via location.reload()
+              // to keep it simple and reliable.
+              if (typeof window !== 'undefined') window.location.reload()
+            }}
+            className="gap-2"
+          >
+            <Loader2 className="w-4 h-4" />
+            Coba Lagi
+          </Button>
         </CardContent>
       </Card>
     )
@@ -998,9 +1079,10 @@ export function SettingsView() {
             <Input
               id="sharedDrive"
               value={settings.driveSharedDriveId}
-              onChange={(e) =>
+              onChange={(e) => {
                 setSettings(prev => ({ ...prev, driveSharedDriveId: e.target.value }))
-              }
+                markDirty('driveSharedDriveId')
+              }}
               placeholder="Contoh: 0AEd3EhGff9SaUk9PVA"
               className="bg-white"
             />
@@ -1017,9 +1099,10 @@ export function SettingsView() {
               <Input
                 id="parentFolder"
                 value={settings.driveParentFolderId}
-                onChange={(e) =>
+                onChange={(e) => {
                   setSettings(prev => ({ ...prev, driveParentFolderId: e.target.value }))
-                }
+                  markDirty('driveParentFolderId')
+                }}
                 placeholder="Contoh: 1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OEgvA"
                 className="flex-1"
               />
@@ -1071,11 +1154,65 @@ export function SettingsView() {
           </div>
 
           {/* Save Button */}
-          <div className="flex justify-end pt-4 border-t border-stone-100">
+          <div className="flex flex-col sm:flex-row justify-between gap-3 pt-4 border-t border-stone-100">
+            {/* Explicit "Disconnect Drive" — uses forceClear:true so the backend
+                allows clearing the protected fields. This is the ONLY way to
+                intentionally remove the Service Account Key / Shared Drive ID. */}
+            {(settings.hasServiceAccountKey || settings.driveSharedDriveId) && (
+              <Button
+                onClick={async () => {
+                  if (!confirm(
+                    'Yakin ingin MEMUTUSKAN koneksi Google Drive?\n\n' +
+                    'Semua data Drive (Service Account Key, Shared Drive ID, Parent Folder ID) akan dihapus.\n' +
+                    'Proyek baru TIDAK dapat dibuat sampai Drive dikonfigurasi ulang.\n\n' +
+                    'Lanjutkan?'
+                  )) return
+                  setIsSaving(true)
+                  try {
+                    const response = await fetch('/api/settings', {
+                      method: 'PUT',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({
+                        driveServiceAccountKey: '',
+                        driveSharedDriveId: '',
+                        driveParentFolderId: '',
+                        driveAutoCreate: false,
+                        forceClear: true
+                      })
+                    })
+                    if (response.ok) {
+                      const data = await response.json()
+                      setSettings(prev => ({
+                        ...prev,
+                        driveAutoCreate: data.driveAutoCreate,
+                        driveParentFolderId: data.driveParentFolderId,
+                        driveSharedDriveId: data.driveSharedDriveId,
+                        hasServiceAccountKey: data.hasServiceAccountKey
+                      }))
+                      setServiceAccountKey('')
+                      setDirtyFields(new Set())
+                      showAlert('Koneksi Google Drive berhasil diputus.')
+                    } else {
+                      showAlert('Gagal memutuskan koneksi Drive')
+                    }
+                  } catch {
+                    showAlert('Terjadi kesalahan saat memutuskan koneksi')
+                  } finally {
+                    setIsSaving(false)
+                  }
+                }}
+                disabled={isSaving}
+                variant="outline"
+                className="gap-2 text-red-600 border-red-300 hover:bg-red-50"
+              >
+                <XCircle className="w-4 h-4" />
+                Putuskan Koneksi Drive
+              </Button>
+            )}
             <Button
               onClick={handleSave}
               disabled={isSaving}
-              className="bg-indigo-600 hover:bg-indigo-700"
+              className="bg-indigo-600 hover:bg-indigo-700 sm:ml-auto"
             >
               {isSaving ? (
                 <>
