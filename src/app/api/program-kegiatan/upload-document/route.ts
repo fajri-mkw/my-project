@@ -1,140 +1,13 @@
-import { db, ensureDbConnection } from '@/lib/db'
 import { NextRequest, NextResponse } from 'next/server'
 import { checkMaintenanceMode } from '@/lib/maintenance-check'
-import { google } from 'googleapis'
-import { getDriveClient, uploadFileToDrive, getAccessToken, shareWithAnyone } from '@/lib/drive-service'
-
-// Indonesian month names
-const BULAN_INDONESIA = [
-  '01 Januari', '02 Februari', '03 Maret', '04 April',
-  '05 Mei', '06 Juni', '07 Juli', '08 Agustus',
-  '09 September', '10 Oktober', '11 November', '12 Desember'
-]
-
-// Find or create Year > Month > KEGIATAN folder hierarchy
-async function findOrCreateKegiatanMonthFolder(
-  drive: ReturnType<typeof google.drive>,
-  sharedDriveId: string,
-  rootParentId: string,
-  date: Date
-): Promise<string> {
-  const year = date.getFullYear().toString()
-  const monthName = BULAN_INDONESIA[date.getMonth()]
-
-  // Search for Year folder
-  const yearQuery = `name='${year}' and mimeType='application/vnd.google-apps.folder' and trashed=false`
-  const yearResult = await drive.files.list({
-    q: yearQuery,
-    corpora: 'drive',
-    driveId: sharedDriveId,
-    fields: 'files(id, name)',
-    supportsAllDrives: true,
-    includeItemsFromAllDrives: true,
-    pageSize: 10
-  })
-
-  let yearFolderId: string | null = null
-  if (yearResult.data.files) {
-    for (const f of yearResult.data.files) {
-      if (!f.id) continue
-      const parents = await drive.files.get({ fileId: f.id, fields: 'parents', supportsAllDrives: true })
-      const parentList = (parents.data as any).parents || []
-      if (parentList.includes(rootParentId) || parentList.includes(sharedDriveId)) {
-        yearFolderId = f.id
-        break
-      }
-    }
-  }
-
-  if (!yearFolderId) {
-    const yearMetadata: any = {
-      name: year, mimeType: 'application/vnd.google-apps.folder',
-      driveId: sharedDriveId, parents: [rootParentId]
-    }
-    const yearResp = await drive.files.create({ requestBody: yearMetadata, fields: 'id', supportsAllDrives: true })
-    yearFolderId = yearResp.data.id!
-    console.log(`[KEGIATAN DOC] Created Year folder: ${year}`)
-  }
-
-  // Search for Month folder inside Year
-  const monthQuery = `name='${monthName}' and mimeType='application/vnd.google-apps.folder' and trashed=false`
-  const monthResult = await drive.files.list({
-    q: monthQuery,
-    corpora: 'drive',
-    driveId: sharedDriveId,
-    fields: 'files(id, name)',
-    supportsAllDrives: true,
-    includeItemsFromAllDrives: true,
-    pageSize: 10
-  })
-
-  let monthFolderId: string | null = null
-  if (monthResult.data.files) {
-    for (const f of monthResult.data.files) {
-      if (!f.id) continue
-      const parents = await drive.files.get({ fileId: f.id, fields: 'parents', supportsAllDrives: true })
-      const parentList = (parents.data as any).parents || []
-      if (parentList.includes(yearFolderId)) {
-        monthFolderId = f.id
-        break
-      }
-    }
-  }
-
-  if (!monthFolderId) {
-    const monthMetadata: any = {
-      name: monthName, mimeType: 'application/vnd.google-apps.folder',
-      driveId: sharedDriveId, parents: [yearFolderId]
-    }
-    const monthResp = await drive.files.create({ requestBody: monthMetadata, fields: 'id', supportsAllDrives: true })
-    monthFolderId = monthResp.data.id!
-    console.log(`[KEGIATAN DOC] Created Month folder: ${monthName}`)
-  }
-
-  // Search for KEGIATAN folder inside Month
-  const kegiatanQuery = `name='KEGIATAN' and mimeType='application/vnd.google-apps.folder' and trashed=false`
-  const kegiatanResult = await drive.files.list({
-    q: kegiatanQuery,
-    corpora: 'drive',
-    driveId: sharedDriveId,
-    fields: 'files(id, name)',
-    supportsAllDrives: true,
-    includeItemsFromAllDrives: true,
-    pageSize: 10
-  })
-
-  let kegiatanFolderId: string | null = null
-  if (kegiatanResult.data.files) {
-    for (const f of kegiatanResult.data.files) {
-      if (!f.id) continue
-      const parents = await drive.files.get({ fileId: f.id, fields: 'parents', supportsAllDrives: true })
-      const parentList = (parents.data as any).parents || []
-      if (parentList.includes(monthFolderId)) {
-        kegiatanFolderId = f.id
-        break
-      }
-    }
-  }
-
-  if (!kegiatanFolderId) {
-    const kegiatanMetadata: any = {
-      name: 'KEGIATAN', mimeType: 'application/vnd.google-apps.folder',
-      driveId: sharedDriveId, parents: [monthFolderId]
-    }
-    const kegiatanResp = await drive.files.create({ requestBody: kegiatanMetadata, fields: 'id', supportsAllDrives: true })
-    kegiatanFolderId = kegiatanResp.data.id!
-    console.log(`[KEGIATAN DOC] Created KEGIATAN folder in ${monthName} ${year}`)
-  }
-
-  return kegiatanFolderId
-}
-
-// Convert Buffer to Readable stream — REMOVED.
-// File uploads now use uploadFileToDrive (direct fetch + multipart/related).
-// googleapis's stream-based upload fails in Cloudflare Workers with
-// "Missing end boundary in multipart body".
-
-// getDriveClient imported from @/lib/drive-service (robust JSON parser)
+import { uploadFileToDrive, getAccessToken, shareWithAnyone } from '@/lib/drive-service'
+import {
+  readDriveSettings,
+  readKegiatanForUpload,
+  updateKegiatanFields,
+  findOrCreateYearMonthCategoryFolder,
+  createEntityFolder,
+} from '@/lib/drive-helpers'
 
 interface DocumentMeta {
   id: string
@@ -148,12 +21,20 @@ interface DocumentMeta {
   uploadedAt: string
 }
 
-// POST - Upload document to kegiatan's Google Drive folder
+/**
+ * POST /api/program-kegiatan/upload-document
+ *
+ * Upload a document to a kegiatan's Google Drive folder and save metadata.
+ *
+ * ----
+ * IMPLEMENTATION NOTE (Task ID 13):
+ * Rewritten to use libsql + native fetch (was previously using googleapis
+ * + ensureDbConnection, which exceeded the Workers 50-subrequest limit).
+ */
 export async function POST(request: NextRequest) {
   const maintenanceBlock = await checkMaintenanceMode(request)
   if (maintenanceBlock) return maintenanceBlock
   try {
-    await ensureDbConnection()
     const formData = await request.formData()
     const file = formData.get('file') as File | null
     const kegiatanId = formData.get('kegiatanId') as string | null
@@ -163,15 +44,15 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'File dan Kegiatan ID diperlukan' }, { status: 400 })
     }
 
-    // Verify kegiatan exists
-    const kegiatan = await db.programKegiatan.findUnique({ where: { id: kegiatanId } })
+    // Read kegiatan + settings via libsql (1 subrequest each — NO Prisma, NO schema sync)
+    const [kegiatan, settings] = await Promise.all([
+      readKegiatanForUpload(kegiatanId),
+      readDriveSettings(),
+    ])
+
     if (!kegiatan) {
       return NextResponse.json({ error: 'Kegiatan tidak ditemukan' }, { status: 404 })
     }
-
-    // Get settings for Google Drive
-    const settings = await db.settings.findUnique({ where: { id: 'main' } })
-
     if (!settings?.driveServiceAccountKey || !settings?.driveSharedDriveId) {
       return NextResponse.json(
         { error: 'Google Drive belum dikonfigurasi. Hubungi Super Admin.' },
@@ -179,71 +60,35 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    const drive = await getDriveClient(settings.driveServiceAccountKey)
-
     // Determine target folder: use kegiatan's driveFolderId, or create a new one
     let targetFolderId = kegiatan.driveFolderId
+    let driveFolderLink = kegiatan.driveFolderLink
 
     if (!targetFolderId) {
-      // Auto-create folder for this kegiatan inside Year > Month > KEGIATAN structure
+      // Auto-create folder: Year > Month > KEGIATAN > "{perihal} - {date}"
       const kegiatanDate = kegiatan.tanggalKegiatan ? new Date(kegiatan.tanggalKegiatan) : new Date()
       const dateStr = kegiatanDate.toLocaleDateString('id-ID', { day: '2-digit', month: '2-digit', year: 'numeric' })
       const folderName = `${kegiatan.perihal} - ${dateStr}`
 
-      const kegiatanParentFolderId = await findOrCreateKegiatanMonthFolder(
-        drive,
-        settings.driveSharedDriveId,
-        settings.driveParentFolderId || settings.driveSharedDriveId,
-        kegiatanDate
+      const kegiatanParentFolderId = await findOrCreateYearMonthCategoryFolder(
+        settings,
+        'KEGIATAN',
+        kegiatanDate,
       )
+      const folderInfo = await createEntityFolder(settings, folderName, kegiatanParentFolderId)
 
-      const folderMetadata: any = {
-        name: folderName,
-        mimeType: 'application/vnd.google-apps.folder',
-        driveId: settings.driveSharedDriveId,
-        parents: [kegiatanParentFolderId]
-      }
+      targetFolderId = folderInfo.id
+      driveFolderLink = folderInfo.webViewLink
 
-      const folderResponse = await drive.files.create({
-        requestBody: folderMetadata,
-        fields: 'id, webViewLink',
-        supportsAllDrives: true
+      // Persist folder info to the kegiatan row (1 subrequest)
+      await updateKegiatanFields(kegiatanId, {
+        driveFolderId: targetFolderId,
+        driveFolderLink: driveFolderLink,
       })
-
-      targetFolderId = folderResponse.data.id!
-
-      // Share folder with anyone who has the link (reader = can view files inside)
-      try {
-        await drive.permissions.create({
-          fileId: targetFolderId,
-          requestBody: {
-            type: 'anyone',
-            role: 'reader',
-            allowFileDiscovery: false
-          },
-          supportsAllDrives: true
-        })
-      } catch (shareErr) {
-        console.error('[KEGIATAN DOC] Failed to share folder:', shareErr)
-      }
-
-      // Update kegiatan with folder info
-      await db.programKegiatan.update({
-        where: { id: kegiatanId },
-        data: {
-          driveFolderId: targetFolderId,
-          driveFolderLink: folderResponse.data.webViewLink,
-        }
-      })
-
       console.log(`[KEGIATAN DOC] Created folder "${folderName}" (${targetFolderId})`)
     }
 
-    // Upload file to the folder using the RENAMED filename.
-    // IMPORTANT: We use uploadFileToDrive (direct fetch + multipart/related)
-    // instead of drive.files.create({ media: { body: stream } }) because
-    // googleapis's stream-based upload fails in Cloudflare Workers with
-    // "Missing end boundary in multipart body".
+    // Upload file via direct fetch + multipart/related (1 Drive API subrequest)
     const uploadFileName = fileName || file.name
     const fileContent = new Uint8Array(await file.arrayBuffer())
     const fileMime = file.type || 'application/octet-stream'
@@ -262,7 +107,7 @@ export async function POST(request: NextRequest) {
     const driveFileId = driveResponse.id
     console.log(`[KEGIATAN DOC] Upload success: ${driveFileId} — ${driveResponse.name}`)
 
-    // Share file with anyone who has the link (reader) — uses fetch directly
+    // Share file with anyone who has the link (1 Drive API subrequest)
     try {
       const accessToken = await getAccessToken(settings.driveServiceAccountKey)
       await shareWithAnyone(accessToken, driveFileId, 'reader')
@@ -287,27 +132,24 @@ export async function POST(request: NextRequest) {
       uploadedAt: new Date().toISOString(),
     }
 
-    // Save metadata to kegiatan's documents field
+    // Save metadata to kegiatan's documents field (1 DB subrequest)
     const existingDocs: DocumentMeta[] = JSON.parse(kegiatan.documents || '[]')
     existingDocs.push(docMeta)
-
-    await db.programKegiatan.update({
-      where: { id: kegiatanId },
-      data: { documents: JSON.stringify(existingDocs) },
+    await updateKegiatanFields(kegiatanId, {
+      documents: JSON.stringify(existingDocs),
     })
 
     console.log(`[KEGIATAN DOC] Uploaded "${uploadFileName}" for kegiatan ${kegiatan.nomorKegiatan}`)
 
-    // Return updated kegiatan
-    const updatedKegiatan = await db.programKegiatan.findUnique({ where: { id: kegiatanId } })
-
     return NextResponse.json({
       success: true,
       document: docMeta,
-      kegiatan: updatedKegiatan ? {
-        ...updatedKegiatan,
-        documents: JSON.parse(updatedKegiatan.documents || '[]'),
-      } : null,
+      kegiatan: {
+        ...kegiatan,
+        documents: existingDocs,
+        driveFolderId: targetFolderId,
+        driveFolderLink,
+      },
     })
   } catch (error) {
     console.error('[KEGIATAN DOC] Upload error:', error)
@@ -323,7 +165,6 @@ export async function DELETE(request: NextRequest) {
   const maintenanceBlock = await checkMaintenanceMode(request)
   if (maintenanceBlock) return maintenanceBlock
   try {
-    await ensureDbConnection()
     const { searchParams } = new URL(request.url)
     const kegiatanId = searchParams.get('kegiatanId')
     const documentId = searchParams.get('documentId')
@@ -332,7 +173,7 @@ export async function DELETE(request: NextRequest) {
       return NextResponse.json({ error: 'Kegiatan ID dan Document ID diperlukan' }, { status: 400 })
     }
 
-    const kegiatan = await db.programKegiatan.findUnique({ where: { id: kegiatanId } })
+    const kegiatan = await readKegiatanForUpload(kegiatanId)
     if (!kegiatan) {
       return NextResponse.json({ error: 'Kegiatan tidak ditemukan' }, { status: 404 })
     }
@@ -342,22 +183,23 @@ export async function DELETE(request: NextRequest) {
 
     // Remove from array
     const updatedDocs = existingDocs.filter(d => d.id !== documentId)
-
-    await db.programKegiatan.update({
-      where: { id: kegiatanId },
-      data: { documents: JSON.stringify(updatedDocs) },
+    await updateKegiatanFields(kegiatanId, {
+      documents: JSON.stringify(updatedDocs),
     })
 
-    // Delete from Google Drive
+    // Delete from Google Drive via native fetch (best-effort)
     if (docToRemove?.driveFileId) {
       try {
-        const settings = await db.settings.findUnique({ where: { id: 'main' } })
+        const settings = await readDriveSettings()
         if (settings?.driveServiceAccountKey) {
-          const drive = await getDriveClient(settings.driveServiceAccountKey)
-          await drive.files.delete({
-            fileId: docToRemove.driveFileId,
-            supportsAllDrives: true,
-          })
+          const accessToken = await getAccessToken(settings.driveServiceAccountKey)
+          await fetch(
+            `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(docToRemove.driveFileId)}?supportsAllDrives=true`,
+            {
+              method: 'DELETE',
+              headers: { 'Authorization': `Bearer ${accessToken}` },
+            },
+          )
           console.log(`[KEGIATAN DOC] Deleted "${docToRemove.name}" from Drive`)
         }
       } catch (driveErr) {

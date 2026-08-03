@@ -1,13 +1,11 @@
-import { db, ensureDbConnection } from '@/lib/db'
 import { NextRequest, NextResponse } from 'next/server'
 import { checkMaintenanceMode } from '@/lib/maintenance-check'
-import { google } from 'googleapis'
-import { getDriveClient, uploadFileToDrive, getAccessToken, shareWithAnyone } from '@/lib/drive-service'
-
-// Convert Buffer to Readable stream — REMOVED.
-// File uploads now use uploadFileToDrive (direct fetch + multipart/related).
-// googleapis's stream-based upload fails in Cloudflare Workers with
-// "Missing end boundary in multipart body".
+import { uploadFileToDrive, getAccessToken, shareWithAnyone } from '@/lib/drive-service'
+import {
+  readDriveSettings,
+  readProjectForUpload,
+  updateProjectFields,
+} from '@/lib/drive-helpers'
 
 interface DocumentMeta {
   id: string
@@ -19,30 +17,40 @@ interface DocumentMeta {
   uploadedAt: string
 }
 
-// POST - Upload supporting document to Google Drive & save metadata to project
+/**
+ * POST /api/projects/upload-document
+ *
+ * Upload a supporting document to a project's Google Drive folder (uses the
+ * driveParentFolderId or shared drive root — no Year/Month subfolder for
+ * project supporting documents).
+ *
+ * ----
+ * IMPLEMENTATION NOTE (Task ID 13):
+ * Rewritten to use libsql + native fetch (was previously using googleapis
+ * + ensureDbConnection, which exceeded the Workers 50-subrequest limit).
+ */
 export async function POST(request: NextRequest) {
   const maintenanceBlock = await checkMaintenanceMode(request)
   if (maintenanceBlock) return maintenanceBlock
   try {
-    await ensureDbConnection()
     const formData = await request.formData()
     const file = formData.get('file') as File | null
     const projectId = formData.get('projectId') as string | null
-    const documentLabel = formData.get('label') as string | null
+    const _documentLabel = formData.get('label') as string | null
 
     if (!file || !projectId) {
       return NextResponse.json({ error: 'File dan Project ID diperlukan' }, { status: 400 })
     }
 
-    // Verify project exists
-    const project = await db.project.findUnique({ where: { id: projectId } })
+    // Read project + settings via libsql (1 subrequest each — NO Prisma, NO schema sync)
+    const [project, settings] = await Promise.all([
+      readProjectForUpload(projectId),
+      readDriveSettings(),
+    ])
+
     if (!project) {
       return NextResponse.json({ error: 'Proyek tidak ditemukan' }, { status: 404 })
     }
-
-    // Get settings for Google Drive
-    const settings = await db.settings.findUnique({ where: { id: 'main' } })
-
     if (!settings?.driveServiceAccountKey || !settings?.driveSharedDriveId) {
       return NextResponse.json(
         { error: 'Google Drive belum dikonfigurasi. Hubungi Admin.' },
@@ -53,8 +61,7 @@ export async function POST(request: NextRequest) {
     // Determine upload target — either driveParentFolderId or shared drive root
     const targetFolderId = settings.driveParentFolderId || settings.driveSharedDriveId
 
-    // Upload file via direct fetch + multipart/related (bypasses googleapis
-    // stream-based upload that fails in Cloudflare Workers).
+    // Upload file via direct fetch + multipart/related (1 Drive API subrequest)
     const fileContent = new Uint8Array(await file.arrayBuffer())
     const fileMime = file.type || 'application/octet-stream'
 
@@ -67,7 +74,7 @@ export async function POST(request: NextRequest) {
       sharedDriveId: settings.driveSharedDriveId,
     })
 
-    // Share with anyone who has the link (reader) — uses fetch directly
+    // Share with anyone who has the link (reader) — 1 Drive API subrequest
     try {
       const accessToken = await getAccessToken(settings.driveServiceAccountKey)
       await shareWithAnyone(accessToken, driveResponse.id, 'reader')
@@ -86,13 +93,11 @@ export async function POST(request: NextRequest) {
       uploadedAt: new Date().toISOString(),
     }
 
-    // Save metadata to project's documents field
+    // Save metadata to project's documents field (1 DB subrequest)
     const existingDocs: DocumentMeta[] = JSON.parse(project.documents || '[]')
     existingDocs.push(docMeta)
-
-    await db.project.update({
-      where: { id: projectId },
-      data: { documents: JSON.stringify(existingDocs) },
+    await updateProjectFields(projectId, {
+      documents: JSON.stringify(existingDocs),
     })
 
     console.log(`[DOC UPLOAD] Uploaded "${file.name}" for project ${projectId}`)
@@ -115,7 +120,6 @@ export async function DELETE(request: NextRequest) {
   const maintenanceBlock = await checkMaintenanceMode(request)
   if (maintenanceBlock) return maintenanceBlock
   try {
-    await ensureDbConnection()
     const { searchParams } = new URL(request.url)
     const projectId = searchParams.get('projectId')
     const documentId = searchParams.get('documentId')
@@ -124,7 +128,7 @@ export async function DELETE(request: NextRequest) {
       return NextResponse.json({ error: 'Project ID dan Document ID diperlukan' }, { status: 400 })
     }
 
-    const project = await db.project.findUnique({ where: { id: projectId } })
+    const project = await readProjectForUpload(projectId)
     if (!project) {
       return NextResponse.json({ error: 'Proyek tidak ditemukan' }, { status: 404 })
     }
@@ -134,22 +138,23 @@ export async function DELETE(request: NextRequest) {
 
     // Remove from array
     const updatedDocs = existingDocs.filter(d => d.id !== documentId)
-
-    await db.project.update({
-      where: { id: projectId },
-      data: { documents: JSON.stringify(updatedDocs) },
+    await updateProjectFields(projectId, {
+      documents: JSON.stringify(updatedDocs),
     })
 
-    // Optionally delete from Google Drive
+    // Optionally delete from Google Drive via native fetch (best-effort)
     if (docToRemove?.driveFileId) {
       try {
-        const settings = await db.settings.findUnique({ where: { id: 'main' } })
+        const settings = await readDriveSettings()
         if (settings?.driveServiceAccountKey) {
-          const drive = await getDriveClient(settings.driveServiceAccountKey)
-          await drive.files.delete({
-            fileId: docToRemove.driveFileId,
-            supportsAllDrives: true,
-          })
+          const accessToken = await getAccessToken(settings.driveServiceAccountKey)
+          await fetch(
+            `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(docToRemove.driveFileId)}?supportsAllDrives=true`,
+            {
+              method: 'DELETE',
+              headers: { 'Authorization': `Bearer ${accessToken}` },
+            },
+          )
           console.log(`[DOC UPLOAD] Deleted "${docToRemove.name}" from Drive`)
         }
       } catch (driveErr) {
