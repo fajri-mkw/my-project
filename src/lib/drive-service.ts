@@ -159,7 +159,26 @@ export async function getDriveClient(serviceAccountKey: string) {
 
   // Lazy-load googleapis — avoids paying the module-load cost on every
   // request to endpoints that only need getAccessToken/getCachedAccessToken.
-  const { google } = await import('googleapis')
+  //
+  // IMPORTANT: `googleapis` is a CommonJS module. On Cloudflare Workers
+  // (ESM runtime), dynamic `import()` of a CJS module returns a namespace
+  // object where the named exports may NOT be hoisted — only `default` is
+  // guaranteed to contain the module.exports value. So `const { google }`
+  // yields `undefined`, and the subsequent `google.auth.GoogleAuth` throws
+  // "Cannot read properties of undefined (reading 'auth')".
+  //
+  // Fix: access via `.default` fallback to get the real module.exports,
+  // which contains the `google` property. This works for both native ESM
+  // (where `google` is a named export) and CJS-interop (where it lives
+  // under `default`).
+  const mod = await import('googleapis')
+  const googleapis = (mod as unknown as { google?: typeof import('googleapis').google; default?: { google?: typeof import('googleapis').google } })
+  const google = googleapis.google ?? googleapis.default?.google
+  if (!google) {
+    throw new Error(
+      'Gagal memuat modul googleapis. Silakan coba lagi. (Module load failed)'
+    )
+  }
   const auth = new google.auth.GoogleAuth({
     credentials,
     scopes: ['https://www.googleapis.com/auth/drive'],
