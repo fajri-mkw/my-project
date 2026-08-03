@@ -1,6 +1,6 @@
-import { db, ensureDbConnection } from '@/lib/db'
 import { NextRequest, NextResponse } from 'next/server'
 import { checkMaintenanceMode } from '@/lib/maintenance-check'
+import { getLibsql } from '@/lib/libsql-client'
 import {
   getCachedAccessToken,
   checkSharedDriveAccess,
@@ -24,6 +24,46 @@ interface AssignedUser {
   userName: string
   userId: string
   stage: number
+}
+
+// Interface for Drive settings (read via lightweight libsql — no Prisma)
+interface DriveSettings {
+  driveServiceAccountKey: string | null
+  driveSharedDriveId: string | null
+  driveParentFolderId: string | null
+  driveAutoCreate: boolean
+}
+
+/**
+ * Read Drive settings directly via libsql (NO Prisma, NO ensureDbConnection).
+ *
+ * WHY: On Cloudflare Workers free plan, `ensureDbConnection()` →
+ * `ensureSchemaSync()` can run 40+ migration queries on cold starts when the
+ * schema version isn't stored, exhausting the 50-subrequest limit before the
+ * actual work begins. By reading settings via getLibsql() directly (1 HTTP
+ * subrequest), we bypass Prisma + schema sync entirely.
+ *
+ * This mirrors the approach already used by checkMaintenanceMode().
+ */
+async function readDriveSettings(): Promise<DriveSettings | null> {
+  try {
+    const client = getLibsql()
+    const res = await client.execute({
+      sql: `SELECT driveServiceAccountKey, driveSharedDriveId, driveParentFolderId, driveAutoCreate FROM settings WHERE id = 'main' LIMIT 1`,
+      args: [],
+    })
+    if (res.rows.length === 0) return null
+    const row = res.rows[0] as Record<string, unknown>
+    return {
+      driveServiceAccountKey: (row.driveServiceAccountKey as string | null) ?? null,
+      driveSharedDriveId: (row.driveSharedDriveId as string | null) ?? null,
+      driveParentFolderId: (row.driveParentFolderId as string | null) ?? null,
+      driveAutoCreate: Boolean(Number(row.driveAutoCreate ?? 0)),
+    }
+  } catch (error) {
+    console.error('[DRIVE] readDriveSettings error:', error)
+    return null
+  }
 }
 
 // Indonesian month names
@@ -317,7 +357,6 @@ export async function POST(request: NextRequest) {
   const maintenanceBlock = await checkMaintenanceMode(request)
   if (maintenanceBlock) return maintenanceBlock
   try {
-    await ensureDbConnection()
     const body = await request.json()
     const { projectTitle, folderTypes, assignedUsers, folderUserAccess, workerOutputs, workerCustomOutput, executionTime, customFolderDefs } = body as {
       projectTitle: string
@@ -330,10 +369,9 @@ export async function POST(request: NextRequest) {
       customFolderDefs?: Array<{ id: string; name: string; desc?: string }> // user-created custom folders (id starts with "custom-")
     }
 
-    // Get settings
-    const settings = await db.settings.findUnique({
-      where: { id: 'main' }
-    })
+    // Read settings via lightweight libsql (bypasses Prisma + schema sync
+    // to avoid exhausting the Cloudflare Workers subrequest limit)
+    const settings = await readDriveSettings()
 
     // NOTE: Folder creation no longer gated on the `driveAutoCreate` toggle.
     // If a Service Account Key + Shared Drive ID are configured, the manager
@@ -497,16 +535,14 @@ export async function PUT(request: NextRequest) {
   const maintenanceBlock = await checkMaintenanceMode(request)
   if (maintenanceBlock) return maintenanceBlock
   try {
-    await ensureDbConnection()
     const body = await request.json()
     const { folderId, role } = body as {
       folderId: string
       role?: 'reader' | 'writer'
     }
 
-    const settings = await db.settings.findUnique({
-      where: { id: 'main' }
-    })
+    // Read settings via lightweight libsql (bypasses Prisma + schema sync)
+    const settings = await readDriveSettings()
 
     if (!settings?.driveServiceAccountKey) {
       return NextResponse.json({
@@ -540,10 +576,9 @@ export async function GET(request: NextRequest) {
   const maintenanceBlock = await checkMaintenanceMode(request)
   if (maintenanceBlock) return maintenanceBlock
   try {
-    await ensureDbConnection()
-    const settings = await db.settings.findUnique({
-      where: { id: 'main' }
-    })
+    // Read settings via lightweight libsql (bypasses Prisma + schema sync
+    // to avoid exhausting the Cloudflare Workers subrequest limit)
+    const settings = await readDriveSettings()
 
     if (!settings?.driveServiceAccountKey) {
       return NextResponse.json({
