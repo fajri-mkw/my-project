@@ -1,8 +1,14 @@
 import { db, ensureDbConnection } from '@/lib/db'
 import { NextRequest, NextResponse } from 'next/server'
 import { checkMaintenanceMode } from '@/lib/maintenance-check'
-import { google } from 'googleapis'
-import { getDriveClient } from '@/lib/drive-service'
+import {
+  getCachedAccessToken,
+  checkSharedDriveAccess,
+  listFoldersByName,
+  getFileParents,
+  createDriveFolder,
+  shareWithAnyone,
+} from '@/lib/drive-service'
 
 // Interface for folder creation result
 interface CreatedFolder {
@@ -80,31 +86,17 @@ function buildProjectFolderName(projectTitle: string, executionTime?: string): s
 
 // Find or create a category folder inside a parent folder (e.g. PROJECT, SURAT, KEGIATAN)
 async function findOrCreateCategoryFolder(
-  drive: ReturnType<typeof google.drive>,
+  accessToken: string,
   sharedDriveId: string,
   parentFolderId: string,
   categoryName: string
 ): Promise<string> {
-  const query = `name='${categoryName}' and mimeType='application/vnd.google-apps.folder' and trashed=false`
-  const folders = await drive.files.list({
-    q: query,
-    corpora: 'drive',
-    driveId: sharedDriveId,
-    fields: 'files(id, name)',
-    supportsAllDrives: true,
-    includeItemsFromAllDrives: true,
-    pageSize: 10
-  })
+  const folders = await listFoldersByName(accessToken, sharedDriveId, categoryName)
 
-  if (folders.data.files && folders.data.files.length > 0) {
-    for (const f of folders.data.files) {
+  if (folders.length > 0) {
+    for (const f of folders) {
       if (f.id) {
-        const parents = await drive.files.get({
-          fileId: f.id,
-          fields: 'parents',
-          supportsAllDrives: true
-        })
-        const parentList = (parents.data as any).parents || []
+        const parentList = await getFileParents(accessToken, f.id)
         if (parentList.includes(parentFolderId)) {
           console.log(`[DRIVE] Found existing category folder: ${categoryName} (${f.id})`)
           return f.id
@@ -114,7 +106,7 @@ async function findOrCreateCategoryFolder(
   }
 
   // Create if not found
-  const folder = await createFolder(drive, categoryName, parentFolderId, sharedDriveId)
+  const folder = await createFolder(accessToken, categoryName, parentFolderId, sharedDriveId)
   console.log(`[DRIVE] Created category folder: ${categoryName} (${folder.id})`)
   return folder.id
 }
@@ -122,7 +114,7 @@ async function findOrCreateCategoryFolder(
 // Find or create Year > Month folder hierarchy in Google Drive
 // Returns the Month folder ID where the project/surat folder should be placed
 async function findOrCreateYearMonthFolder(
-  drive: ReturnType<typeof google.drive>,
+  accessToken: string,
   sharedDriveId: string,
   rootParentId: string | null,
   date: Date
@@ -131,31 +123,17 @@ async function findOrCreateYearMonthFolder(
   const monthName = BULAN_INDONESIA[date.getMonth()]
 
   // Search for existing Year folder
-  const yearQuery = `name='${year}' and mimeType='application/vnd.google-apps.folder' and trashed=false`
-  const yearFolders = await drive.files.list({
-    q: yearQuery,
-    corpora: 'drive',
-    driveId: sharedDriveId,
-    fields: 'files(id, name)',
-    supportsAllDrives: true,
-    includeItemsFromAllDrives: true,
-    pageSize: 10
-  })
+  const yearFolders = await listFoldersByName(accessToken, sharedDriveId, year)
 
   let yearFolderId: string | null = null
 
   // Find the Year folder that is a direct child of root
-  if (yearFolders.data.files && yearFolders.data.files.length > 0) {
-    for (const f of yearFolders.data.files) {
+  if (yearFolders.length > 0) {
+    for (const f of yearFolders) {
       if (f.id) {
         // Check if this folder's parent matches our root
-        const parents = await drive.files.get({
-          fileId: f.id,
-          fields: 'parents',
-          supportsAllDrives: true
-        })
-        const parentList = (parents.data as any).parents || []
-        if (parentList.includes(rootParentId) || parentList.includes(sharedDriveId)) {
+        const parentList = await getFileParents(accessToken, f.id)
+        if (parentList.includes(rootParentId || '') || parentList.includes(sharedDriveId)) {
           yearFolderId = f.id
           break
         }
@@ -165,7 +143,7 @@ async function findOrCreateYearMonthFolder(
 
   // Create Year folder if not found
   if (!yearFolderId) {
-    const yearFolder = await createFolder(drive, year, rootParentId, sharedDriveId)
+    const yearFolder = await createFolder(accessToken, year, rootParentId, sharedDriveId)
     yearFolderId = yearFolder.id
     console.log(`[DRIVE] Created Year folder: ${year} (${yearFolderId})`)
   } else {
@@ -173,28 +151,14 @@ async function findOrCreateYearMonthFolder(
   }
 
   // Search for existing Month folder inside Year folder
-  const monthQuery = `name='${monthName}' and mimeType='application/vnd.google-apps.folder' and trashed=false`
-  const monthFolders = await drive.files.list({
-    q: monthQuery,
-    corpora: 'drive',
-    driveId: sharedDriveId,
-    fields: 'files(id, name)',
-    supportsAllDrives: true,
-    includeItemsFromAllDrives: true,
-    pageSize: 10
-  })
+  const monthFolders = await listFoldersByName(accessToken, sharedDriveId, monthName)
 
   let monthFolderId: string | null = null
 
-  if (monthFolders.data.files && monthFolders.data.files.length > 0) {
-    for (const f of monthFolders.data.files) {
+  if (monthFolders.length > 0) {
+    for (const f of monthFolders) {
       if (f.id) {
-        const parents = await drive.files.get({
-          fileId: f.id,
-          fields: 'parents',
-          supportsAllDrives: true
-        })
-        const parentList = (parents.data as any).parents || []
+        const parentList = await getFileParents(accessToken, f.id)
         if (parentList.includes(yearFolderId)) {
           monthFolderId = f.id
           break
@@ -205,7 +169,7 @@ async function findOrCreateYearMonthFolder(
 
   // Create Month folder if not found
   if (!monthFolderId) {
-    const monthFolder = await createFolder(drive, monthName, yearFolderId, sharedDriveId)
+    const monthFolder = await createFolder(accessToken, monthName, yearFolderId, sharedDriveId)
     monthFolderId = monthFolder.id
     console.log(`[DRIVE] Created Month folder: ${monthName} (${monthFolderId})`)
   } else {
@@ -215,89 +179,56 @@ async function findOrCreateYearMonthFolder(
   return monthFolderId
 }
 
-// Create Google Drive client from service account — imported from @/lib/drive-service
-// (robust parser handles corrupted/CSV-wrapped keys with literal control chars)
-
 // Create a folder in Google Drive (supports Shared Drives)
+// Wrapper around the native fetch-based createDriveFolder helper.
 async function createFolder(
-  drive: ReturnType<typeof google.drive>,
+  accessToken: string,
   name: string,
   parentId: string | null,
   sharedDriveId?: string | null
 ): Promise<CreatedFolder> {
-  const fileMetadata: {
-    name: string
-    mimeType: string
-    parents?: string[]
-    driveId?: string
-  } = {
+  const result = await createDriveFolder(accessToken, {
     name,
-    mimeType: 'application/vnd.google-apps.folder'
-  }
-  
-  // If we have a shared drive, use it
-  if (sharedDriveId) {
-    fileMetadata.driveId = sharedDriveId
-    if (parentId) {
-      fileMetadata.parents = [parentId]
-    } else {
-      // If no parent, create in root of shared drive
-      fileMetadata.parents = [sharedDriveId]
-    }
-  } else if (parentId) {
-    fileMetadata.parents = [parentId]
-  }
-  
-  const response = await drive.files.create({
-    requestBody: fileMetadata,
-    fields: 'id, name, webViewLink',
-    supportsAllDrives: true // Required for Shared Drives
+    parentId,
+    sharedDriveId: sharedDriveId || '',
   })
-  
+
   return {
-    id: response.data.id!,
-    name: response.data.name!,
-    webViewLink: response.data.webViewLink!,
-    folderId: response.data.id!
+    id: result.id,
+    name: result.name,
+    webViewLink: result.webViewLink,
+    folderId: result.id,
   }
 }
 
 // Share folder with anyone who has the link
 // This allows access WITHOUT requiring a Google account
+// Uses the native fetch-based shareWithAnyone helper (no googleapis needed).
 async function shareWithLink(
-  drive: ReturnType<typeof google.drive>,
+  accessToken: string,
   folderId: string,
   role: 'reader' | 'writer' = 'writer'
 ): Promise<boolean> {
-  try {
-    await drive.permissions.create({
-      fileId: folderId,
-      requestBody: {
-        type: 'anyone',
-        role: role,
-        allowFileDiscovery: false
-      },
-      supportsAllDrives: true
-    })
+  const ok = await shareWithAnyone(accessToken, folderId, role)
+  if (ok) {
     console.log('[DRIVE] Successfully shared folder with link:', folderId)
-    return true
-  } catch (error) {
-    console.error('[DRIVE] Failed to share with link:', error)
-    return false
+  } else {
+    console.error('[DRIVE] Failed to share with link:', folderId)
   }
+  return ok
 }
 
 // Generate user code from name (e.g., "Ahmad Fauzi" -> "AF")
 function generateUserCode(userName: string): string {
   const nameParts = userName.split(' ')
-  return nameParts.length >= 2 
+  return nameParts.length >= 2
     ? (nameParts[0][0] + nameParts[nameParts.length - 1][0]).toUpperCase()
     : userName.substring(0, 2).toUpperCase()
 }
 
 // Create output-type subfolders inside a user's subfolder
 async function createOutputSubfolders(
-  drive: ReturnType<typeof google.drive>,
+  accessToken: string,
   parentFolderId: string,
   parentFolderType: string,
   userSubfolderId: string,
@@ -312,19 +243,19 @@ async function createOutputSubfolders(
     const outputName = outputType === 'Lainnya' && customOutput
       ? customOutput
       : outputType
-    
+
     const outputSubfolder = await createFolder(
-      drive,
+      accessToken,
       outputName,
       parentFolderId,
       sharedDriveId
     )
-    
+
     createdFolders.push({
       ...outputSubfolder,
       folderId: `${userSubfolderId}-output-${i}`
     })
-    
+
     console.log(`[DRIVE] Created output subfolder "${outputName}" inside ${parentFolderType} for ${userName}`)
   }
 }
@@ -333,7 +264,7 @@ async function createOutputSubfolders(
 // Always creates: Parent > AM_Ahmad_Reporter/ > Foto/, Video/, etc.
 // Structure applies to ALL stages (including Fast Track)
 async function createUserSubfolders(
-  drive: ReturnType<typeof google.drive>,
+  accessToken: string,
   parentFolderId: string,
   parentFolderType: string,
   users: AssignedUser[],
@@ -345,29 +276,29 @@ async function createUserSubfolders(
   for (const user of users) {
     const userCode = generateUserCode(user.userName)
     const subfolderName = `${userCode}_${user.userName.replace(/\s+/g, '_')}_${user.role.replace(/\s*&\s*/g, '_')}`
-    
+
     // Always create user-named subfolder first
     const userSubfolder = await createFolder(
-      drive,
+      accessToken,
       subfolderName,
       parentFolderId,
       sharedDriveId
     )
-    
+
     const userSubfolderLogicalId = `${parentFolderType}-${user.role.toLowerCase().replace(/\s*&\s*/g, '-')}-${user.userId}`
-    
+
     createdFolders.push({
       ...userSubfolder,
       folderId: userSubfolderLogicalId
     })
-    
+
     console.log(`[DRIVE] Created user subfolder "${subfolderName}" inside ${parentFolderType} for ${user.userName} (${user.role})`)
 
     // Create output-type subfolders inside user's folder when workerOutputs are defined
     // This applies to ALL stages (including Fast Track)
     if (workerOutputs && workerOutputs[user.userId] && workerOutputs[user.userId].length > 0) {
       await createOutputSubfolders(
-        drive,
+        accessToken,
         userSubfolder.id,
         parentFolderType,
         userSubfolderLogicalId,
@@ -398,7 +329,7 @@ export async function POST(request: NextRequest) {
       executionTime?: string // datetime-local string, e.g. "2026-07-08T14:30" — used to prefix the folder name
       customFolderDefs?: Array<{ id: string; name: string; desc?: string }> // user-created custom folders (id starts with "custom-")
     }
-    
+
     // Get settings
     const settings = await db.settings.findUnique({
       where: { id: 'main' }
@@ -423,45 +354,46 @@ export async function POST(request: NextRequest) {
         details: 'Service Accounts do not have storage quota. Use a Shared Drive instead.'
       }, { status: 400 })
     }
-    
-    const drive = await getDriveClient(settings.driveServiceAccountKey)
-    
+
+    // Use cached access token (native Web Crypto API JWT signing — no googleapis)
+    const accessToken = await getCachedAccessToken(settings.driveServiceAccountKey)
+
     // Find or create Year > Month > PROJECT folder structure based on current date
     const now = new Date()
     const monthFolderId = await findOrCreateYearMonthFolder(
-      drive,
+      accessToken,
       settings.driveSharedDriveId,
       settings.driveParentFolderId || null,
       now
     )
-    
+
     // Find or create PROJECT category folder inside the Month folder
     const projectCategoryFolderId = await findOrCreateCategoryFolder(
-      drive,
+      accessToken,
       settings.driveSharedDriveId,
       monthFolderId,
       'PROJECT'
     )
-    
+
     // Create main project folder INSIDE the PROJECT category folder.
     // Folder name is prefixed with the event date (e.g. "8 Juli 2026 - UM Mandiri 2026")
     // so managers can easily locate folders per event date when retrieving
     // activity evidence and other documentation from Google Drive.
     const folderName = buildProjectFolderName(projectTitle, executionTime)
     const mainFolder = await createFolder(
-      drive,
+      accessToken,
       folderName,
       projectCategoryFolderId,
       settings.driveSharedDriveId
     )
-    
+
     console.log(`[DRIVE] Created project folder "${folderName}" in PROJECT/${BULAN_INDONESIA[now.getMonth()]} ${now.getFullYear()}`)
-    
+
     // Share main folder with anyone who has the link (no Google account required)
     console.log('[DRIVE] Sharing folder with link (anyone with link can edit)...')
-    const linkShared = await shareWithLink(drive, mainFolder.id, 'writer')
+    const linkShared = await shareWithLink(accessToken, mainFolder.id, 'writer')
     console.log('[DRIVE] Link sharing result:', linkShared)
-    
+
     // Create subfolders
     // Standard folder types → predefined names. Custom folders (id starts with
     // "custom-") → use the user-provided name from customFolderDefs.
@@ -505,7 +437,7 @@ export async function POST(request: NextRequest) {
 
       if (folderNameToUse) {
         const subFolder = await createFolder(
-          drive,
+          accessToken,
           folderNameToUse,
           mainFolder.id,
           settings.driveSharedDriveId
@@ -518,7 +450,7 @@ export async function POST(request: NextRequest) {
         // Subfolders inherit permissions from parent, no need to share individually
       }
     }
-    
+
     // Create user subfolders based on folderUserAccess (DL/UL checkboxes from Manager)
     // Siapapun yang dicentang UL di folder mana → dapat subfolder di folder tersebut
     const allUsers = assignedUsers || []
@@ -536,10 +468,10 @@ export async function POST(request: NextRequest) {
 
       if (usersWithUpload.length > 0) {
         console.log(`[DRIVE] Creating subfolders in ${folderType} for UL-checked users:`, usersWithUpload.map(u => u.userName).join(', '))
-        await createUserSubfolders(drive, parentDriveId, folderType, usersWithUpload, settings.driveSharedDriveId, createdFolders, workerOutputs, workerCustomOutput)
+        await createUserSubfolders(accessToken, parentDriveId, folderType, usersWithUpload, settings.driveSharedDriveId, createdFolders, workerOutputs, workerCustomOutput)
       }
     }
-    
+
     return NextResponse.json({
       success: true,
       mainFolder: mainFolder.webViewLink,
@@ -547,13 +479,13 @@ export async function POST(request: NextRequest) {
       folders: createdFolders,
       linkShared: linkShared,
       sharedDriveId: settings.driveSharedDriveId,
-      note: linkShared 
+      note: linkShared
         ? 'Folder dapat diakses oleh siapa saja yang memiliki link. Tidak perlu akun Google.'
         : 'Link sharing gagal. Cek permission Service Account.'
     })
   } catch (error) {
     console.error('Create Drive folders error:', error)
-    return NextResponse.json({ 
+    return NextResponse.json({
       error: 'Failed to create folders',
       details: error instanceof Error ? error.message : 'Unknown error'
     }, { status: 500 })
@@ -571,32 +503,32 @@ export async function PUT(request: NextRequest) {
       folderId: string
       role?: 'reader' | 'writer'
     }
-    
+
     const settings = await db.settings.findUnique({
       where: { id: 'main' }
     })
-    
+
     if (!settings?.driveServiceAccountKey) {
-      return NextResponse.json({ 
+      return NextResponse.json({
         error: 'Service Account not configured'
       }, { status: 400 })
     }
-    
-    const drive = await getDriveClient(settings.driveServiceAccountKey)
-    
+
+    const accessToken = await getCachedAccessToken(settings.driveServiceAccountKey)
+
     // Enable link sharing (works for non-Google accounts too)
-    const linkShared = await shareWithLink(drive, folderId, role || 'writer')
-    
+    const linkShared = await shareWithLink(accessToken, folderId, role || 'writer')
+
     return NextResponse.json({
       success: true,
       linkShared,
-      note: linkShared 
+      note: linkShared
         ? 'Folder dapat diakses oleh siapa saja yang memiliki link.'
         : 'Link sharing gagal.'
     })
   } catch (error) {
     console.error('Share folder error:', error)
-    return NextResponse.json({ 
+    return NextResponse.json({
       error: 'Failed to share folder',
       details: error instanceof Error ? error.message : 'Unknown error'
     }, { status: 500 })
@@ -612,52 +544,41 @@ export async function GET(request: NextRequest) {
     const settings = await db.settings.findUnique({
       where: { id: 'main' }
     })
-    
+
     if (!settings?.driveServiceAccountKey) {
-      return NextResponse.json({ 
+      return NextResponse.json({
         connected: false,
         message: 'Service Account belum dikonfigurasi'
       })
     }
-    
+
     if (!settings.driveSharedDriveId) {
-      return NextResponse.json({ 
+      return NextResponse.json({
         connected: false,
         message: 'Shared Drive ID belum dikonfigurasi. Service Account memerlukan Shared Drive untuk penyimpanan.'
       })
     }
-    
-    const drive = await getDriveClient(settings.driveServiceAccountKey)
-    
-    // Test by checking the shared drive
-    try {
-      await drive.drives.get({
-        driveId: settings.driveSharedDriveId
-      })
-      
-      return NextResponse.json({ 
+
+    // Use cached access token (native Web Crypto API JWT signing — no googleapis)
+    const accessToken = await getCachedAccessToken(settings.driveServiceAccountKey)
+
+    // Test by checking the shared drive via native fetch (1 subrequest)
+    const result = await checkSharedDriveAccess(accessToken, settings.driveSharedDriveId)
+
+    if (result.ok) {
+      return NextResponse.json({
         connected: true,
         message: 'Koneksi Google Drive berhasil. Shared Drive terdeteksi.'
       })
-    } catch {
-      // Try listing files if drives.get fails
-      await drive.files.list({
-        pageSize: 1,
-        fields: 'files(id, name)',
-        corpora: 'drive',
-        driveId: settings.driveSharedDriveId,
-        supportsAllDrives: true,
-        includeItemsFromAllDrives: true
-      })
-      
-      return NextResponse.json({ 
-        connected: true,
-        message: 'Koneksi Google Drive berhasil'
-      })
     }
+
+    return NextResponse.json({
+      connected: false,
+      message: 'Koneksi gagal: ' + (result.error || 'Shared Drive tidak dapat diakses')
+    })
   } catch (error) {
     console.error('Test Drive connection error:', error)
-    return NextResponse.json({ 
+    return NextResponse.json({
       connected: false,
       message: 'Koneksi gagal: ' + (error instanceof Error ? error.message : 'Unknown error')
     })

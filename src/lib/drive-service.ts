@@ -471,6 +471,164 @@ export async function shareWithAnyone(
   }
 }
 
+// ---------------------------------------------------------------------------
+// Native fetch-based Drive API helpers.
+//
+// These replace the equivalent googleapis methods (drive.files.list,
+// drive.files.get, drive.files.create, drive.drives.get) with direct
+// fetch() calls to the Google Drive REST API.
+//
+// Why: The `googleapis` library is a heavy CJS module that makes many
+// internal subrequests (discovery document fetches, auth library retries,
+// etc.) on Cloudflare Workers, frequently hitting the 50-subrequest limit
+// on the free plan ("Too many subrequests by single Worker invocation").
+// By using native fetch + getCachedAccessToken, each operation is exactly
+// 1 subrequest (+ 1 for the OAuth token, cached for 50 min).
+// ---------------------------------------------------------------------------
+
+/**
+ * Check if a Shared Drive is accessible with the given access token.
+ * Used by the "Test Koneksi" button in Settings.
+ *
+ * GET /drive/v3/drives/{driveId}
+ */
+export async function checkSharedDriveAccess(
+  accessToken: string,
+  driveId: string,
+): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const response = await fetch(
+      `https://www.googleapis.com/drive/v3/drives/${encodeURIComponent(driveId)}`,
+      {
+        method: 'GET',
+        headers: { 'Authorization': `Bearer ${accessToken}` },
+      },
+    )
+    if (response.ok) return { ok: true }
+    const errText = await response.text().catch(() => '')
+    return {
+      ok: false,
+      error: `HTTP ${response.status}: ${errText.substring(0, 200)}`,
+    }
+  } catch (err) {
+    return {
+      ok: false,
+      error: err instanceof Error ? err.message : String(err),
+    }
+  }
+}
+
+/**
+ * List files/folders in a Shared Drive matching a name query.
+ *
+ * GET /drive/v3/files?q=...&corpora=drive&driveId=...
+ */
+export async function listFoldersByName(
+  accessToken: string,
+  driveId: string,
+  name: string,
+): Promise<Array<{ id: string; name: string }>> {
+  const q = `name='${name.replace(/'/g, "\\'")}' and mimeType='application/vnd.google-apps.folder' and trashed=false`
+  const params = new URLSearchParams({
+    q,
+    corpora: 'drive',
+    driveId,
+    fields: 'files(id, name)',
+    supportsAllDrives: 'true',
+    includeItemsFromAllDrives: 'true',
+    pageSize: '10',
+  })
+  const response = await fetch(
+    `https://www.googleapis.com/drive/v3/files?${params}`,
+    {
+      method: 'GET',
+      headers: { 'Authorization': `Bearer ${accessToken}` },
+    },
+  )
+  if (!response.ok) {
+    const errText = await response.text().catch(() => '')
+    throw new Error(`Drive list failed (HTTP ${response.status}): ${errText.substring(0, 200)}`)
+  }
+  const data = await response.json()
+  return (data.files || []) as Array<{ id: string; name: string }>
+}
+
+/**
+ * Get the parent folder IDs of a file/folder.
+ *
+ * GET /drive/v3/files/{fileId}?fields=parents&supportsAllDrives=true
+ */
+export async function getFileParents(
+  accessToken: string,
+  fileId: string,
+): Promise<string[]> {
+  const params = new URLSearchParams({
+    fields: 'parents',
+    supportsAllDrives: 'true',
+  })
+  const response = await fetch(
+    `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(fileId)}?${params}`,
+    {
+      method: 'GET',
+      headers: { 'Authorization': `Bearer ${accessToken}` },
+    },
+  )
+  if (!response.ok) {
+    return []
+  }
+  const data = await response.json()
+  return (data.parents || []) as string[]
+}
+
+/**
+ * Create a folder in Google Drive (supports Shared Drives).
+ *
+ * POST /drive/v3/files
+ */
+export async function createDriveFolder(accessToken: string, params: {
+  name: string
+  parentId: string | null
+  sharedDriveId: string
+}): Promise<{ id: string; name: string; webViewLink: string }> {
+  const { name, parentId, sharedDriveId } = params
+  const fileMetadata: Record<string, unknown> = {
+    name,
+    mimeType: 'application/vnd.google-apps.folder',
+  }
+  if (sharedDriveId) {
+    fileMetadata.driveId = sharedDriveId
+    fileMetadata.parents = parentId ? [parentId] : [sharedDriveId]
+  } else if (parentId) {
+    fileMetadata.parents = [parentId]
+  }
+
+  const urlParams = new URLSearchParams({
+    fields: 'id, name, webViewLink',
+    supportsAllDrives: 'true',
+  })
+  const response = await fetch(
+    `https://www.googleapis.com/drive/v3/files?${urlParams}`,
+    {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${accessToken}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(fileMetadata),
+    },
+  )
+  if (!response.ok) {
+    const errText = await response.text().catch(() => '')
+    throw new Error(`Drive create folder failed (HTTP ${response.status}): ${errText.substring(0, 200)}`)
+  }
+  const data = await response.json()
+  return {
+    id: data.id,
+    name: data.name,
+    webViewLink: data.webViewLink || `https://drive.google.com/drive/folders/${data.id}`,
+  }
+}
+
 /**
  * Upload a file to Google Drive using the multipart/related upload method
  * via direct fetch(). This bypasses googleapis's stream-based multipart
