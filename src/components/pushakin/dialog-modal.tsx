@@ -26,7 +26,7 @@ export function DialogModal() {
           <AlertDialogTitle className="text-center">
             {dialog.type === 'confirm' ? 'Konfirmasi' : 'Informasi'}
           </AlertDialogTitle>
-          <AlertDialogDescription className="text-center">
+          <AlertDialogDescription className="text-center whitespace-pre-line">
             {dialog.message}
           </AlertDialogDescription>
         </AlertDialogHeader>

@@ -8,11 +8,11 @@ import { ScrollArea } from '@/components/ui/scroll-area'
 import { Separator } from '@/components/ui/separator'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { useAppStore, STAGES, type Surat, getRoleDisplayName } from '@/lib/store'
-import { 
-  Inbox, 
-  Clock, 
-  MapPin, 
-  User, 
+import {
+  Inbox,
+  Clock,
+  MapPin,
+  User,
   Building2,
   Calendar,
   Phone,
@@ -28,7 +28,8 @@ import {
   ClipboardList,
   MailCheck,
   Maximize2,
-  Minimize2
+  Minimize2,
+  Trash2
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog'
@@ -64,7 +65,7 @@ interface ActivityDetail {
 }
 
 export function InboxView() {
-  const { currentUser, setActiveView, setSelectedProjectId, markSuratRead, suratList, permohonanList, showAlert, setPreFillFromPermohonan, setPreFillFromSurat, updateSurat, updatePermohonan } = useAppStore()
+  const { currentUser, setActiveView, setSelectedProjectId, markSuratRead, suratList, permohonanList, showAlert, showConfirm, setPreFillFromPermohonan, setPreFillFromSurat, updateSurat, updatePermohonan, deleteSurat, deletePermohonan, deleteProject } = useAppStore()
   const [activityList, setActivityList] = useState<ActivityDetail[]>([])
   const [selectedActivity, setSelectedActivity] = useState<ActivityDetail | null>(null)
   const [loading, setLoading] = useState(true)
@@ -214,6 +215,50 @@ export function InboxView() {
       if (res.ok) return res.json().then(data => { updatePermohonan(data); setIsRejectDialogOpen(false); setRejectReason(''); setSelectedSurat(null); showAlert('Permohonan ditolak') })
       else return res.json().then(err => showAlert(err.error || 'Gagal'))
     }).catch(() => showAlert('Terjadi kesalahan')).finally(() => setIsSaving(false))
+  }
+
+  // Delete an inbox item (surat or old permohonan). Also removes the associated
+  // project when one exists so the manager is not left with orphaned/bad data.
+  const handleDeleteInboxItem = (item: { type: 'surat' | 'permohonan'; data: any }) => {
+    const { type, data } = item
+    const label = type === 'surat' ? (data.perihal || 'surat') : (data.title || 'permohonan')
+    const hasProject = !!data.projectId
+    const message = hasProject
+      ? `Yakin ingin menghapus "${label}"?\n\nPermohonan ini sudah memiliki proyek terkait. Proyek beserta seluruh tugasnya juga akan dihapus permanen dan tidak dapat dikembalikan.`
+      : `Yakin ingin menghapus "${label}"?\n\nItem akan dihapus permanen dari inbox dan tidak dapat dikembalikan.`
+    showConfirm(message, async () => {
+      try {
+        const endpoint = type === 'surat' ? '/api/surat' : '/api/permohonan'
+        const res = await fetch(`${endpoint}?id=${data.id}`, { method: 'DELETE' })
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}))
+          showAlert(err.error || 'Gagal menghapus item')
+          return
+        }
+        const body = await res.json().catch(() => ({}))
+
+        // Remove from local store
+        if (type === 'surat') {
+          deleteSurat(data.id)
+        } else {
+          deletePermohonan(data.id)
+        }
+
+        // Clean up associated project if it existed and wasn't already removed by backend
+        const projectIdToClean = body.deletedProjectId || data.projectId
+        if (projectIdToClean) {
+          // Only call projects DELETE if backend didn't already report deleting it
+          if (!body.deletedProjectId) {
+            await fetch(`/api/projects?id=${projectIdToClean}`, { method: 'DELETE' }).catch(() => {})
+          }
+          deleteProject(projectIdToClean)
+        }
+
+        showAlert('Item berhasil dihapus')
+      } catch {
+        showAlert('Terjadi kesalahan saat menghapus')
+      }
+    })
   }
 
   const formatDateTime = (dateString: string) => {
@@ -590,6 +635,11 @@ export function InboxView() {
                                   </Button>
                                 </>
                               )}
+                              <div className="h-px bg-stone-200 my-0.5" />
+                              <Button variant="ghost" size="sm" onClick={() => handleDeleteInboxItem({ type: 'surat', data: s })} className="text-stone-400 hover:text-red-600 hover:bg-red-50 gap-1 text-xs">
+                                <Trash2 className="w-3.5 h-3.5" />
+                                Hapus
+                              </Button>
                             </div>
                           </div>
                         </CardContent>
@@ -622,6 +672,11 @@ export function InboxView() {
                               <Button variant="ghost" size="sm" onClick={() => { setSelectedSurat(p); setSelectedSuratType('permohonan'); setRejectReason(''); setIsRejectDialogOpen(true) }} className="text-red-500 hover:text-red-600 hover:bg-red-50 gap-1 text-xs">
                                 <XCircle className="w-3.5 h-3.5" />
                                 Tolak
+                              </Button>
+                              <div className="h-px bg-stone-200 my-0.5" />
+                              <Button variant="ghost" size="sm" onClick={() => handleDeleteInboxItem({ type: 'permohonan', data: p })} className="text-stone-400 hover:text-red-600 hover:bg-red-50 gap-1 text-xs">
+                                <Trash2 className="w-3.5 h-3.5" />
+                                Hapus
                               </Button>
                             </div>
                           </div>

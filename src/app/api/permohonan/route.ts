@@ -229,17 +229,30 @@ export async function DELETE(request: NextRequest) {
       return NextResponse.json({ error: 'Permohonan ID required' }, { status: 400 })
     }
 
-    // Only allow deleting pending permohonan
+    // Allow deleting pending (by Admin) or forwarded (by Manager from inbox) permohonan
     const permohonan = await db.permohonan.findUnique({ where: { id } })
     if (!permohonan) {
       return NextResponse.json({ error: 'Permohonan not found' }, { status: 404 })
     }
-    if (permohonan.status !== 'pending') {
-      return NextResponse.json({ error: 'Hanya permohonan dengan status pending yang dapat dihapus' }, { status: 400 })
+    if (permohonan.status !== 'pending' && permohonan.status !== 'forwarded') {
+      return NextResponse.json(
+        { error: 'Hanya permohonan dengan status pending atau forwarded yang dapat dihapus' },
+        { status: 400 },
+      )
     }
 
+    // If the permohonan already has an associated project, clean it up too so the
+    // manager is not left with an orphaned project containing bad data.
+    const deletedProjectId = permohonan.projectId
     await db.permohonan.delete({ where: { id } })
-    return NextResponse.json({ success: true })
+    if (deletedProjectId) {
+      try {
+        await db.project.delete({ where: { id: deletedProjectId } })
+      } catch {
+        // Project may already be gone; ignore
+      }
+    }
+    return NextResponse.json({ success: true, deletedProjectId })
   } catch (error) {
     console.error('Delete permohonan error:', error)
     return NextResponse.json({ error: 'Failed to delete permohonan' }, { status: 500 })
