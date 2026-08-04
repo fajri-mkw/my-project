@@ -41,7 +41,7 @@ import {
   PencilLine,
   Check
 } from 'lucide-react'
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useCallback } from 'react'
 import { cn } from '@/lib/utils'
 import {
   formatTanggalIndonesia,
@@ -95,18 +95,54 @@ export function DashboardView() {
   const isSuperAdmin = currentUser?.role === 'Admin'
   const isManager = currentUser?.role === 'Manager'
 
+  // ============================================================================
+  // "Tugas Saya" (My Tasks) membership helper.
+  //
+  // For regular users (Manager, Production staff, etc.), a project is "mine" if
+  //   - a task in the project is assigned to them, OR
+  //   - they are the project's manager.
+  //
+  // For Super Admin (role='Admin'), ALL projects are "mine" because they oversee
+  // the entire production pipeline. Without this special case, Super Admin would
+  // always see "Tugas Saya 0" — which is technically correct (they have no tasks
+  // assigned directly) but confusing/buggy from a UX perspective, since they
+  // are responsible for every project. (User-reported bug: "filter tugas saya
+  // menjadi kosong".)
+  // ============================================================================
+  const isProjectMine = useCallback((p: typeof projects[number]): boolean => {
+    if (isSuperAdmin) return true
+    return (
+      p.tasks.some(t => t.assignedTo === currentUser?.id) ||
+      p.managerId === currentUser?.id
+    )
+  }, [isSuperAdmin, currentUser])
+
+  const isMyPendingProject = useCallback((p: typeof projects[number]): boolean => {
+    if (isSuperAdmin) return p.currentStage !== 5
+    return p.tasks.some(t =>
+      t.assignedTo === currentUser?.id && t.status !== 'completed'
+    )
+  }, [isSuperAdmin, currentUser])
+
+  const isMyCompletedProject = useCallback((p: typeof projects[number]): boolean => {
+    if (isSuperAdmin) return p.currentStage === 5
+    return (
+      p.tasks.some(t => t.assignedTo === currentUser?.id && t.status === 'completed') &&
+      !p.tasks.some(t => t.assignedTo === currentUser?.id && t.status !== 'completed')
+    )
+  }, [isSuperAdmin, currentUser])
+
   // Count pending forwarded permohonan/surat for Manager
   const pendingForwardedCount = isManager
     ? suratList.filter(s => s.managerId === currentUser.id && s.status === 'diteruskan' && s.kategori === 'Permohonan').length
       + permohonanList.filter(p => p.status === 'forwarded' && p.managerId === currentUser.id).length
     : 0
-  
-  // Compute "my projects" count for the filter badge
+
+  // Compute "my projects" count for the filter badge.
+  // For Super Admin, this is ALL projects (they oversee everything).
+  // For everyone else, this is projects where they have a task assigned or are the manager.
   const myProjectsCount = currentUser
-    ? projects.filter(p => 
-        p.tasks.some(t => t.assignedTo === currentUser.id) || 
-        p.managerId === currentUser.id
-      ).length
+    ? projects.filter(isProjectMine).length
     : 0
 
   // Compute counts for "Semua Proyek" filter group
@@ -114,43 +150,38 @@ export function DashboardView() {
   const pendingProjectsCount = projects.filter(p => p.currentStage !== 5).length
   const completedProjectsCount = projects.filter(p => p.currentStage === 5).length
 
-  // Compute my pending/completed task counts for the task status filter
+  // Compute my pending/completed task counts for the task status sub-filter.
+  // For Super Admin, these mirror the global pending/completed counts (since
+  // they oversee everything). For everyone else, they reflect tasks assigned
+  // specifically to the current user.
   const myPendingCount = useMemo(() => {
     if (!currentUser) return 0
-    return projects.filter(p => 
-      p.tasks.some(t => t.assignedTo === currentUser.id && t.status !== 'completed')
-    ).length
-  }, [currentUser, projects])
+    return projects.filter(isMyPendingProject).length
+  }, [currentUser, projects, isMyPendingProject])
 
   const myCompletedCount = useMemo(() => {
     if (!currentUser) return 0
-    return projects.filter(p => 
-      p.tasks.some(t => t.assignedTo === currentUser.id && t.status === 'completed') &&
-      !p.tasks.some(t => t.assignedTo === currentUser.id && t.status !== 'completed')
-    ).length
-  }, [currentUser, projects])
+    return projects.filter(isMyCompletedProject).length
+  }, [currentUser, projects, isMyCompletedProject])
 
   // Filter projects based on selected filter, then apply the user-selected sort.
   // The sort field/order are user-controllable via the "Urutkan" dropdown.
+  //
+  // NOTE: For Super Admin, "Tugas Saya" (projectFilter='mine') shows ALL projects
+  // because they oversee the entire production pipeline. The status sub-filter
+  // then filters by project.currentStage (5 = completed, else pending). For
+  // non-admin users, the sub-filter filters by their personally-assigned task
+  // status (which is the original behavior).
   const visibleProjects = useMemo(() => {
     const applySort = (arr: typeof projects) => [...arr].sort(sortComparator)
 
     if (projectFilter === 'mine' && currentUser) {
-      let filtered: typeof projects
-      filtered = projects.filter(p => 
-        p.tasks.some(t => t.assignedTo === currentUser.id) || 
-        p.managerId === currentUser.id
-      )
+      let filtered = projects.filter(isProjectMine)
       // Apply task status sub-filter when in "mine" mode
       if (taskStatusFilter === 'pending') {
-        filtered = filtered.filter(p => 
-          p.tasks.some(t => t.assignedTo === currentUser.id && t.status !== 'completed')
-        )
+        filtered = filtered.filter(isMyPendingProject)
       } else if (taskStatusFilter === 'completed') {
-        filtered = filtered.filter(p => 
-          p.tasks.some(t => t.assignedTo === currentUser.id && t.status === 'completed') &&
-          !p.tasks.some(t => t.assignedTo === currentUser.id && t.status !== 'completed')
-        )
+        filtered = filtered.filter(isMyCompletedProject)
       }
       return applySort(filtered)
     } else {
@@ -162,7 +193,7 @@ export function DashboardView() {
       }
       return applySort(projects)
     }
-  }, [projectFilter, taskStatusFilter, projectStatusFilter, currentUser, projects, sortComparator])
+  }, [projectFilter, taskStatusFilter, projectStatusFilter, currentUser, projects, sortComparator, isProjectMine, isMyPendingProject, isMyCompletedProject])
 
   const handleDeleteProject = (projectId: string) => {
     showConfirm(
@@ -539,11 +570,17 @@ export function DashboardView() {
             </h3>
             <p className="text-slate-500">
               {projectFilter === 'mine' && taskStatusFilter === 'pending'
-                ? 'Semua tugas Anda sudah selesai dikerjakan. Bagus!'
+                ? (isSuperAdmin
+                    ? 'Semua proyek sudah selesai dikerjakan.'
+                    : 'Semua tugas Anda sudah selesai dikerjakan. Bagus!')
                 : projectFilter === 'mine' && taskStatusFilter === 'completed'
-                ? 'Belum ada tugas yang selesai Anda kerjakan.'
+                ? (isSuperAdmin
+                    ? 'Belum ada proyek yang telah selesai semua tahapannya.'
+                    : 'Belum ada tugas yang selesai Anda kerjakan.')
                 : projectFilter === 'mine'
-                ? 'Saat ini tidak ada proyek yang ditugaskan kepada Anda. Coba lihat semua proyek.'
+                ? (isSuperAdmin
+                    ? 'Belum ada proyek dalam sistem.'
+                    : 'Saat ini tidak ada proyek yang ditugaskan kepada Anda. Coba lihat semua proyek.')
                 : projectFilter === 'all' && projectStatusFilter === 'pending'
                 ? 'Semua proyek sudah selesai dikerjakan.'
                 : projectFilter === 'all' && projectStatusFilter === 'completed'
