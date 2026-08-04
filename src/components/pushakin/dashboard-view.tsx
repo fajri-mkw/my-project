@@ -13,11 +13,11 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import { useAppStore, STAGES, ROLE_CONFIG, getRoleDisplayName } from '@/lib/store'
-import { 
-  Plus, 
-  LayoutGrid, 
-  List, 
-  FolderKanban, 
+import {
+  Plus,
+  LayoutGrid,
+  List,
+  FolderKanban,
   Trash2,
   CheckCircle2,
   XCircle,
@@ -33,11 +33,30 @@ import {
   UserCheck,
   CircleCheckBig,
   CircleDot,
-  Filter
+  Filter,
+  ArrowDownUp,
+  ArrowDownNarrowWide,
+  ArrowUpNarrowWide,
+  CalendarClock,
+  PencilLine,
+  Check
 } from 'lucide-react'
 import { useState, useMemo } from 'react'
 import { cn } from '@/lib/utils'
-import { formatTanggalIndonesia, sortByRecent } from '@/lib/date-utils'
+import {
+  formatTanggalIndonesia,
+  getProjectSortComparator,
+  type ProjectSortField,
+  type ProjectSortOrder,
+} from '@/lib/date-utils'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuLabel,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
 
 // Stage gradient colors - Purple, Blue, Orange theme
 const STAGE_GRADIENTS: Record<number, { from: string; to: string; border: string; text: string; bg: string; dot: string }> = {
@@ -60,6 +79,17 @@ export function DashboardView() {
   const [projectFilter, setProjectFilter] = useState<'mine' | 'all'>('mine')
   const [taskStatusFilter, setTaskStatusFilter] = useState<'all' | 'pending' | 'completed'>('pending')
   const [projectStatusFilter, setProjectStatusFilter] = useState<'all' | 'pending' | 'completed'>('all')
+  // Sort: by date modified (updatedAt) or execution time (tanggal pelaksanaan);
+  // order: newest-first (desc) or oldest-first (asc). Defaults match the prior
+  // hardcoded behavior (sortByRecent = modified DESC).
+  const [sortField, setSortField] = useState<ProjectSortField>('modified')
+  const [sortOrder, setSortOrder] = useState<ProjectSortOrder>('desc')
+  const sortComparator = useMemo(
+    () => getProjectSortComparator(sortField, sortOrder),
+    [sortField, sortOrder],
+  )
+  const sortFieldLabel = sortField === 'modified' ? 'Tanggal Modifikasi' : 'Tanggal Pelaksanaan'
+  const sortOrderLabel = sortOrder === 'desc' ? 'Terbaru → Terlama' : 'Terlama → Terbaru'
   
   const canManageProject = currentUser ? ['Manager', 'Admin'].includes(currentUser.role) : false
   const isSuperAdmin = currentUser?.role === 'Admin'
@@ -100,11 +130,10 @@ export function DashboardView() {
     ).length
   }, [currentUser, projects])
 
-  // Filter projects based on selected filter
+  // Filter projects based on selected filter, then apply the user-selected sort.
+  // The sort field/order are user-controllable via the "Urutkan" dropdown.
   const visibleProjects = useMemo(() => {
-    // Stable sort: most recently modified first (updatedAt DESC, fallback createdAt DESC).
-    // This mirrors the API's ORDER BY and keeps newly-created/updated projects on top
-    // even when the client-side store appends them via addProject/updateProject.
+    const applySort = (arr: typeof projects) => [...arr].sort(sortComparator)
 
     if (projectFilter === 'mine' && currentUser) {
       let filtered: typeof projects
@@ -123,17 +152,17 @@ export function DashboardView() {
           !p.tasks.some(t => t.assignedTo === currentUser.id && t.status !== 'completed')
         )
       }
-      return [...filtered].sort(sortByRecent)
+      return applySort(filtered)
     } else {
       // projectFilter === 'all' — "Semua Project Pushakin" group
       if (projectStatusFilter === 'pending') {
-        return [...projects.filter(p => p.currentStage !== 5)].sort(sortByRecent)
+        return applySort(projects.filter(p => p.currentStage !== 5))
       } else if (projectStatusFilter === 'completed') {
-        return [...projects.filter(p => p.currentStage === 5)].sort(sortByRecent)
+        return applySort(projects.filter(p => p.currentStage === 5))
       }
-      return [...projects].sort(sortByRecent)
+      return applySort(projects)
     }
-  }, [projectFilter, taskStatusFilter, projectStatusFilter, currentUser, projects])
+  }, [projectFilter, taskStatusFilter, projectStatusFilter, currentUser, projects, sortComparator])
 
   const handleDeleteProject = (projectId: string) => {
     showConfirm(
@@ -408,6 +437,75 @@ export function DashboardView() {
               </Button>
             </div>
           )}
+
+          {/* Sort Dropdown — lets the user pick how projects are ordered.
+              Two axes: sort FIELD (modified vs execution time) and sort ORDER
+              (newest-first vs oldest-first). Default mirrors prior hardcoded
+              behavior (modified DESC = newest first). */}
+          <div className="flex flex-col gap-1">
+            <span className="text-[10px] font-bold text-violet-700 uppercase tracking-wider px-1 flex items-center gap-1">
+              <ArrowDownUp className="w-3 h-3" />
+              Urutkan
+            </span>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="gap-1.5 bg-white border-slate-200 hover:bg-slate-50 hover:border-slate-300 h-9"
+                >
+                  {sortField === 'modified'
+                    ? <PencilLine className="w-4 h-4 text-violet-600" />
+                    : <CalendarClock className="w-4 h-4 text-violet-600" />}
+                  <span className="hidden sm:inline">{sortFieldLabel}</span>
+                  {sortOrder === 'desc'
+                    ? <ArrowDownNarrowWide className="w-4 h-4 text-slate-500" />
+                    : <ArrowUpNarrowWide className="w-4 h-4 text-slate-500" />}
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-64">
+                <DropdownMenuLabel className="text-xs text-slate-500">
+                  Urutkan berdasarkan
+                </DropdownMenuLabel>
+                <DropdownMenuItem
+                  onClick={() => setSortField('modified')}
+                  className="gap-2 cursor-pointer"
+                >
+                  <PencilLine className="w-4 h-4 text-violet-600" />
+                  <span className="flex-1">Tanggal Modifikasi</span>
+                  {sortField === 'modified' && <Check className="w-4 h-4 text-violet-600" />}
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  onClick={() => setSortField('execution')}
+                  className="gap-2 cursor-pointer"
+                >
+                  <CalendarClock className="w-4 h-4 text-violet-600" />
+                  <span className="flex-1">Tanggal Pelaksanaan</span>
+                  {sortField === 'execution' && <Check className="w-4 h-4 text-violet-600" />}
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuLabel className="text-xs text-slate-500">
+                  Arah urutan
+                </DropdownMenuLabel>
+                <DropdownMenuItem
+                  onClick={() => setSortOrder('desc')}
+                  className="gap-2 cursor-pointer"
+                >
+                  <ArrowDownNarrowWide className="w-4 h-4 text-slate-600" />
+                  <span className="flex-1">Terbaru → Terlama</span>
+                  {sortOrder === 'desc' && <Check className="w-4 h-4 text-violet-600" />}
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  onClick={() => setSortOrder('asc')}
+                  className="gap-2 cursor-pointer"
+                >
+                  <ArrowUpNarrowWide className="w-4 h-4 text-slate-600" />
+                  <span className="flex-1">Terlama → Terbaru</span>
+                  {sortOrder === 'asc' && <Check className="w-4 h-4 text-violet-600" />}
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
         </div>
 
         {canManageProject && (

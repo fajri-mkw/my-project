@@ -83,3 +83,100 @@ export function sortByRecent<T extends { updatedAt?: string; createdAt?: string 
   const bTime = new Date(b.updatedAt || b.createdAt || 0).getTime()
   return bTime - aTime
 }
+
+// ---------------------------------------------------------------------------
+// User-selectable sort comparators (Task ID 14)
+//
+// The dashboard now exposes a "Urutkan" dropdown so users can pick how the
+// project list is ordered. These four comparators cover every combination of:
+//
+//   sortField:  'modified'    → tanggal modifikasi (updatedAt + createdAt fallback)
+//               'execution'   → tanggal pelaksanaan (executionTime)
+//   sortOrder:  'desc'        → terbaru → terlama
+//               'asc'         → terlama → terbaru
+//
+// All comparators are NULL-safe: items with a missing date field are pushed
+// to the end of the list regardless of sort direction (they sort as 0 epoch
+// → earliest possible time → last in DESC, first in ASC). This matches what
+// users expect — a project with no execution time shouldn't appear above
+// projects that DO have a real execution time when sorting newest-first.
+//
+// Ties are broken by updatedAt DESC (so projects with the same executionTime
+// are still stably ordered by recent activity).
+// ---------------------------------------------------------------------------
+
+/**
+ * Sort by date modified (updatedAt), newest first.
+ */
+export function sortByModifiedDesc<
+  T extends { updatedAt?: string; createdAt?: string },
+>(a: T, b: T): number {
+  const aTime = new Date(a.updatedAt || a.createdAt || 0).getTime()
+  const bTime = new Date(b.updatedAt || b.createdAt || 0).getTime()
+  return bTime - aTime
+}
+
+/**
+ * Sort by date modified (updatedAt), oldest first.
+ */
+export function sortByModifiedAsc<
+  T extends { updatedAt?: string; createdAt?: string },
+>(a: T, b: T): number {
+  const aTime = new Date(a.updatedAt || a.createdAt || 0).getTime()
+  const bTime = new Date(b.updatedAt || b.createdAt || 0).getTime()
+  return aTime - bTime
+}
+
+/**
+ * Sort by execution time (tanggal pelaksanaan), newest first.
+ * Ties broken by updatedAt DESC.
+ */
+export function sortByExecutionDesc<
+  T extends { executionTime?: string | null; updatedAt?: string; createdAt?: string },
+>(a: T, b: T): number {
+  const aExec = a.executionTime ? new Date(a.executionTime).getTime() : 0
+  const bExec = b.executionTime ? new Date(b.executionTime).getTime() : 0
+  if (aExec !== bExec) return bExec - aExec
+  // Tie-breaker: most recently modified first
+  const aMod = new Date(a.updatedAt || a.createdAt || 0).getTime()
+  const bMod = new Date(b.updatedAt || b.createdAt || 0).getTime()
+  return bMod - aMod
+}
+
+/**
+ * Sort by execution time (tanggal pelaksanaan), oldest first.
+ * Ties broken by updatedAt DESC.
+ * Projects with no executionTime are pushed to the END (treated as far future
+ * so they sort last in ascending order).
+ */
+export function sortByExecutionAsc<
+  T extends { executionTime?: string | null; updatedAt?: string; createdAt?: string },
+>(a: T, b: T): number {
+  const aExec = a.executionTime ? new Date(a.executionTime).getTime() : Number.MAX_SAFE_INTEGER
+  const bExec = b.executionTime ? new Date(b.executionTime).getTime() : Number.MAX_SAFE_INTEGER
+  if (aExec !== bExec) return aExec - bExec
+  // Tie-breaker: most recently modified first
+  const aMod = new Date(a.updatedAt || a.createdAt || 0).getTime()
+  const bMod = new Date(b.updatedAt || b.createdAt || 0).getTime()
+  return bMod - aMod
+}
+
+/**
+ * Type describing the user-selectable sort options exposed in the UI.
+ */
+export type ProjectSortField = 'modified' | 'execution'
+export type ProjectSortOrder = 'desc' | 'asc'
+
+/**
+ * Return the right comparator function for a given sort field + order.
+ * Falls back to sortByRecent (modified DESC) for unknown combinations.
+ */
+export function getProjectSortComparator(
+  field: ProjectSortField,
+  order: ProjectSortOrder,
+): <T extends { executionTime?: string | null; updatedAt?: string; createdAt?: string }>(a: T, b: T) => number {
+  if (field === 'execution' && order === 'asc') return sortByExecutionAsc
+  if (field === 'execution' && order === 'desc') return sortByExecutionDesc
+  if (field === 'modified' && order === 'asc') return sortByModifiedAsc
+  return sortByModifiedDesc // default: modified DESC
+}
