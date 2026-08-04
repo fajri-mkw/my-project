@@ -117,20 +117,47 @@ export function DashboardView() {
     )
   }, [isSuperAdmin, currentUser])
 
+  // ============================================================================
+  // "Belum" / "Selesai" sub-filter helpers.
+  //
+  // These are used to count and filter projects within the "Tugas Saya" view
+  // by their pending/completed status.
+  //
+  // For OVERSEERS (Super Admin + Manager) — users who oversee the project
+  // lifecycle rather than execute individual tasks — the sub-filter reflects the
+  // PROJECT's stage: pending = currentStage !== 5, completed = currentStage === 5.
+  // This is the natural mental model for managers (e.g. "Belum" = projects I
+  // manage that aren't fully done yet). Without this special case, Managers
+  // would see "Tugas Saya 118, Belum 0, Selesai 0" — because they have no tasks
+  // assigned directly, only project-level responsibility.
+  //
+  // For PRODUCTION STAFF (Photographer, Editor, Reviewer, Publisher, etc.) the
+  // sub-filter reflects the user's PERSONAL task involvement in each project:
+  // pending = has a non-completed task assigned, completed = has a completed
+  // task AND no pending tasks (original pre-fix behavior).
+  // ============================================================================
   const isMyPendingProject = useCallback((p: typeof projects[number]): boolean => {
-    if (isSuperAdmin) return p.currentStage !== 5
+    if (isSuperAdmin || isManager) {
+      // Overseers: filter by project stage (5 = completed, else pending).
+      // isProjectMine already scopes Manager to their managed projects.
+      return isProjectMine(p) && p.currentStage !== 5
+    }
     return p.tasks.some(t =>
       t.assignedTo === currentUser?.id && t.status !== 'completed'
     )
-  }, [isSuperAdmin, currentUser])
+  }, [isSuperAdmin, isManager, currentUser, isProjectMine])
 
   const isMyCompletedProject = useCallback((p: typeof projects[number]): boolean => {
-    if (isSuperAdmin) return p.currentStage === 5
+    if (isSuperAdmin || isManager) {
+      // Overseers: completed = currentStage === 5.
+      return isProjectMine(p) && p.currentStage === 5
+    }
     return (
       p.tasks.some(t => t.assignedTo === currentUser?.id && t.status === 'completed') &&
       !p.tasks.some(t => t.assignedTo === currentUser?.id && t.status !== 'completed')
     )
-  }, [isSuperAdmin, currentUser])
+  }, [isSuperAdmin, isManager, currentUser, isProjectMine])
+
 
   // Count pending forwarded permohonan/surat for Manager
   const pendingForwardedCount = isManager
@@ -570,16 +597,18 @@ export function DashboardView() {
             </h3>
             <p className="text-slate-500">
               {projectFilter === 'mine' && taskStatusFilter === 'pending'
-                ? (isSuperAdmin
-                    ? 'Semua proyek sudah selesai dikerjakan.'
+                ? (isSuperAdmin || isManager
+                    ? 'Semua proyek yang Anda kelola sudah selesai dikerjakan.'
                     : 'Semua tugas Anda sudah selesai dikerjakan. Bagus!')
                 : projectFilter === 'mine' && taskStatusFilter === 'completed'
-                ? (isSuperAdmin
+                ? (isSuperAdmin || isManager
                     ? 'Belum ada proyek yang telah selesai semua tahapannya.'
                     : 'Belum ada tugas yang selesai Anda kerjakan.')
                 : projectFilter === 'mine'
                 ? (isSuperAdmin
                     ? 'Belum ada proyek dalam sistem.'
+                    : isManager
+                    ? 'Saat ini tidak ada proyek yang Anda kelola.'
                     : 'Saat ini tidak ada proyek yang ditugaskan kepada Anda. Coba lihat semua proyek.')
                 : projectFilter === 'all' && projectStatusFilter === 'pending'
                 ? 'Semua proyek sudah selesai dikerjakan.'
