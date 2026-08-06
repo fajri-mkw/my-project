@@ -66,7 +66,8 @@ import {
   User,
   ChevronLeft,
   UserCog,
-  RefreshCw
+  RefreshCw,
+  UserPlus
 } from 'lucide-react'
 import { useState, useMemo, useCallback, useEffect, useRef } from 'react'
 import { cn } from '@/lib/utils'
@@ -128,6 +129,18 @@ export function ProjectDetailView() {
   
   // State for multiple publish links per task
   const [taskPublishLinks, setTaskPublishLinks] = useState<Record<string, PublishLink[]>>({})
+
+  // === Tambah Petugas (Add Task) dialog state ===
+  // Manager/Admin can add a brand-new staff member to a specific stage of an
+  // already-running project. Opens a dialog to pick role (filtered by stage)
+  // and assignee (filtered by role, excluding already-assigned to prevent
+  // duplicates). Different from "Ganti Petugas" (reassign) which only swaps
+  // assignedTo on an existing task row — this creates a NEW Task row.
+  const [isAddPetugasOpen, setIsAddPetugasOpen] = useState(false)
+  const [addPetugasStage, setAddPetugasStage] = useState<number>(1)
+  const [addPetugasRole, setAddPetugasRole] = useState<string>('')
+  const [addPetugasAssigneeId, setAddPetugasAssigneeId] = useState<string>('')
+  const [isAddingPetugas, setIsAddingPetugas] = useState(false)
 
   // Calculate initial task inputs using useMemo
   const initialTaskState = useMemo(() => {
@@ -949,6 +962,72 @@ Pushakin Flows — Sistem Manajemen Produksi`
     }
   }
 
+  // === Tambah Petugas (Add Task to a stage mid-project) ===
+  // Manager/Admin adds a brand-new Task row for a given role+assignee to a
+  // stage of an already-running project. Server: INSERTs the task, creates a
+  // surat_tugas (de-dup), sends a notification, invalidates caches.
+  const handleAddPetugas = async (role: string, assigneeId: string): Promise<boolean> => {
+    if (!project) return false
+    try {
+      const response = await fetch('/api/projects/add-task', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ projectId: project.id, role, assigneeId }),
+      })
+
+      if (!response.ok) {
+        let errMsg = 'Gagal menambah petugas'
+        try {
+          const data = await response.json()
+          if (data?.error) errMsg = data.error
+        } catch {}
+        showAlert(errMsg)
+        return false
+      }
+
+      const result = await response.json()
+
+      // Optimistically append the new task to the project's tasks array so
+      // the UI updates instantly (Progres Tim, task list, stage progress bar).
+      const newTask: Task = {
+        id: result.task.id,
+        role: result.task.role,
+        stage: result.task.stage,
+        status: 'pending',
+        assignedTo: result.task.assignedTo,
+        data: {},
+        revisionCount: 0,
+      }
+      const updatedProject = { ...project, tasks: [...project.tasks, newTask] }
+      updateProject(updatedProject)
+
+      const newAssignee = users.find(u => u.id === assigneeId)
+      showAlert(
+        `Petugas ${newAssignee?.name || 'baru'} berhasil ditambahkan ke tahap ini. ` +
+        `Status tugas: "Menunggu Aksi".`
+      )
+      return true
+    } catch (err) {
+      showAlert(
+        'Gagal menambah petugas: ' +
+        (err instanceof Error ? err.message : 'Koneksi terputus')
+      )
+      return false
+    }
+  }
+
+  // Petugas yang tersedia untuk peran yang dipilih di dialog "Tambah Petugas".
+  // Exclude user yang sudah ditugaskan untuk peran yang sama di proyek ini
+  // (server juga melakukan cek duplikat, ini untuk UX agar dropdown bersih).
+  const assignedUserIdsForAddRole = new Set(
+    project.tasks
+      .filter(t => t.role === addPetugasRole && t.assignedTo)
+      .map(t => t.assignedTo as string)
+  )
+  const addPetugasAvailableAssignees = users.filter(
+    u => u.role === addPetugasRole && !assignedUserIdsForAddRole.has(u.id)
+  )
+
   // Upload document from project detail view (Manager only)
   // Uses chunked resumable upload to support files of ANY size (up to Google Drive's 5 TB limit).
   // The old multipart path loaded the entire file into memory, causing OOM on CF Workers for >40MB files.
@@ -1560,6 +1639,22 @@ Pushakin Flows — Sistem Manajemen Produksi`
                         )
                       })
                     )}
+                    {canManageProject && project.currentStage !== 5 && stageNum >= 1 && stageNum <= 4 && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setAddPetugasStage(stageNum)
+                          setAddPetugasRole('')
+                          setAddPetugasAssigneeId('')
+                          setIsAddPetugasOpen(true)
+                        }}
+                        className="flex items-center justify-center gap-1 w-full py-1.5 mt-1 rounded-lg border border-dashed border-stone-300 text-[10px] font-bold text-stone-500 hover:border-violet-400 hover:text-violet-600 hover:bg-violet-50 transition-colors"
+                        title={`Tambah petugas ke ${STAGES[stageNum]}`}
+                      >
+                        <UserPlus className="w-3 h-3" />
+                        <span>Tambah Petugas</span>
+                      </button>
+                    )}
                   </div>
                 )
               })}
@@ -1574,7 +1669,7 @@ Pushakin Flows — Sistem Manajemen Produksi`
                 const isFPAutoApproved = project.isFastProduction && stageNum === 3
                 const isFPActive = project.isFastProduction && stageNum >= 1 && stageNum <= 4 && !isCompleted && !isFPAutoApproved
                 
-                if (stageTasks.length === 0) return null
+                if (stageTasks.length === 0 && !(canManageProject && project.currentStage !== 5 && stageNum >= 1 && stageNum <= 4)) return null
                 
                 return (
                   <div key={stageNum}>
@@ -1676,6 +1771,22 @@ Pushakin Flows — Sistem Manajemen Produksi`
                           </div>
                         )
                       })}
+                      {canManageProject && project.currentStage !== 5 && stageNum >= 1 && stageNum <= 4 && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setAddPetugasStage(stageNum)
+                            setAddPetugasRole('')
+                            setAddPetugasAssigneeId('')
+                            setIsAddPetugasOpen(true)
+                          }}
+                          className="flex items-center justify-center gap-1 w-full py-2 mt-1 rounded-xl border border-dashed border-stone-300 text-xs font-bold text-stone-500 hover:border-violet-400 hover:text-violet-600 hover:bg-violet-50 transition-colors"
+                          title={`Tambah petugas ke ${STAGES[stageNum]}`}
+                        >
+                          <UserPlus className="w-3.5 h-3.5" />
+                          <span>Tambah Petugas</span>
+                        </button>
+                      )}
                     </div>
                   </div>
                 )
@@ -2558,6 +2669,143 @@ Pushakin Flows — Sistem Manajemen Produksi`
               </Button>
             </DialogFooter>
           </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* === Dialog Tambah Petugas (Manager/Admin only) ===
+          Adds a brand-new staff member to a stage of this project. Creates
+          a new Task row (so there can be 2+ workers of the same role in the
+          same stage). Different from "Ganti Petugas" (reassign) which only
+          swaps assignedTo on an existing task. */}
+      <Dialog open={isAddPetugasOpen} onOpenChange={(open) => {
+        if (!isAddingPetugas) setIsAddPetugasOpen(open)
+      }}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <UserPlus className="w-5 h-5 text-violet-600" />
+              <span>Tambah Petugas</span>
+            </DialogTitle>
+            <DialogDescription>
+              Tambah petugas baru ke tahap{' '}
+              <strong className="text-stone-700">{STAGES[addPetugasStage]}</strong> pada proyek{' '}
+              <strong className="text-stone-700">{project.title}</strong>. Petugas baru akan
+              menerima surat tugas &amp; notifikasi.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4 py-2">
+            {/* Role select (filtered by the chosen stage) */}
+            <div className="space-y-2">
+              <Label className="text-xs font-bold uppercase tracking-wider text-stone-600">
+                Pilih Peran
+              </Label>
+              <Select
+                value={addPetugasRole}
+                onValueChange={(v) => {
+                  setAddPetugasRole(v)
+                  setAddPetugasAssigneeId('')
+                }}
+              >
+                <SelectTrigger className="w-full">
+                  <SelectValue placeholder="— Pilih peran —" />
+                </SelectTrigger>
+                <SelectContent>
+                  {Object.keys(ROLE_CONFIG)
+                    .filter(r => ROLE_CONFIG[r].stage === addPetugasStage)
+                    .map(r => (
+                      <SelectItem key={r} value={r}>
+                        {getRoleDisplayName(r)}
+                      </SelectItem>
+                    ))}
+                </SelectContent>
+              </Select>
+              {Object.keys(ROLE_CONFIG).filter(r => ROLE_CONFIG[r].stage === addPetugasStage).length === 0 && (
+                <p className="text-xs text-amber-600 bg-amber-50 border border-amber-200 rounded-md p-2">
+                  Tidak ada peran yang tersedia untuk tahap ini.
+                </p>
+              )}
+            </div>
+
+            {/* Assignee select (filtered by role, excluding already-assigned) */}
+            <div className="space-y-2">
+              <Label className="text-xs font-bold uppercase tracking-wider text-stone-600">
+                Pilih Petugas
+              </Label>
+              <Select
+                value={addPetugasAssigneeId}
+                onValueChange={setAddPetugasAssigneeId}
+                disabled={!addPetugasRole}
+              >
+                <SelectTrigger className="w-full">
+                  <SelectValue placeholder={addPetugasRole ? '— Pilih petugas —' : 'Pilih peran dahulu'} />
+                </SelectTrigger>
+                <SelectContent>
+                  {addPetugasAvailableAssignees.map(u => (
+                    <SelectItem key={u.id} value={u.id}>
+                      {u.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {addPetugasRole && addPetugasAvailableAssignees.length === 0 && (
+                <p className="text-xs text-amber-600 bg-amber-50 border border-amber-200 rounded-md p-2">
+                  Tidak ada petugas lain dengan peran {getRoleDisplayName(addPetugasRole)} yang tersedia,
+                  atau semua petugas dengan peran ini sudah ditugaskan di proyek ini. Tambahkan user dengan
+                  peran tersebut di Manajemen User terlebih dahulu.
+                </p>
+              )}
+            </div>
+
+            <div className="bg-violet-50 border border-violet-200 rounded-lg p-3 text-xs text-violet-800 flex items-start gap-2">
+              <AlertCircle className="w-4 h-4 mt-0.5 shrink-0" />
+              <div>
+                <strong className="block mb-0.5">Catatan:</strong>
+                Petugas baru akan ditambahkan sebagai tugas terpisah pada tahap ini. Mereka akan menerima
+                surat tugas baru dan notifikasi. Tugas dimulai dengan status &quot;Menunggu Aksi&quot;.
+              </div>
+            </div>
+          </div>
+
+          <DialogFooter className="gap-2">
+            <Button
+              type="button"
+              variant="ghost"
+              onClick={() => setIsAddPetugasOpen(false)}
+              disabled={isAddingPetugas}
+              className="text-xs sm:text-sm"
+            >
+              Batal
+            </Button>
+            <Button
+              type="button"
+              onClick={async () => {
+                if (!addPetugasRole || !addPetugasAssigneeId) return
+                setIsAddingPetugas(true)
+                const ok = await handleAddPetugas(addPetugasRole, addPetugasAssigneeId)
+                setIsAddingPetugas(false)
+                if (ok) {
+                  setIsAddPetugasOpen(false)
+                  setAddPetugasRole('')
+                  setAddPetugasAssigneeId('')
+                }
+              }}
+              disabled={!addPetugasRole || !addPetugasAssigneeId || isAddingPetugas}
+              className="gap-2 text-xs sm:text-sm bg-violet-600 hover:bg-violet-700 text-white"
+            >
+              {isAddingPetugas ? (
+                <>
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  <span>Menyimpan...</span>
+                </>
+              ) : (
+                <>
+                  <UserPlus className="w-3.5 h-3.5" />
+                  <span>Tambah Petugas</span>
+                </>
+              )}
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>
