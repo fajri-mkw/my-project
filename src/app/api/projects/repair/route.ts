@@ -134,10 +134,14 @@ export async function POST(request: NextRequest) {
         status: String((t as Record<string, unknown>).status),
       }))
 
-      // Check if ALL tasks at currentStage are completed
+      // Check if ALL tasks at currentStage are completed.
+      // If there are NO tasks at currentStage (e.g., project at stage 3 but
+      // no Reviewer was assigned), treat it as "all done" so we can advance
+      // past the empty stage.
       const currentStageTasks = tasks.filter((t) => t.stage === pstage)
-      if (currentStageTasks.length === 0) continue
-      const allCurrentDone = currentStageTasks.every((t) => t.status === 'completed')
+      const allCurrentDone =
+        currentStageTasks.length === 0 ||
+        currentStageTasks.every((t) => t.status === 'completed')
       if (!allCurrentDone) continue
 
       // Find the lowest stage > currentStage that has pending tasks
