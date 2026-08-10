@@ -47,7 +47,12 @@ export function CreateProjectView() {
   const [picName, setPicName] = useState('')
   const [picWhatsApp, setPicWhatsApp] = useState('')
   const [selectedUsers, setSelectedUsers] = useState<Record<string, string[]>>({}) // role → list of selected user IDs
-  const [selectedFolders, setSelectedFolders] = useState(['raw', 'revised'])
+  // Default-checked workflow folders. Historically only "raw" (1. PRODUKSI)
+  // and "revised" (2. PASCA PRODUKSI) were auto-checked, but per request we
+  // also auto-check "lainnya" (4. Additional Asset) so managers don't have
+  // to remember to tick it for every new project. Folder 3 (DESAIN) stays
+  // opt-in because it's only relevant for visual-design projects.
+  const [selectedFolders, setSelectedFolders] = useState(['raw', 'revised', 'lainnya'])
   const [folderRoles, setFolderRoles] = useState<Record<string, string[]>>({})
   // Track roles the manager explicitly removed from a folder, so the auto-assign
   // effect does not re-add them. Entries are `${folderId}:${role}` strings.
