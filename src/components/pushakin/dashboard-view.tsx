@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Progress } from '@/components/ui/progress'
+import { Input } from '@/components/ui/input'
 import {
   Table,
   TableBody,
@@ -39,7 +40,9 @@ import {
   ArrowUpNarrowWide,
   CalendarClock,
   PencilLine,
-  Check
+  Check,
+  Search,
+  X
 } from 'lucide-react'
 import { useState, useMemo, useCallback } from 'react'
 import { cn } from '@/lib/utils'
@@ -79,6 +82,11 @@ export function DashboardView() {
   const [projectFilter, setProjectFilter] = useState<'mine' | 'all'>('mine')
   const [taskStatusFilter, setTaskStatusFilter] = useState<'all' | 'pending' | 'completed'>('pending')
   const [projectStatusFilter, setProjectStatusFilter] = useState<'all' | 'pending' | 'completed'>('all')
+  // Search query for finding projects by name/keyword. Applied AFTER the
+  // filter/sort pipeline, scoped to the visible projects list. Mirrors the
+  // search field on the "Statistik & Progress" (overview) page so users have
+  // a consistent way to locate a project across both views.
+  const [searchQuery, setSearchQuery] = useState('')
   // Sort: by date modified (updatedAt) or execution time (tanggal pelaksanaan);
   // order: newest-first (desc) or oldest-first (asc). Defaults match the prior
   // hardcoded behavior (sortByRecent = modified DESC).
@@ -202,6 +210,7 @@ export function DashboardView() {
   const visibleProjects = useMemo(() => {
     const applySort = (arr: typeof projects) => [...arr].sort(sortComparator)
 
+    let result: typeof projects
     if (projectFilter === 'mine' && currentUser) {
       let filtered = projects.filter(isProjectMine)
       // Apply task status sub-filter when in "mine" mode
@@ -210,17 +219,53 @@ export function DashboardView() {
       } else if (taskStatusFilter === 'completed') {
         filtered = filtered.filter(isMyCompletedProject)
       }
-      return applySort(filtered)
+      result = filtered
     } else {
       // projectFilter === 'all' — "Semua Project Pushakin" group
       if (projectStatusFilter === 'pending') {
-        return applySort(projects.filter(p => p.currentStage !== 5))
+        result = projects.filter(p => p.currentStage !== 5)
       } else if (projectStatusFilter === 'completed') {
-        return applySort(projects.filter(p => p.currentStage === 5))
+        result = projects.filter(p => p.currentStage === 5)
+      } else {
+        result = projects
       }
-      return applySort(projects)
     }
-  }, [projectFilter, taskStatusFilter, projectStatusFilter, currentUser, projects, sortComparator, isProjectMine, isMyPendingProject, isMyCompletedProject])
+
+    // === Project search ===
+    // Filters the already-filtered list by user-typed keyword. Matches across
+    // multiple fields so users can find a project by name, requester, location,
+    // PIC, activity types, or even assigned staff names — covers the common
+    // case where a user remembers *who* worked on a project but not its
+    // exact title. Case-insensitive, ignores leading/trailing whitespace.
+    // Empty query returns the list unchanged. Mirrors the same logic as the
+    // search field on the "Statistik & Progress" (overview) page.
+    const q = searchQuery.trim().toLowerCase()
+    if (q) {
+      result = result.filter(p => {
+        const haystackParts: string[] = [
+          p.title,
+          p.description,
+          p.requesterUnit,
+          p.location,
+          p.picName,
+          ...(p.activityTypes || []),
+          ...(p.outputNeeds || []),
+        ]
+        // Include assigned staff names (users often search by who's on it)
+        for (const t of p.tasks || []) {
+          if (t.assignedTo) {
+            const u = users.find(uu => uu.id === t.assignedTo)
+            if (u?.name) haystackParts.push(u.name)
+          }
+          if (t.role) haystackParts.push(t.role)
+        }
+        const haystack = haystackParts.filter(Boolean).join(' ').toLowerCase()
+        return haystack.includes(q)
+      })
+    }
+
+    return applySort(result)
+  }, [projectFilter, taskStatusFilter, projectStatusFilter, currentUser, projects, sortComparator, isProjectMine, isMyPendingProject, isMyCompletedProject, searchQuery, users])
 
   const handleDeleteProject = (projectId: string) => {
     showConfirm(
@@ -577,24 +622,82 @@ export function DashboardView() {
         )}
       </div>
 
+      {/* === Project search ===
+          Placed below the filter/sort toolbar so users can quickly locate a
+          specific project by name, requester, location, PIC, activity type,
+          or assigned staff. Mirrors the search field on the "Statistik &
+          Progress" (overview) page for a consistent cross-view experience.
+          The clear button (X) resets the query in one tap. */}
+      <div className="relative">
+        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
+        <Input
+          type="text"
+          value={searchQuery}
+          onChange={e => setSearchQuery(e.target.value)}
+          placeholder="Cari project: nama, pemohon, lokasi, PIC, petugas, atau jenis aktivitas..."
+          className="pl-9 pr-9 h-10 w-full bg-white border-slate-200 focus-visible:border-violet-400 focus-visible:ring-violet-200"
+          aria-label="Cari project"
+        />
+        {searchQuery && (
+          <button
+            type="button"
+            onClick={() => setSearchQuery('')}
+            className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-700 transition-colors p-1 rounded-md hover:bg-slate-100"
+            aria-label="Hapus pencarian"
+            title="Hapus pencarian"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        )}
+      </div>
+
+      {/* Result count hint — shows how many projects match the search,
+          only visible when a search query is active. */}
+      {searchQuery.trim() && visibleProjects.length > 0 && (
+        <div className="text-xs text-slate-500 flex items-center gap-1.5 -mt-1">
+          <Search className="w-3.5 h-3.5" />
+          Menampilkan <span className="font-semibold text-slate-700">{visibleProjects.length}</span> project untuk “<span className="font-semibold text-slate-700">{searchQuery.trim()}</span>”
+        </div>
+      )}
+
       {/* Content */}
       {visibleProjects.length === 0 ? (
         <Card className="p-12 text-center">
           <CardContent className="pt-6">
-            <FolderKanban className="w-16 h-16 text-slate-300 mx-auto mb-4" />
-            <h3 className="text-xl font-semibold text-slate-800 mb-2">
-              {projectFilter === 'mine' && taskStatusFilter === 'pending'
-                ? 'Tidak ada tugas yang belum dikerjakan'
-                : projectFilter === 'mine' && taskStatusFilter === 'completed'
-                ? 'Tidak ada tugas yang sudah selesai'
-                : projectFilter === 'mine'
-                ? 'Tidak ada tugas untuk Anda'
-                : projectFilter === 'all' && projectStatusFilter === 'pending'
-                ? 'Tidak ada proyek yang sedang berjalan'
-                : projectFilter === 'all' && projectStatusFilter === 'completed'
-                ? 'Belum ada proyek selesai'
-                : 'Belum ada proyek'}
-            </h3>
+            {searchQuery.trim() ? (
+              <>
+                <Search className="w-16 h-16 text-slate-300 mx-auto mb-4" />
+                <h3 className="text-xl font-semibold text-slate-800 mb-2">
+                  Tidak ada project yang cocok
+                </h3>
+                <p className="text-slate-500">
+                  Tidak ada project yang cocok dengan “{searchQuery}”.
+                  Coba kata kunci lain atau{' '}
+                  <button
+                    type="button"
+                    onClick={() => setSearchQuery('')}
+                    className="text-violet-600 hover:text-violet-700 underline font-medium"
+                  >
+                    hapus pencarian
+                  </button>.
+                </p>
+              </>
+            ) : (
+              <>
+                <FolderKanban className="w-16 h-16 text-slate-300 mx-auto mb-4" />
+                <h3 className="text-xl font-semibold text-slate-800 mb-2">
+                  {projectFilter === 'mine' && taskStatusFilter === 'pending'
+                    ? 'Tidak ada tugas yang belum dikerjakan'
+                    : projectFilter === 'mine' && taskStatusFilter === 'completed'
+                    ? 'Tidak ada tugas yang sudah selesai'
+                    : projectFilter === 'mine'
+                    ? 'Tidak ada tugas untuk Anda'
+                    : projectFilter === 'all' && projectStatusFilter === 'pending'
+                    ? 'Tidak ada proyek yang sedang berjalan'
+                    : projectFilter === 'all' && projectStatusFilter === 'completed'
+                    ? 'Belum ada proyek selesai'
+                    : 'Belum ada proyek'}
+                </h3>
             <p className="text-slate-500">
               {projectFilter === 'mine' && taskStatusFilter === 'pending'
                 ? (isSuperAdmin || isManager
@@ -639,6 +742,8 @@ export function DashboardView() {
                 <Users className="w-4 h-4" />
                 Lihat Semua Proyek
               </Button>
+            )}
+              </>
             )}
           </CardContent>
         </Card>
