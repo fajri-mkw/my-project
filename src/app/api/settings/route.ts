@@ -1,34 +1,87 @@
-import { db, ensureDbConnection } from '@/lib/db'
+import { NextRequest, NextResponse } from 'next/server'
 import { invalidateMaintenanceCache } from '@/lib/maintenance-check'
 import { sanitizeServiceAccountKey, validateServiceAccountKeyString } from '@/lib/drive-service'
-import { NextRequest, NextResponse } from 'next/server'
 import { withEdgeCache, invalidateCache } from '@/lib/edge-cache'
+import {
+  getLibsql,
+  toBool,
+  bind,
+  nowMs,
+  type InValue,
+} from '@/lib/libsql-client'
+
+// ============================================================================
+// CRITICAL: This route is called on every dashboard page load AND when the
+// settings view loads. The previous version imported `db, ensureDbConnection`
+// from '@/lib/db' (Prisma), which on Cloudflare Workers free plan burns CPU on
+// Prisma module-load + ensureSchemaSync subrequests and was a contributing
+// cause of recurring Error 1102.
+//
+// Rewritten to use @libsql/client directly via @/lib/libsql-client — same pattern
+// as src/app/api/maintenance/route.ts and src/app/api/users/route.ts.
+// ============================================================================
+
+// Settings columns used by this route (GET selects these; PUT may update any subset).
+const SETTINGS_COLUMNS = `id, driveAutoCreate, driveParentFolderId, driveSharedDriveId,
+  driveServiceAccountKey, driveApiKey, maintenanceMode, maintenanceMessage,
+  notifWaEnabled, notifWaToken, notifWaDeviceId, notifWaSenderNumber,
+  notifEmailEnabled, notifEmailHost, notifEmailPort, notifEmailUser, notifEmailPass,
+  notifEmailFromName, updatedAt`
+
+/** Boolean columns in the settings table (Prisma Boolean → SQLite 0/1). */
+const BOOLEAN_SETTINGS_KEYS = new Set([
+  'driveAutoCreate',
+  'maintenanceMode',
+  'notifWaEnabled',
+  'notifEmailEnabled',
+])
+
+/** Format a settings row as the GET response object (matches original Prisma shape). */
+function formatSettingsResponse(row: Record<string, unknown>) {
+  return {
+    driveAutoCreate: toBool(row.driveAutoCreate),
+    driveParentFolderId: row.driveParentFolderId === null || row.driveParentFolderId === undefined ? '' : String(row.driveParentFolderId),
+    driveSharedDriveId: row.driveSharedDriveId === null || row.driveSharedDriveId === undefined ? '' : String(row.driveSharedDriveId),
+    hasServiceAccountKey: !!row.driveServiceAccountKey,
+    driveApiKey: row.driveApiKey === null || row.driveApiKey === undefined ? '' : String(row.driveApiKey),
+    maintenanceMode: toBool(row.maintenanceMode),
+    maintenanceMessage: row.maintenanceMessage === null || row.maintenanceMessage === undefined ? '' : String(row.maintenanceMessage),
+  }
+}
+
+/** Fetch the single 'main' settings row, or null if it doesn't exist yet. */
+async function fetchSettingsRow(client: ReturnType<typeof getLibsql>): Promise<Record<string, unknown> | null> {
+  const res = await client.execute({
+    sql: `SELECT ${SETTINGS_COLUMNS} FROM settings WHERE id = 'main' LIMIT 1`,
+    args: [],
+  })
+  if (res.rows.length === 0) return null
+  return res.rows[0] as Record<string, unknown>
+}
 
 // GET settings
 // Edge-cached for 30s to reduce CPU usage on Workers free plan
 export const GET = withEdgeCache(async (_request: NextRequest) => {
   try {
-    await ensureDbConnection()
-    let settings = await db.settings.findUnique({
-      where: { id: 'main' }
-    })
+    const client = getLibsql()
+    let settings = await fetchSettingsRow(client)
 
     if (!settings) {
-      settings = await db.settings.create({
-        data: { id: 'main' }
+      // Mirror original `db.settings.create({ data: { id: 'main' } })` —
+      // create a bare row with id='main' (other columns default to NULL in SQLite,
+      // which the response shape treats the same as Prisma's default `false`/`''`).
+      await client.execute({
+        sql: `INSERT INTO settings (id, updatedAt) VALUES ('main', ?)`,
+        args: [bind(nowMs())],
       })
+      settings = await fetchSettingsRow(client)
+      if (!settings) {
+        // Defensive: should never happen, but fail-safe.
+        return NextResponse.json(formatSettingsResponse({}))
+      }
     }
 
-    // Don't return the full service account key for security
-    return NextResponse.json({
-      driveAutoCreate: settings.driveAutoCreate || false,
-      driveParentFolderId: settings.driveParentFolderId || '',
-      driveSharedDriveId: settings.driveSharedDriveId || '',
-      hasServiceAccountKey: !!settings.driveServiceAccountKey,
-      driveApiKey: settings.driveApiKey || '',
-      maintenanceMode: settings.maintenanceMode || false,
-      maintenanceMessage: settings.maintenanceMessage || ''
-    })
+    return NextResponse.json(formatSettingsResponse(settings))
   } catch (error) {
     console.error('Get settings error:', error)
     return NextResponse.json({ error: 'Failed to fetch settings' }, { status: 500 })
@@ -52,23 +105,18 @@ export const GET = withEdgeCache(async (_request: NextRequest) => {
 // accidental submission and is ignored.
 export async function PUT(request: NextRequest) {
   try {
-    await ensureDbConnection()
+    const client = getLibsql()
     const body = await request.json()
     const { driveAutoCreate, driveParentFolderId, driveSharedDriveId, driveServiceAccountKey, driveApiKey, maintenanceMode, maintenanceMessage, forceClear } = body
 
     // Fetch the existing settings so we can protect non-empty values from
     // being overwritten by accidental empty-string submissions.
-    const existing = await db.settings.findUnique({ where: { id: 'main' } })
+    const existing = await fetchSettingsRow(client)
 
-    const updateData: {
-      driveAutoCreate?: boolean
-      driveParentFolderId?: string | null
-      driveSharedDriveId?: string | null
-      driveServiceAccountKey?: string | null
-      driveApiKey?: string | null
-      maintenanceMode?: boolean
-      maintenanceMessage?: string | null
-    } = {}
+    // updateData: colName → raw JS value (boolean/string/null). Booleans are
+    // converted to 0/1 at bind time. We preserve original column-name keys
+    // (no @map renames in the Settings model — column === field).
+    const updateData: Record<string, unknown> = {}
 
     if (typeof driveAutoCreate === 'boolean') {
       updateData.driveAutoCreate = driveAutoCreate
@@ -77,7 +125,10 @@ export async function PUT(request: NextRequest) {
       // Protected field: don't overwrite an existing non-empty value with
       // an empty string unless forceClear is explicitly true.
       const newVal = driveParentFolderId || null
-      const oldVal = existing?.driveParentFolderId || null
+      const oldVal =
+        existing?.driveParentFolderId === null || existing?.driveParentFolderId === undefined
+          ? null
+          : String(existing.driveParentFolderId)
       if (newVal || !oldVal || forceClear === true) {
         updateData.driveParentFolderId = newVal
       } else {
@@ -87,7 +138,10 @@ export async function PUT(request: NextRequest) {
     if (driveSharedDriveId !== undefined) {
       // Protected field: same safeguard as driveParentFolderId.
       const newVal = driveSharedDriveId || null
-      const oldVal = existing?.driveSharedDriveId || null
+      const oldVal =
+        existing?.driveSharedDriveId === null || existing?.driveSharedDriveId === undefined
+          ? null
+          : String(existing.driveSharedDriveId)
       if (newVal || !oldVal || forceClear === true) {
         updateData.driveSharedDriveId = newVal
       } else {
@@ -135,15 +189,42 @@ export async function PUT(request: NextRequest) {
     // (the GET route uses the same findUnique+create pattern successfully,
     //  but upsert consistently failed — likely an adapter quirk with the
     //  @updatedAt field on the update path). This mirrors the GET pattern.
-    let settings = existing
-    if (!settings) {
-      settings = await db.settings.create({
-        data: { id: 'main', ...updateData }
+    if (!existing) {
+      // INSERT new row: id='main' + updateData + updatedAt.
+      const cols = ['id', ...Object.keys(updateData), 'updatedAt']
+      const vals: InValue[] = [bind('main')]
+      for (const [k, v] of Object.entries(updateData)) {
+        if (BOOLEAN_SETTINGS_KEYS.has(k)) {
+          vals.push(bind(v ? 1 : 0))
+        } else {
+          vals.push(bind(v))
+        }
+      }
+      vals.push(bind(nowMs()))
+      const placeholders = cols.map(() => '?').join(', ')
+      await client.execute({
+        sql: `INSERT INTO settings (${cols.join(', ')}) VALUES (${placeholders})`,
+        args: vals,
       })
     } else if (Object.keys(updateData).length > 0) {
-      settings = await db.settings.update({
-        where: { id: 'main' },
-        data: updateData
+      // UPDATE existing row.
+      const setClauses: string[] = []
+      const args: InValue[] = []
+      for (const [k, v] of Object.entries(updateData)) {
+        if (BOOLEAN_SETTINGS_KEYS.has(k)) {
+          setClauses.push(`${k} = ?`)
+          args.push(bind(v ? 1 : 0))
+        } else {
+          setClauses.push(`${k} = ?`)
+          args.push(bind(v))
+        }
+      }
+      setClauses.push('updatedAt = ?')
+      args.push(bind(nowMs()))
+      args.push(bind('main'))
+      await client.execute({
+        sql: `UPDATE settings SET ${setClauses.join(', ')} WHERE id = ?`,
+        args,
       })
     }
 
@@ -153,15 +234,21 @@ export async function PUT(request: NextRequest) {
     }
 
     await invalidateCache('/api/settings')
+    // Also bust the maintenance GET cache if maintenance mode changed (so the
+    // AppShell banner updates immediately).
+    if (typeof maintenanceMode === 'boolean' || maintenanceMessage !== undefined) {
+      await invalidateCache('/api/maintenance')
+    }
+
+    // Fetch the final row state (mirrors Prisma's update returning the row).
+    const finalRow = await fetchSettingsRow(client)
+    const response = finalRow
+      ? formatSettingsResponse(finalRow)
+      : formatSettingsResponse({})
+
     return NextResponse.json({
       success: true,
-      driveAutoCreate: settings.driveAutoCreate || false,
-      driveParentFolderId: settings.driveParentFolderId || '',
-      driveSharedDriveId: settings.driveSharedDriveId || '',
-      hasServiceAccountKey: !!settings.driveServiceAccountKey,
-      driveApiKey: settings.driveApiKey || '',
-      maintenanceMode: settings.maintenanceMode || false,
-      maintenanceMessage: settings.maintenanceMessage || ''
+      ...response,
     })
   } catch (error) {
     console.error('Update settings error:', error)
