@@ -257,11 +257,61 @@ export async function PUT(request: NextRequest) {
     }
     const proj = projRes.rows[0] as Record<string, unknown>
 
-    const projCurrentStage = Number(proj.currentStage ?? 0)
+    let projCurrentStage = Number(proj.currentStage ?? 0)
     const isFastProduction = toBool(proj.isFastProduction)
     const isFastTrack = toBool(proj.isFastTrack)
     const enableFotoEditor = proj.enableFotoEditor != null ? toBool(proj.enableFotoEditor) : true
     const existingTaskStage = Number(existingTask.stage)
+
+    // =========================================================================
+    // SELF-HEAL: Auto-advance stuck project stages (runs for ALL users)
+    // =========================================================================
+    // If the task's stage is AHEAD of the project's currentStage, the project
+    // may be "stuck" — all tasks at currentStage are completed but the
+    // stage-advance UPDATE never ran (typically because Cloudflare Workers
+    // CPU limit killed the previous /api/tasks request mid-execution).
+    //
+    // Without this self-heal, a publisher at stage 4 sees "Terkunci" forever
+    // because project.currentStage is stuck at 3, and only Admin/Manager can
+    // trigger /api/projects/repair. This lets ANY user unblock their own task
+    // by simply attempting to complete it.
+    //
+    // This is idempotent: if the project is NOT stuck, no UPDATE runs.
+    if (!isFastProduction && existingTaskStage > projCurrentStage && !isRevision) {
+      const healRes = await client.execute({
+        sql: `SELECT id, stage, status FROM tasks WHERE projectId = ?`,
+        args: [bind(projectId)],
+      })
+      const healTasks = healRes.rows.map(r => mapTaskRow(r as Record<string, unknown>))
+      const currentStageTasks = healTasks.filter(t => t.stage === projCurrentStage)
+      // Empty stage OR all completed → stage is done and should have advanced
+      const allCurrentDone =
+        currentStageTasks.length === 0 ||
+        currentStageTasks.every(t => t.status === 'completed')
+
+      if (allCurrentDone) {
+        // Advance to the lowest pending stage above currentStage (or 5 if none)
+        const pendingStages = healTasks
+          .filter(t => t.status !== 'completed' && t.stage > projCurrentStage)
+          .map(t => t.stage)
+        let nextStage: number
+        if (pendingStages.length > 0) {
+          nextStage = Math.min(...pendingStages)
+        } else {
+          const hasPendingAnywhere = healTasks.some(t => t.status !== 'completed')
+          nextStage = hasPendingAnywhere ? projCurrentStage : 5
+        }
+
+        if (nextStage > projCurrentStage) {
+          await client.execute({
+            sql: `UPDATE projects SET currentStage = ?, updatedAt = ? WHERE id = ?`,
+            args: [nextStage, nowMs(), bind(projectId)],
+          })
+          console.log(`[TASKS ${reqId}] SELF-HEAL: advanced project ${projectId} stage ${projCurrentStage} → ${nextStage}`)
+          projCurrentStage = nextStage
+        }
+      }
+    }
 
     // Stage gate: block tasks AHEAD of current stage (unless override)
     if (!isFastProduction && existingTaskStage > projCurrentStage && !isRevision && !isSuperAdmin) {
@@ -368,7 +418,10 @@ export async function PUT(request: NextRequest) {
       // Normal production: check if all current-stage tasks are done
       // =========================================================================
       const currentStageTasks = projectTasks.filter(t => t.stage === projCurrentStage)
-      let allCurrentDone = currentStageTasks.length > 0 && currentStageTasks.every(t => t.status === 'completed')
+      // Empty stage OR all completed → stage is done (should advance).
+      // Previously this was `length > 0 && every(...)` which caused projects
+      // to get PERMANENTLY stuck when a stage had zero tasks assigned.
+      let allCurrentDone = currentStageTasks.length === 0 || currentStageTasks.every(t => t.status === 'completed')
 
       // Per-reviewer auto-approve — Case A: already at stage 3
       if (projCurrentStage === 3) {
@@ -485,7 +538,7 @@ export async function PUT(request: NextRequest) {
 
               // Re-check: all stage 3 done?
               const stage3Tasks = projectTasks.filter(t => t.stage === 3)
-              const stage3AllDone = stage3Tasks.length > 0 && stage3Tasks.every(t => t.status === 'completed')
+              const stage3AllDone = stage3Tasks.length === 0 || stage3Tasks.every(t => t.status === 'completed')
               if (stage3AllDone) {
                 nextStageNum = 4
                 while (nextStageNum <= 4) {

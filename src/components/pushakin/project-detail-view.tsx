@@ -2319,8 +2319,12 @@ Pushakin Flows — Sistem Manajemen Produksi`
           const Icon = config ? ICON_MAP[config.icon] : AlertCircle
 
           const isAssignedToMe = task.assignedTo === currentUser?.id
-          // Super Admin (Admin role): can act on ANY task regardless of stage
-          const isSuperAdmin = currentUser?.role === 'Admin'
+          // Super Admin (Admin role): can act on ANY task regardless of stage.
+          // IMPORTANT: Also retain Super Admin power when impersonating a worker
+          // (originalUser.role === 'Admin'). Without this, the UI hides the
+          // action section when an Admin impersonates a publisher — even though
+          // the API still accepts the request via the X-User-Role header.
+          const isSuperAdmin = currentUser?.role === 'Admin' || (isImpersonating && originalUser?.role === 'Admin')
           // Intra-stage dependency (Tahap 2): Editor (Template Sosial Media) diblokir
           // sampai Editor (Foto) selesai. Fast Production & Super Admin bypass-nya.
           const dep = getStage2Dependency(task, project.tasks)
@@ -2886,7 +2890,12 @@ function TaskCard({
   const isOverriding = canManageProject && !isAssignedToMe
   // Super Admin / Manager: show both download AND upload sections for full override access
   const showDownloadSection = canManageProject || ['download_upload', 'download_link', 'review', 'paste_streaming', 'paste_youtube'].includes(config.type)
-  const showUploadSection = canManageProject || ['upload', 'download_upload', 'review'].includes(config.type)
+  // Upload section: include 'download_link' so Publisher Web / Publisher Sosmed
+  // can upload their work files. Previously this was gated to only managers/admins
+  // for publisher tasks, which meant the real publisher could NOT see the upload
+  // section (only an Admin impersonating them could). The folder list itself is
+  // still controlled by getUploadFolders() which respects per-user UL permissions.
+  const showUploadSection = canManageProject || ['upload', 'download_upload', 'review', 'download_link'].includes(config.type)
   
   // Akses folder sepenuhnya dikontrol oleh centang DL/UL dari Manager
   // Manager centang DL → user bisa download (buka) folder tersebut
