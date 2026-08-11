@@ -75,6 +75,17 @@ export function Sidebar({ isOpen = false, onNavigate, onClose }: SidebarProps) {
   const { currentUser, activeView, setActiveView, setCurrentUser, projects, suratTugas, isImpersonating, originalUser, stopImpersonate } = useAppStore()
   const router = useRouter()
   const completedCount = projects.filter(p => p.currentStage === 5).length
+  // For non-manager/admin users, the "Laporan Kegiatan" badge shows the count
+  // of completed projects they personally worked on (not all completed projects).
+  // Manager/Admin still sees the total completed count (matches their ReportsView).
+  const isManagerOrAdmin = currentUser && ['Manager', 'Admin'].includes(currentUser.role)
+  const myCompletedCount = isManagerOrAdmin
+    ? completedCount
+    : projects.filter(p =>
+        p.currentStage === 5 &&
+        currentUser &&
+        (p.tasks.some(t => t.assignedTo === currentUser.id) || p.managerId === currentUser.id)
+      ).length
   const unreadSuratCount = currentUser ? suratTugas.filter(s => s.userId === currentUser.id && !s.read).length : 0
 
   // External links shown to all users (only active ones from the API)
@@ -107,7 +118,12 @@ export function Sidebar({ isOpen = false, onNavigate, onClose }: SidebarProps) {
   // Menu visibility based on user role - Super Admin (Admin) gets full access
   const effectiveRole = currentUser.role
   const canManageUsers = !isImpersonating && currentUser.role === 'Admin'
-  const canViewReports = ['Manager', 'Admin'].includes(effectiveRole)
+  // Reports tab is visible to ALL users:
+  //   - Manager/Admin → full ReportsView (all users, Excel + PDF)
+  //   - Other roles   → UserReportsView (own tasks only, PDF only)
+  // This lets team members download their own activity reports without
+  // needing the manager to export for them.
+  const canViewReports = true
   const showPermohonan = ['Administrator', 'Admin'].includes(effectiveRole)
   const showKegiatan = ['Manager', 'Admin'].includes(effectiveRole)
   const canManageContent = ['Manager', 'Admin'].includes(effectiveRole)
@@ -120,7 +136,7 @@ export function Sidebar({ isOpen = false, onNavigate, onClose }: SidebarProps) {
     ...(showKegiatan ? [{ id: 'kegiatan', label: 'Program Kegiatan', icon: ClipboardList }] : []),
     { id: 'inbox', label: 'Inbox', icon: Inbox, badge: unreadSuratCount > 0 ? unreadSuratCount : undefined },
     ...(canManageContent ? [{ id: 'announcements', label: 'Manajemen Konten', icon: Megaphone }] : []),
-    ...(canViewReports ? [{ id: 'reports', label: 'Laporan Kegiatan', icon: FileText, badge: completedCount > 0 ? completedCount : undefined }] : []),
+    ...(canViewReports ? [{ id: 'reports', label: 'Laporan Kegiatan', icon: FileText, badge: myCompletedCount > 0 ? myCompletedCount : undefined }] : []),
     { id: 'profile', label: 'Profil Saya', icon: UserCircle },
     ...(canManageUsers ? [{ id: 'users', label: 'Manajemen User', icon: Users }] : []),
     ...(canManageUsers || showReviewerSettings ? [{ id: 'settings', label: 'Pengaturan', icon: Settings }] : []),

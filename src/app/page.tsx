@@ -16,6 +16,7 @@ const CreateProjectView = dynamic(() => import('@/components/pushakin/create-pro
 const ProjectDetailView = dynamic(() => import('@/components/pushakin/project-detail-view').then(m => ({ default: m.ProjectDetailView })), { ssr: false })
 const OverviewView = dynamic(() => import('@/components/pushakin/overview-view').then(m => ({ default: m.OverviewView })), { ssr: false })
 const ReportsView = dynamic(() => import('@/components/pushakin/reports-view').then(m => ({ default: m.ReportsView })), { ssr: false })
+const UserReportsView = dynamic(() => import('@/components/pushakin/user-reports-view').then(m => ({ default: m.UserReportsView })), { ssr: false })
 const UserManagementView = dynamic(() => import('@/components/pushakin/user-management-view').then(m => ({ default: m.UserManagementView })), { ssr: false })
 const ProfileView = dynamic(() => import('@/components/pushakin/profile-view').then(m => ({ default: m.ProfileView })), { ssr: false })
 const SettingsView = dynamic(() => import('@/components/pushakin/settings-view').then(m => ({ default: m.SettingsView })), { ssr: false })
@@ -556,7 +557,12 @@ function AppContent() {
       case 'create': return <CreateProjectView />
       case 'project_detail': return <ProjectDetailView />
       case 'users': return <UserManagementView />
-      case 'reports': return <ReportsView />
+      case 'reports':
+        // Manager/Admin → full ReportsView (all users, Excel + PDF)
+        // Other roles   → UserReportsView (own tasks only, PDF only)
+        return currentUser && ['Manager', 'Admin'].includes(currentUser.role)
+          ? <ReportsView />
+          : <UserReportsView />
       case 'profile': return <ProfileView />
       case 'settings': return <SettingsView />
       case 'announcements': return <AnnouncementView />
