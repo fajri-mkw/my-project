@@ -8,6 +8,7 @@ import {
   parseJSON,
   bind,
   genId,
+  executeWhereIn,
   type InStatement,
 } from '@/lib/libsql-client'
 
@@ -188,11 +189,12 @@ export async function PUT(request: NextRequest) {
             const s = settingsRes.rows[0] as Record<string, unknown>
             const notifEnabled = toBool(s.notifWaEnabled) || toBool(s.notifEmailEnabled)
             if (notifEnabled && stage2UserIds.length > 0) {
-              const placeholders = stage2UserIds.map(() => '?').join(',')
-              const usersRes = await client.execute({
-                sql: `SELECT id, name, email, whatsapp, notifWaEnabled, notifEmailEnabled FROM users WHERE id IN (${placeholders})`,
-                args: stage2UserIds.map(bind),
-              })
+              // Use executeWhereIn to chunk user IDs (D1 100-vars limit safety).
+              const usersRes = await executeWhereIn(
+                client,
+                `SELECT id, name, email, whatsapp, notifWaEnabled, notifEmailEnabled FROM users WHERE id IN (__IN_PLACE__)`,
+                stage2UserIds,
+              )
               const notifConfig = {
                 notifWaEnabled: toBool(s.notifWaEnabled),
                 notifWaToken: s.notifWaToken as string | null,
@@ -428,11 +430,12 @@ export async function PUT(request: NextRequest) {
         const pendingReviewers = projectTasks.filter(t => t.stage === 3 && t.status === 'pending')
         if (pendingReviewers.length > 0) {
           const reviewerIds = [...new Set(pendingReviewers.map(t => t.assignedTo))]
-          const placeholders = reviewerIds.map(() => '?').join(',')
-          const autoApproveRes = await client.execute({
-            sql: `SELECT id FROM users WHERE id IN (${placeholders}) AND autoApproveReview = 1`,
-            args: reviewerIds.map(bind),
-          })
+          // Use executeWhereIn for D1 100-vars limit safety.
+          const autoApproveRes = await executeWhereIn(
+            client,
+            `SELECT id FROM users WHERE id IN (__IN_PLACE__) AND autoApproveReview = 1`,
+            reviewerIds,
+          )
           const autoApproveIds = new Set(autoApproveRes.rows.map(r => String((r as Record<string, unknown>).id)))
           const toAutoApprove = pendingReviewers.filter(t => autoApproveIds.has(t.assignedTo))
 
@@ -503,11 +506,12 @@ export async function PUT(request: NextRequest) {
           const pendingReviewers = projectTasks.filter(t => t.stage === 3 && t.status === 'pending')
           if (pendingReviewers.length > 0) {
             const reviewerIds = [...new Set(pendingReviewers.map(t => t.assignedTo))]
-            const placeholders = reviewerIds.map(() => '?').join(',')
-            const autoApproveRes = await client.execute({
-              sql: `SELECT id FROM users WHERE id IN (${placeholders}) AND autoApproveReview = 1`,
-              args: reviewerIds.map(bind),
-            })
+            // Use executeWhereIn for D1 100-vars limit safety.
+            const autoApproveRes = await executeWhereIn(
+              client,
+              `SELECT id FROM users WHERE id IN (__IN_PLACE__) AND autoApproveReview = 1`,
+              reviewerIds,
+            )
             const autoApproveIds = new Set(autoApproveRes.rows.map(r => String((r as Record<string, unknown>).id)))
             const toAutoApprove = pendingReviewers.filter(t => autoApproveIds.has(t.assignedTo))
 
@@ -623,11 +627,12 @@ export async function PUT(request: NextRequest) {
                 const s = settingsRes.rows[0] as Record<string, unknown>
                 const notifEnabled = toBool(s.notifWaEnabled) || toBool(s.notifEmailEnabled)
                 if (notifEnabled) {
-                  const placeholders = nextStageUserIds.map(() => '?').join(',')
-                  const usersRes = await client.execute({
-                    sql: `SELECT id, name, email, whatsapp, notifWaEnabled, notifEmailEnabled FROM users WHERE id IN (${placeholders})`,
-                    args: nextStageUserIds.map(bind),
-                  })
+                  // Use executeWhereIn for D1 100-vars limit safety.
+                  const usersRes = await executeWhereIn(
+                    client,
+                    `SELECT id, name, email, whatsapp, notifWaEnabled, notifEmailEnabled FROM users WHERE id IN (__IN_PLACE__)`,
+                    nextStageUserIds,
+                  )
                   const notifConfig = {
                     notifWaEnabled: toBool(s.notifWaEnabled),
                     notifWaToken: s.notifWaToken as string | null,

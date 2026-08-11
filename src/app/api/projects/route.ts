@@ -10,6 +10,7 @@ import {
   bind,
   genId,
   nowMs,
+  executeWhereIn,
   type InStatement,
 } from '@/lib/libsql-client'
 
@@ -109,50 +110,38 @@ export const GET = withEdgeCache(async (request: NextRequest) => {
     let foldersByProject = new Map<string, any[]>()
 
     if (projectIds.length > 0) {
-      // D1 limit: max 100 SQL variables per query. Chunk projectIds into
-      // batches of 100 to avoid "too many SQL variables" error when there are
-      // 100+ projects. Each chunk runs a separate query, results are merged
-      // into the same Map.
-      const CHUNK_SIZE = 100
-      const tasksRes = await client.batch(
-        Array.from({ length: Math.ceil(projectIds.length / CHUNK_SIZE) }, (_, i) => {
-          const chunk = projectIds.slice(i * CHUNK_SIZE, (i + 1) * CHUNK_SIZE)
-          const placeholders = chunk.map(() => '?').join(',')
-          return {
-            sql: `SELECT id, role, stage, status, assignedTo, data, revisionCount, projectId
-                   FROM tasks
-                   WHERE projectId IN (${placeholders})`,
-            args: chunk,
-          }
-        }),
+      // Use executeWhereIn to automatically chunk projectIds into batches
+      // of 80 (D1 hard limit is 100 SQL variables per query). Without
+      // chunking, a deployment with 100+ projects would 500 with
+      // "D1_ERROR: too many SQL variables". This was the root cause of
+      // the "manajer gagal menambahkan petugas" bug (Task 21).
+      const tasksRes = await executeWhereIn(
+        client,
+        `SELECT id, role, stage, status, assignedTo, data, revisionCount, projectId
+                 FROM tasks
+                 WHERE projectId IN (__IN_PLACE__)`,
+        projectIds,
       )
-      for (const result of tasksRes) {
-        for (const row of (result as { rows?: Record<string, unknown>[] }).rows ?? []) {
-          const pid = String(row.projectId)
-          if (!tasksByProject.has(pid)) tasksByProject.set(pid, [])
-          tasksByProject.get(pid)!.push(row)
-        }
+      for (const row of tasksRes.rows) {
+        const r = row as Record<string, unknown>
+        const pid = String(r.projectId)
+        if (!tasksByProject.has(pid)) tasksByProject.set(pid, [])
+        tasksByProject.get(pid)!.push(r)
       }
 
-      const foldersRes = await client.batch(
-        Array.from({ length: Math.ceil(projectIds.length / CHUNK_SIZE) }, (_, i) => {
-          const chunk = projectIds.slice(i * CHUNK_SIZE, (i + 1) * CHUNK_SIZE)
-          const placeholders = chunk.map(() => '?').join(',')
-          return {
-            sql: `SELECT id, folderId, name, description, link, assignedRoles,
-                     color, bgColor, borderColor, assignedUsers, parentFolderId, projectId
-                   FROM drive_folders
-                   WHERE projectId IN (${placeholders})`,
-            args: chunk,
-          }
-        }),
+      const foldersRes = await executeWhereIn(
+        client,
+        `SELECT id, folderId, name, description, link, assignedRoles,
+                 color, bgColor, borderColor, assignedUsers, parentFolderId, projectId
+               FROM drive_folders
+               WHERE projectId IN (__IN_PLACE__)`,
+        projectIds,
       )
-      for (const result of foldersRes) {
-        for (const row of (result as { rows?: Record<string, unknown>[] }).rows ?? []) {
-          const pid = String(row.projectId)
-          if (!foldersByProject.has(pid)) foldersByProject.set(pid, [])
-          foldersByProject.get(pid)!.push(row)
-        }
+      for (const row of foldersRes.rows) {
+        const r = row as Record<string, unknown>
+        const pid = String(r.projectId)
+        if (!foldersByProject.has(pid)) foldersByProject.set(pid, [])
+        foldersByProject.get(pid)!.push(r)
       }
     }
 
@@ -536,12 +525,13 @@ export async function POST(request: NextRequest) {
         ] as string[]
 
         if (activeTaskUserIds.length > 0) {
-          const placeholders = activeTaskUserIds.map(() => '?').join(',')
-          const usersRes = await client.execute({
-            sql: `SELECT id, name, email, whatsapp, notifWaEnabled, notifEmailEnabled
-                  FROM users WHERE id IN (${placeholders})`,
-            args: activeTaskUserIds,
-          })
+          // Use executeWhereIn for D1 100-vars limit safety.
+          const usersRes = await executeWhereIn(
+            client,
+            `SELECT id, name, email, whatsapp, notifWaEnabled, notifEmailEnabled
+                  FROM users WHERE id IN (__IN_PLACE__)`,
+            activeTaskUserIds,
+          )
           const managerRes = await client.execute({
             sql: `SELECT name FROM users WHERE id = ?`,
             args: [managerId],

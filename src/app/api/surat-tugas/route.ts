@@ -8,6 +8,7 @@ import {
   bind,
   genId,
   parseJSON,
+  executeWhereIn,
   type InValue,
 } from '@/lib/libsql-client'
 
@@ -184,19 +185,25 @@ export const GET = withEdgeCache(async (request: NextRequest) => {
     const managerByProjectId = new Map<string, Awaited<ReturnType<typeof fetchUser>>>()
     if (distinctProjectIds.length > 0) {
       // Single query: projects + their manager rows joined.
-      const placeholders = distinctProjectIds.map(() => '?').join(',')
-      const projRes = await client.execute({
-        sql: `SELECT p.id AS pid, p.title AS ptitle, p.managerId AS pmid,
-                     u.id AS uid, u.name AS uname, u.email AS uemail, u.password AS upassword,
-                     u.whatsapp AS uwhatsapp, u.avatar AS uavatar, u.role AS urole,
-                     u.notifWaEnabled AS unotifWaEnabled, u.notifEmailEnabled AS unotifEmailEnabled,
-                     u.autoApproveReview AS uautoApproveReview,
-                     u.createdAt AS ucreatedAt, u.updatedAt AS uupdatedAt
-              FROM projects p
-              LEFT JOIN users u ON u.id = p.managerId
-              WHERE p.id IN (${placeholders})`,
-        args: distinctProjectIds.map((id) => bind(id)),
-      })
+      // Use executeWhereIn to automatically chunk distinctProjectIds into
+      // batches of 80 IDs (D1 hard limit is 100 SQL vars/query). Without
+      // chunking, a user with 100+ distinct projects would get HTTP 500
+      // with "D1_ERROR: too many SQL variables". This was the same root
+      // cause as the "manajer gagal menambahkan petugas" bug (see Task 21).
+      // Current max (Aug 2026) is 87 distinct projects/user — already close.
+      const projRes = await executeWhereIn(
+        client,
+        `SELECT p.id AS pid, p.title AS ptitle, p.managerId AS pmid,
+                 u.id AS uid, u.name AS uname, u.email AS uemail, u.password AS upassword,
+                 u.whatsapp AS uwhatsapp, u.avatar AS uavatar, u.role AS urole,
+                 u.notifWaEnabled AS unotifWaEnabled, u.notifEmailEnabled AS unotifEmailEnabled,
+                 u.autoApproveReview AS uautoApproveReview,
+                 u.createdAt AS ucreatedAt, u.updatedAt AS uupdatedAt
+          FROM projects p
+          LEFT JOIN users u ON u.id = p.managerId
+          WHERE p.id IN (__IN_PLACE__)`,
+        distinctProjectIds,
+      )
       for (const row of projRes.rows) {
         const r = row as Record<string, unknown>
         const pid = String(r.pid ?? '')

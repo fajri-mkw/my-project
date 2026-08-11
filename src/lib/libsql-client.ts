@@ -465,6 +465,95 @@ export function bind(v: unknown): InValue {
 }
 
 /**
+ * Execute a query containing a `WHERE x IN (?, ?, ...)` clause, automatically
+ * chunking the IDs to respect D1's hard limit of 100 SQL variables per query
+ * (standard SQLite allows 100,000 — D1 is stricter). Without chunking, a
+ * query with 100+ placeholder IDs throws `D1_ERROR: too many SQL variables`.
+ *
+ * This was the root cause of the "manajer gagal menambahkan petugas" bug:
+ * `/api/projects` GET used `WHERE projectId IN (?,?,...,?)` with 150 project
+ * IDs, which exceeded D1's 100-var limit and returned 500. The same pattern
+ * exists in `/api/surat-tugas` (currently max 87 distinct projects per user)
+ * and `/api/tasks` (currently max 19 user IDs) — both will hit the limit
+ * as data grows. This helper makes them all safe.
+ *
+ * Usage:
+ *   ```ts
+ *   const { rows } = await executeWhereIn(
+ *     client,
+ *     `SELECT id, name FROM users WHERE id IN (__IN_PLACE__) ORDER BY name`,
+ *     userIds,        // raw values — bind() is applied internally
+ *   )
+ *   ```
+ *
+ * The `__IN_PLACE__` token in `sqlTemplate` is replaced with the correct
+ * number of `?` placeholders for each chunk. The query is run once per chunk
+ * (or as a single batch when there are multiple chunks) and the rows are
+ * concatenated.
+ *
+ * @param client LibSQL/D1 client (from `getLibsql()`)
+ * @param sqlTemplate SQL with literal token `__IN_PLACE__` where `?, ?, ...` should go
+ * @param ids Array of values to use in the IN clause (will be bind()'d)
+ * @param chunkSize Default 80 (leaves headroom under D1's 100 limit in case the
+ *   query has other bound parameters alongside the IN-list)
+ * @returns `{ rows, columns }` — combined result from all chunks
+ */
+export async function executeWhereIn<T = Record<string, unknown>>(
+  client: Client,
+  sqlTemplate: string,
+  ids: unknown[],
+  chunkSize = 80,
+): Promise<{ rows: T[]; columns: string[] }> {
+  if (ids.length === 0) {
+    return { rows: [], columns: [] }
+  }
+
+  // Defensive: if the template doesn't contain the marker, fail loudly so
+  // future devs don't silently get the wrong query.
+  if (!sqlTemplate.includes('__IN_PLACE__')) {
+    throw new Error(
+      'executeWhereIn: sqlTemplate must contain the literal token __IN_PLACE__ ' +
+        '(two underscores on each side) where the IN-list placeholders should go.',
+    )
+  }
+
+  // Split ids into chunks of `chunkSize`.
+  const chunks: unknown[][] = []
+  for (let i = 0; i < ids.length; i += chunkSize) {
+    chunks.push(ids.slice(i, i + chunkSize))
+  }
+
+  // Build one InStatement per chunk.
+  const statements: InStatement[] = chunks.map((chunk) => {
+    const placeholders = chunk.map(() => '?').join(',')
+    const sql = sqlTemplate.replace('__IN_PLACE__', placeholders)
+    return { sql, args: chunk.map((v) => bind(v)) }
+  })
+
+  // Single chunk → just execute (no batch overhead).
+  if (statements.length === 1) {
+    const res = await client.execute(statements[0])
+    return {
+      rows: res.rows as unknown as T[],
+      columns: res.columns ?? [],
+    }
+  }
+
+  // Multiple chunks → batch (atomic on D1, transactional on better-sqlite3).
+  const results = (await client.batch(statements)) as Array<{
+    rows?: Record<string, unknown>[]
+    columns?: string[]
+  }>
+  const allRows: T[] = []
+  let mergedColumns: string[] = []
+  for (const r of results) {
+    if (r.rows) allRows.push(...(r.rows as unknown as T[]))
+    if (r.columns && r.columns.length > 0) mergedColumns = r.columns
+  }
+  return { rows: allRows, columns: mergedColumns }
+}
+
+/**
  * Generate a unique ID for new rows.
  * Uses Web Crypto's randomUUID() (available in Node 19+ and Cloudflare Workers).
  * Returns a 32-char hex string (no hyphens) — fits the existing TEXT id columns.
