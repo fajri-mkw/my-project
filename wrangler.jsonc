@@ -22,22 +22,25 @@
   // by @/lib/libsql-client.ts (via the D1 adapter wrapper) for production
   // queries on Cloudflare Workers.
   //
-  // The database_id is filled in after `wrangler2 d1 create pushakin-db`
-  // is run. Local dev (`bun run dev`) does NOT use this binding — it uses
+  // Database created via Cloudflare dashboard (Workers & Pages → D1).
+  // database_id: e16468ee-3d49-40dc-99a9-b06a8436984a
+  // Schema applied via: wrangler2 d1 execute pushakin-db --remote --file=scripts/d1-schema.sql
+  //
+  // Local dev (`bun run dev`) does NOT use this binding — it uses
   // `file:db/custom.db` via better-sqlite3 instead.
   "d1_databases": [
     {
       "binding": "DB",
       "database_name": "pushakin-db",
-      "database_id": "REPLACE_WITH_D1_DATABASE_ID",
+      "database_id": "e16468ee-3d49-40dc-99a9-b06a8436984a",
       "migrations_dir": "prisma/d1-migrations"
     }
   ]
 
   // Secrets (set via CLI):
   //   wrangler2 secret put DATABASE_URL  (still used for local file: dev,
-  //   NOT for production on Workers — production uses the DB binding above)
-  //   wrangler2 secret put DATABASE_AUTH_TOKEN  (no longer needed on Workers,
-  //   kept for legacy fallback only)
+  //   AND for production Turso fallback if D1 binding is unavailable)
+  //   wrangler2 secret put DATABASE_AUTH_TOKEN  (Turso auth token, kept for
+  //   legacy fallback)
   //   wrangler2 secret put DIRECT_DATABASE_URL  (not needed)
 }
