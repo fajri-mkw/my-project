@@ -9,6 +9,7 @@
     "@libsql/client": "0.17.4",
     "@libsql/isomorphic-ws": "^0.1.5",
     "@mdxeditor/editor": "^3.39.1",
+    "@prisma/adapter-d1": "6.19.3",
     "@prisma/adapter-libsql": "6.19.3",
     "@prisma/client": "6.19.3",
     "@radix-ui/react-accordion": "^1.2.11",

@@ -1,57 +1,104 @@
 import './polyfill-cf'
 import { PrismaClient } from '@prisma/client'
 import { PrismaLibSQL } from '@prisma/adapter-libsql/web'
+import { PrismaD1 } from '@prisma/adapter-d1'
+import { getCloudflareContext } from '@opennextjs/cloudflare'
 
-const globalForPrisma = globalThis as unknown as {
-  prisma: PrismaClient | undefined
+// Minimal D1Database type — the actual binding at runtime is a real
+// D1Database from the Workers runtime. We only need a structural type
+// so PrismaD1 accepts it.
+interface D1DatabaseLike {
+  prepare(sql: string): unknown
+  batch?<T = unknown>(statements: unknown[]): Promise<T[]>
 }
 
-/**
- * Create a PrismaClient backed by the libSQL driver adapter.
- *
- * Supports two connection modes via DATABASE_URL:
- *   - Local dev:  file:db/custom.db           (no auth token needed)
- *   - Turso/edge: libsql://<host>?authToken=…  (token in URL or DATABASE_AUTH_TOKEN env)
- *
- * libSQL is a SQLite fork → schema provider stays "sqlite", all raw SQL
- * (PRAGMA, ALTER TABLE, etc.) remains compatible.
- */
+// Lazily-initialized Prisma client. The Cloudflare D1 binding (`env.DB`) is
+// only available inside a Workers request handler — NOT at module-load time.
+// We therefore defer PrismaClient construction until the first property
+// access, using a Proxy. By that point, `getCloudflareContext()` (sync mode)
+// is available and we can read `env.DB`.
+//
+// Routing (matches libsql-client.ts):
+//   1. D1 binding available (Cloudflare Workers production)
+//      → PrismaD1 adapter
+//   2. `DATABASE_URL` starts with `file:`
+//      → PrismaLibSQL adapter with local file (local dev only)
+//   3. `DATABASE_URL` is a remote libsql:// URL
+//      → PrismaLibSQL adapter with HTTP transport (legacy Turso fallback)
+
+let _prisma: PrismaClient | null = null
+
 function createPrismaClient(): PrismaClient {
   const databaseUrl = process.env.DATABASE_URL || 'file:db/custom.db'
-
-  // For file: URLs, no authToken is needed.
-  // For libsql: URLs (Turso/Cloudflare), authToken comes from the
-  // DATABASE_AUTH_TOKEN env var.
   const isFile = databaseUrl.startsWith('file:')
 
-  // PrismaLibSQL (from @prisma/adapter-libsql/web) uses the HTTP/WebSocket
-  // based @libsql/client — no native bindings, works on Cloudflare Workers.
-  const adapter = new PrismaLibSQL(
-    isFile
-      ? { url: databaseUrl }
-      : { url: databaseUrl, authToken: process.env.DATABASE_AUTH_TOKEN }
-  )
+  // Local dev: file: URL via libsql local adapter (no patch, supports file:)
+  if (isFile) {
+    const adapter = new PrismaLibSQL({ url: databaseUrl })
+    return new PrismaClient({
+      adapter,
+      log: process.env.NODE_ENV === 'development' ? ['error', 'warn'] : ['error'],
+    })
+  }
 
+  // Production on Cloudflare Workers — try D1 binding first
+  try {
+    const ctx = getCloudflareContext()
+    const env = ctx?.env as { DB?: D1DatabaseLike } | undefined
+    if (env?.DB) {
+      const adapter = new PrismaD1(env.DB as never)
+      return new PrismaClient({
+        adapter,
+        log: ['error'],
+      })
+    }
+  } catch {
+    // Not on Cloudflare Workers — fall through to libsql HTTP fallback
+  }
+
+  // Legacy fallback: remote libsql:// URL (Turso)
+  const adapter = new PrismaLibSQL({
+    url: databaseUrl,
+    authToken: process.env.DATABASE_AUTH_TOKEN,
+  })
   return new PrismaClient({
     adapter,
-    log: process.env.NODE_ENV === 'development' ? ['error', 'warn'] : ['error'],
+    log: ['error'],
   })
 }
 
-// In production, create a new PrismaClient for each request
-// In development, reuse the same client
-export const db = globalForPrisma.prisma ?? createPrismaClient()
-
-if (process.env.NODE_ENV !== 'production') {
-  globalForPrisma.prisma = db
+function getDb(): PrismaClient {
+  if (_prisma) return _prisma
+  _prisma = createPrismaClient()
+  return _prisma
 }
+
+/**
+ * Lazy Prisma client proxy.
+ *
+ * `db.user.findFirst(...)` works exactly as before — the underlying
+ * PrismaClient is constructed on first method access (when the Cloudflare
+ * request context / D1 binding is available), then memoized for reuse.
+ *
+ * This pattern is required because:
+ *   - The D1 binding (`env.DB`) is only available inside request handlers.
+ *   - A module-level singleton (the old pattern) would try to read `env.DB`
+ *     at import time, before any request has arrived.
+ */
+export const db = new Proxy({} as PrismaClient, {
+  get(_target, prop: string | symbol) {
+    const client = getDb()
+    const value = Reflect.get(client as object, prop)
+    if (typeof value === 'function') {
+      // Bind methods so `this` is the PrismaClient instance
+      return (value as (...args: unknown[]) => unknown).bind(client)
+    }
+    return value
+  },
+}) as PrismaClient
 
 // Store last connection error for debugging
 let lastConnectionError: string | null = null
-
-// Track connection state to avoid redundant $connect() calls
-let isConnected = false
-let connectionPromise: Promise<void> | null = null
 
 export function getLastDbError(): string | null {
   return lastConnectionError
@@ -59,33 +106,38 @@ export function getLastDbError(): string | null {
 
 /**
  * Ensure database connection + schema sync.
+ *
+ * On Cloudflare Workers + D1: the schema is applied manually via
+ * `wrangler2 d1 execute` (see scripts/d1-schema.sql). We therefore SKIP
+ * ensureSchemaSync entirely — running 26+ migration queries on every cold
+ * start would burn D1 write quota and CPU time unnecessarily.
+ *
+ * On local dev (file: SQLite): schema sync still runs to auto-create tables
+ * if missing. The migrations are idempotent.
+ *
  * Returns true if connected, false if failed.
- *
- * NOTE: With the libSQL driver adapter, $connect() is effectively a no-op
- * (the adapter manages the connection pool internally). We still call it
- * for backward compatibility, but the real work happens in ensureSchemaSync().
- *
- * Schema sync uses version-based skip: on cold starts,
- * only 1 query (version check) is needed instead of 26+ migration queries
- * when the schema is already up-to-date.
  */
 export async function ensureDbConnection(): Promise<boolean> {
   try {
     lastConnectionError = null
 
-    // NOTE: With the libSQL driver adapter, $connect() is a no-op (the adapter
-    // manages the connection pool internally). We intentionally do NOT call
-    // $connect() because it triggers Prisma's library engine instantiation
-    // (getCurrentBinaryTarget → fs.readdir), which fails on Cloudflare Workers
-    // (no filesystem). The first query implicitly connects via the adapter.
+    // Detect D1: if the D1 binding is available, skip schema sync entirely
+    // (schema is applied manually via wrangler2 d1 execute --remote).
+    try {
+      const ctx = getCloudflareContext()
+      const env = ctx?.env as { DB?: unknown } | undefined
+      if (env?.DB) {
+        // On D1 — no schema sync needed (applied manually)
+        return true
+      }
+    } catch {
+      // Not on Workers — fall through to schema sync (local dev)
+    }
 
-    // Auto-sync schema — uses version-based skip for fast cold starts
-    // When schema is already current: 1 query (version check) → skip
-    // When schema needs migration: runs all migrations + stores version
+    // Local dev (file: SQLite) — run schema sync to ensure tables exist
     const { ensureSchemaSync } = await import('./db-sync')
     await ensureSchemaSync()
 
-    isConnected = true
     return true
   } catch (error) {
     const errorMsg = error instanceof Error ? error.message : String(error)
@@ -96,12 +148,6 @@ export async function ensureDbConnection(): Promise<boolean> {
     }
     lastConnectionError = errorMsg
 
-    // Reset connection state
-    isConnected = false
-    connectionPromise = null
-
-    // Do NOT call $disconnect() — it also triggers the library engine.
-    // The adapter handles connection cleanup automatically.
     return false
   }
 }

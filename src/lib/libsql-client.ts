@@ -1,37 +1,41 @@
 /**
- * Direct libSQL client for Pushakin Flows — bypasses Prisma.
+ * Database client for Pushakin Flows — wraps Cloudflare D1 (production)
+ * or better-sqlite3 (local dev) in a `@libsql/client`-compatible interface.
  *
  * WHY: On Cloudflare Workers free plan, CPU time is limited (10ms/request on
  * free tier). Prisma's query-building, type-mapping, and client initialization
- * consume measurable CPU. Network I/O (waiting for the DB response over HTTP)
- * is NOT counted toward CPU time. By using @libsql/client directly, we:
+ * consume measurable CPU. Network I/O (waiting for the DB response) is NOT
+ * counted toward CPU time. By using D1 (or libsql) directly, we:
  *   1. Skip Prisma's client-side overhead (CPU)
  *   2. Skip ensureDbConnection() + ensureSchemaSync() (1+ extra query + CPU)
  *   3. Only pay for network I/O (free) + minimal JSON parsing (CPU)
  *
  * COMPATIBILITY:
- *   - Production (Cloudflare Workers + Turso `libsql://` URL):
- *       Uses the patched `@libsql/client` (HTTP/WebSocket transport, no native
- *       bindings — required by Workers). The package's `node.js` entry was
- *       patched to be identical to `web.js` so it bundles cleanly on Workers.
+ *   - Production (Cloudflare Workers + D1 binding `env.DB`):
+ *       Uses the D1 binding directly. Wrapped in a thin Client-compatible
+ *       adapter so callers (routes, helpers) see the same `execute`/`batch`
+ *       API as before — zero route code changes needed.
  *   - Local dev (Node + `file:` URL):
- *       The patched `@libsql/client` does NOT support `file:` URLs (the local
- *       SQLite driver was stripped to keep the Workers bundle small). We
- *       therefore detect `file:` URLs and fall back to `better-sqlite3`
- *       (already a dependency), wrapped in a thin Client-compatible adapter.
- *       This branch is never reached on Workers (production uses libsql://).
+ *       Falls back to `better-sqlite3` (already a dependency), wrapped in a
+ *       thin Client-compatible adapter. D1 binding is not available in
+ *       `next dev` unless `initOpenNextCloudflareForDev()` is called.
+ *   - Legacy fallback (libsql:// Turso URL):
+ *       If neither D1 nor `file:` URL is available, falls back to the patched
+ *       `@libsql/client` HTTP client. Kept for backward compat during the
+ *       Turso → D1 migration window.
  *
- * STORAGE FORMAT (Prisma + SQLite):
+ * STORAGE FORMAT (SQLite — same in D1, Turso, and local file):
  *   - DateTime → INTEGER (epoch milliseconds)
  *   - Boolean  → INTEGER (0 or 1)
  *   - JSON     → TEXT (JSON.stringify'd string)
  *   - String?  → TEXT | NULL
  *
- * These helpers convert libsql row values back to the shapes the frontend
+ * These helpers convert libsql/D1 row values back to the shapes the frontend
  * expects (matching the old Prisma responses exactly).
  */
 
 import { createClient, type Client, type InValue, type InStatement, type InArgs } from '@libsql/client'
+import { getCloudflareContext } from '@opennextjs/cloudflare'
 
 // Re-export the libsql statement types so callers can type their batch arrays
 // without importing directly from @libsql/client.
@@ -40,33 +44,205 @@ export type { InStatement, InArgs, InValue }
 // Singleton client — reused across requests in the same isolate/process.
 let _client: Client | null = null
 
+// Minimal D1Database type (avoids importing workers types which don't exist
+// in next dev). At runtime, env.DB on Cloudflare Workers is a real D1Database.
+interface D1Statement {
+  bind(...values: unknown[]): D1Statement
+  all(): Promise<{ results: Record<string, unknown>[]; meta: { changes?: number; last_row_id?: number | null } }>
+  run(): Promise<{ meta: { changes?: number; last_row_id?: number | null } }>
+}
+interface D1Database {
+  prepare(sql: string): D1Statement
+  batch<T = unknown>(statements: D1Statement[]): Promise<Array<{ results: T[]; meta: { changes?: number; last_row_id?: number | null } }>>
+}
+
 /**
- * Get the shared libsql client. Reads DATABASE_URL (required) and
- * DATABASE_AUTH_TOKEN (optional, only for libsql:// Turso remote).
+ * Try to obtain the D1 binding from the Cloudflare Workers context.
+ * Returns null when:
+ *   - not running on Cloudflare Workers (e.g. `next dev` in Node), OR
+ *   - the `DB` binding is not configured in wrangler.jsonc.
+ * Never throws — callers use the result to decide which branch to take.
+ */
+function tryGetD1Binding(): D1Database | null {
+  try {
+    // getCloudflareContext() throws when called outside a Workers request
+    // (or when initOpenNextCloudflareForDev was not called in next dev).
+    // We catch and return null so the caller can fall back to file:/libsql.
+    const ctx = getCloudflareContext()
+    const env = ctx?.env as { DB?: D1Database } | undefined
+    return env?.DB ?? null
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Get the shared database client. Routing (in priority order):
  *
- * Routing:
- *   - `file:` URL  → better-sqlite3 adapter (local dev only)
- *   - other scheme → patched @libsql/client (production / remote)
+ *   1. D1 binding available (Cloudflare Workers production)
+ *      → D1-backed Client-compatible adapter (no network hop, native binding)
+ *
+ *   2. `DATABASE_URL` starts with `file:`
+ *      → better-sqlite3 adapter (local dev only)
+ *
+ *   3. `DATABASE_URL` is a remote libsql:// URL
+ *      → patched @libsql/client HTTP client (legacy Turso fallback)
+ *
+ * Throws if none of the above are available.
  */
 export function getLibsql(): Client {
   if (_client) return _client
 
+  // 1. Try Cloudflare D1 binding first (production on Workers)
+  const d1 = tryGetD1Binding()
+  if (d1) {
+    _client = createD1Client(d1)
+    return _client
+  }
+
+  // 2. Fall back to DATABASE_URL
   const url = process.env.DATABASE_URL
   if (!url) {
-    throw new Error('DATABASE_URL is not set')
+    throw new Error(
+      'No database available: D1 binding not found and DATABASE_URL is not set. ' +
+      'Configure a `DB` D1 binding in wrangler.jsonc, or set DATABASE_URL for local dev.'
+    )
   }
 
   if (url.startsWith('file:')) {
-    // Local dev branch — never reached on Cloudflare Workers (prod uses
-    // libsql:// URLs). Lazy-require better-sqlite3 so the native module is
-    // never bundled into the Workers build.
+    // Local dev branch — never reached on Cloudflare Workers (prod uses D1).
+    // Lazy-require better-sqlite3 so the native module is never bundled into
+    // the Workers build.
     _client = createLocalSqliteClient(url)
     return _client
   }
 
+  // 3. Legacy fallback: remote libsql:// URL (Turso)
   const authToken = process.env.DATABASE_AUTH_TOKEN || undefined
   _client = createClient({ url, authToken })
   return _client
+}
+
+// ---------------------------------------------------------------------------
+// D1 adapter (production on Cloudflare Workers): wraps a D1Database binding
+// in a `@libsql/client`-compatible Client. Only the methods our codebase
+// actually uses are implemented (`execute`, `batch`, `transaction`, `close`).
+// The shape of ResultSet mirrors what @libsql/client returns so all callers
+// (helpers like toBool/toDateISO, .rows.map, .rowsAffected, etc.) work
+// unchanged.
+//
+// D1 result shape (from D1Database.prepare().all() / .run()):
+//   {
+//     results: Record<string, unknown>[]  (rows for SELECT/WITH/VALUES/PRAGMA)
+//     meta: { changes: number, last_row_id: number | null, ... }
+//     success: boolean
+//   }
+//
+// D1 batch returns an array of the same shape (one entry per statement).
+// D1 batch is atomic (runs in a single transaction).
+//
+// Notes:
+//   - D1 does not return column names separately. We derive `columns` from
+//     `Object.keys(results[0])` when results are non-empty. Most of our
+//     code only uses `.rows` (via toBool/toDateISO etc.) so an empty
+//     `columns` array for empty results is fine.
+//   - D1's `last_row_id` is `number | null`. We convert null → undefined to
+//     match libsql's `lastInsertRowid: number | bigint | undefined`.
+// ---------------------------------------------------------------------------
+
+function createD1Client(d1: D1Database): Client {
+  const executeOne = (stmt: InStatement): ReturnType<Client['execute']> => {
+    const sql = typeof stmt === 'string' ? stmt : stmt.sql
+    const args = typeof stmt === 'string' ? [] : (stmt.args ?? [])
+
+    const trimmed = sql.trimStart().toUpperCase()
+    const isReadOnly =
+      trimmed.startsWith('SELECT') ||
+      trimmed.startsWith('WITH') ||
+      trimmed.startsWith('VALUES') ||
+      trimmed.startsWith('PRAGMA')
+
+    const prepared = d1.prepare(sql).bind(...(args as unknown[]))
+
+    if (isReadOnly) {
+      // Use .all() to get rows back for SELECT/WITH/VALUES/PRAGMA
+      return prepared.all().then((result) => {
+        const rows = result.results ?? []
+        return {
+          columns: rows.length > 0 ? Object.keys(rows[0]) : [],
+          rows: rows as unknown as Record<string, unknown>[],
+          rowsAffected: 0,
+          lastInsertRowid: undefined,
+        }
+      }) as ReturnType<Client['execute']>
+    }
+
+    // Write statement (INSERT/UPDATE/DELETE/etc.) — use .run()
+    return prepared.run().then((result) => {
+      const meta = result.meta ?? {}
+      const lastId = meta.last_row_id
+      return {
+        columns: [],
+        rows: [],
+        rowsAffected: meta.changes ?? 0,
+        lastInsertRowid:
+          lastId === null || lastId === undefined ? undefined : lastId,
+      }
+    }) as ReturnType<Client['execute']>
+  }
+
+  // Minimal Client-compatible object. The `any` casts are intentional — we
+  // only need to satisfy the methods our codebase calls.
+  const client = {
+    execute: (
+      stmt: InStatement | string,
+      args?: InArgs,
+    ): ReturnType<Client['execute']> => {
+      const statement: InStatement =
+        typeof stmt === 'string' ? { sql: stmt, args: args ?? [] } : stmt
+      return executeOne(statement)
+    },
+    batch: (
+      statements: InStatement[],
+      _mode?: 'deferred' | 'write' | 'async',
+    ): Promise<unknown[]> => {
+      // D1 batch is atomic — runs in a single transaction. Build the
+      // D1Statement array, then call d1.batch().
+      const d1Stmts = statements.map((s) => {
+        const sql = typeof s === 'string' ? s : s.sql
+        const args = typeof s === 'string' ? [] : (s.args ?? [])
+        return d1.prepare(sql).bind(...(args as unknown[]))
+      })
+      return d1
+        .batch(d1Stmts)
+        .then((results) =>
+          results.map((r) => {
+            const rows = (r.results ?? []) as Record<string, unknown>[]
+            const meta = r.meta ?? {}
+            const lastId = meta.last_row_id
+            return {
+              columns: rows.length > 0 ? Object.keys(rows[0]) : [],
+              rows: rows as unknown as Record<string, unknown>[],
+              rowsAffected: meta.changes ?? 0,
+              lastInsertRowid:
+                lastId === null || lastId === undefined ? undefined : lastId,
+            }
+          }),
+        )
+    },
+    transaction: (_mode?: 'deferred' | 'write' | 'async') => {
+      // Minimal Transaction stub. Our codebase doesn't use Transaction
+      // objects directly (only `execute` + `batch`), so this is here purely
+      // for interface completeness. Use `batch()` for atomic multi-statement
+      // operations — D1 batch IS transactional.
+      throw new Error('transaction() is not supported by the D1 adapter; use batch() instead')
+    },
+    close: () => {
+      // D1 doesn't have a close() — bindings are managed by the runtime.
+    },
+  } as unknown as Client
+
+  return client
 }
 
 // ---------------------------------------------------------------------------

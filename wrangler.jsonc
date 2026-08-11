@@ -16,10 +16,28 @@
   // DO NOT put secrets here — this file is committed to git.
   "vars": {
     "NEXT_PUBLIC_APP_NAME": "Pushakin Flows"
-  }
+  },
+
+  // D1 database binding — used by both Prisma (via @prisma/adapter-d1) and
+  // by @/lib/libsql-client.ts (via the D1 adapter wrapper) for production
+  // queries on Cloudflare Workers.
+  //
+  // The database_id is filled in after `wrangler2 d1 create pushakin-db`
+  // is run. Local dev (`bun run dev`) does NOT use this binding — it uses
+  // `file:db/custom.db` via better-sqlite3 instead.
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "pushakin-db",
+      "database_id": "REPLACE_WITH_D1_DATABASE_ID",
+      "migrations_dir": "prisma/d1-migrations"
+    }
+  ]
 
   // Secrets (set via CLI):
-  //   wrangler2 secret put DATABASE_URL
-  //   wrangler2 secret put DATABASE_AUTH_TOKEN
-  //   wrangler2 secret put DIRECT_DATABASE_URL  (not needed for Turso)
+  //   wrangler2 secret put DATABASE_URL  (still used for local file: dev,
+  //   NOT for production on Workers — production uses the DB binding above)
+  //   wrangler2 secret put DATABASE_AUTH_TOKEN  (no longer needed on Workers,
+  //   kept for legacy fallback only)
+  //   wrangler2 secret put DIRECT_DATABASE_URL  (not needed)
 }
