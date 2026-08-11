@@ -5,8 +5,27 @@
 // PERFORMANCE: Uses a version-based check — after all migrations succeed,
 // a version number is stored in the settings table. On subsequent cold starts,
 // only 1 query is needed (version check) instead of 26+ migration queries.
+//
+// CRITICAL FIX (Turso quota exhaustion root cause):
+//   The previous version used Prisma's db.settings.findUnique() for the
+//   version check. On Cloudflare Workers, Prisma's WASM engine can fail
+//   on cold starts (transient initialization errors). When the findUnique
+//   threw, the catch block returned false → performSchemaSync() ran ALL
+//   migrations including renameSqliteRole() which does table-scanning
+//   UPDATEs. Each migration run wrote thousands of rows (rows scanned by
+//   UPDATE). With frequent cold starts × 22 Prisma-importing routes, this
+//   exhausted the Turso free plan's 10M rows-written/month quota.
+//
+//   Fix: rewrite isSchemaVersionCurrent() & setSchemaVersion() to use
+//   @libsql/client directly (same pattern as maintenance-check.ts and
+//   libsql-client.ts). libsql is lightweight (no WASM, no Prisma overhead)
+//   and doesn't fail on cold starts. Additionally, if the version check
+//   query DOES fail, we now assume the schema is current (skip migrations)
+//   rather than re-running them — the version is almost certainly already
+//   set from a previous successful sync.
 
 import { db } from './db'
+import { getLibsql, bind } from './libsql-client'
 
 // Increment this when adding new migrations
 const SCHEMA_VERSION = 10
@@ -30,12 +49,22 @@ export async function ensureSchemaSync(): Promise<boolean> {
 async function performSchemaSync(): Promise<boolean> {
   try {
     // Version-based skip: check if we've already applied this version
-    if (await isSchemaVersionCurrent()) {
+    const status = await isSchemaVersionCurrent()
+    if (status === 'current' || status === 'unknown') {
+      // 'current' → version matches, skip migrations.
+      // 'unknown' → version check failed (transient error). Skip migrations
+      //   to avoid burning write quota on no-op table-scanning UPDATEs.
+      //   The schema is almost certainly already current.
       syncPerformed = true
-      console.log(`[DB Sync] Schema version ${SCHEMA_VERSION} already applied — skipping migrations`)
+      if (status === 'current') {
+        console.log(`[DB Sync] Schema version ${SCHEMA_VERSION} already applied — skipping migrations`)
+      } else {
+        console.warn(`[DB Sync] Version check inconclusive — skipping migrations to conserve write quota`)
+      }
       return true
     }
 
+    // status === 'outdated' → run migrations
     const isPostgres = !!process.env.DIRECT_DATABASE_URL || 
       (process.env.DATABASE_URL?.startsWith('postgresql') || 
        process.env.DATABASE_URL?.startsWith('postgres'))
@@ -62,29 +91,55 @@ async function performSchemaSync(): Promise<boolean> {
 /**
  * Check if the stored schema version matches our expected version.
  * This replaces 26+ individual migration checks with a single query.
+ *
+ * IMPORTANT: Uses @libsql/client directly (NOT Prisma) to avoid WASM
+ * cold-start failures that triggered spurious migration runs and
+ * exhausted the Turso write quota.
+ *
+ * Returns 'current' if version matches, 'outdated' if version differs
+ * (needs migration), or 'unknown' if the query failed (transient error).
+ * On 'unknown', we SKIP migrations to avoid burning write quota on
+ * table-scanning UPDATEs that don't actually change anything.
  */
-async function isSchemaVersionCurrent(): Promise<boolean> {
+async function isSchemaVersionCurrent(): Promise<'current' | 'outdated' | 'unknown'> {
   try {
-    const settings = await db.settings.findUnique({
-      where: { id: 'schema_version' },
-      select: { maintenanceMessage: true } // reuse existing column to store version
+    const client = getLibsql()
+    const result = await client.execute({
+      sql: `SELECT maintenanceMessage FROM settings WHERE id = ? LIMIT 1`,
+      args: [bind('schema_version')],
     })
-    return settings?.maintenanceMessage === String(SCHEMA_VERSION)
-  } catch {
-    // If settings table doesn't exist yet, we need to run migrations
-    return false
+    if (result.rows.length === 0) {
+      // No schema_version row yet — this is the FIRST run, need migrations
+      return 'outdated'
+    }
+    const stored = String(result.rows[0]?.maintenanceMessage ?? '')
+    return stored === String(SCHEMA_VERSION) ? 'current' : 'outdated'
+  } catch (error) {
+    // Transient error (DB timeout, connection issue, etc.).
+    // DO NOT trigger migrations — the schema is almost certainly already
+    // current from a previous successful sync. Re-running migrations
+    // would waste write quota on no-op table-scanning UPDATEs.
+    console.warn('[DB Sync] Version check failed (assuming current):', error instanceof Error ? error.message : String(error))
+    return 'unknown'
   }
 }
 
 /**
  * Store the current schema version after successful migration.
+ * Uses @libsql/client directly (NOT Prisma) for the same cold-start
+ * reliability reason as isSchemaVersionCurrent().
  */
 async function setSchemaVersion(version: number): Promise<void> {
   try {
-    await db.settings.upsert({
-      where: { id: 'schema_version' },
-      update: { maintenanceMessage: String(version) },
-      create: { id: 'schema_version', maintenanceMessage: String(version) }
+    const client = getLibsql()
+    const ts = Date.now()
+    await client.execute({
+      sql: `INSERT INTO settings (id, maintenanceMessage, updatedAt)
+            VALUES (?, ?, ?)
+            ON CONFLICT(id) DO UPDATE SET
+              maintenanceMessage = excluded.maintenanceMessage,
+              updatedAt = excluded.updatedAt`,
+      args: [bind('schema_version'), bind(String(version)), bind(ts)],
     })
   } catch (error) {
     console.error('[DB Sync] Failed to store schema version:', error)

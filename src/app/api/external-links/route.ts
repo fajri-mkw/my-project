@@ -1,10 +1,23 @@
-import { db, ensureDbConnection } from '@/lib/db'
 import { NextRequest, NextResponse } from 'next/server'
 import { getCloudflareContext } from '@opennextjs/cloudflare'
+import { getLibsql, toBool, bind, genId, nowMs, type InValue } from '@/lib/libsql-client'
 
 // ============================================================================
-// Public interface for an external link (returned to clients)
+// External links route — CRUD for the sidebar's "external apps" list.
+//
+// Rewritten to use @libsql/client directly (bypasses Prisma CPU overhead) —
+// same pattern as src/app/api/maintenance/route.ts and src/app/api/users/route.ts.
+// The Prisma import (`db` + `ensureDbConnection`) caused Cloudflare Workers
+// Error 1102 (Worker exceeded resource limits) on cold starts because loading
+// Prisma's WASM module + running ensureSchemaSync() burned too much CPU on the
+// Workers free plan (10ms CPU limit).
+//
+// THIS ROUTE IS HOT: the sidebar calls GET on every page load. Keeping the
+// direct Cloudflare Cache API usage (SEPARATE public/admin cache keys + ctx
+// .waitUntil for cache.put) is critical for staying under the Workers CPU
+// limit — we only pay DB round-trip cost on cache miss.
 // ============================================================================
+
 export interface ExternalLinkDTO {
   id: string
   label: string
@@ -15,9 +28,9 @@ export interface ExternalLinkDTO {
   order: number
 }
 
-// ============================================================================
+// ----------------------------------------------------------------------------
 // Helpers
-// ============================================================================
+// ----------------------------------------------------------------------------
 
 function isValidUrl(value: string): boolean {
   if (!value) return false
@@ -33,14 +46,17 @@ function isValidUrl(value: string): boolean {
 // Verify that the given userId belongs to a Super Admin (role === 'Admin').
 // Used for all mutating operations (POST/PUT/DELETE) — consistent with the
 // maintenance route's admin verification pattern.
+// Direct libsql read — NO Prisma, NO ensureDbConnection().
 async function verifySuperAdmin(userId: string | null): Promise<boolean> {
   if (!userId) return false
   try {
-    const user = await db.user.findUnique({
-      where: { id: userId },
-      select: { role: true }
+    const client = getLibsql()
+    const result = await client.execute({
+      sql: `SELECT role FROM users WHERE id = ? LIMIT 1`,
+      args: [bind(userId)],
     })
-    return !!user && user.role === 'Admin'
+    if (result.rows.length === 0) return false
+    return String((result.rows[0] as Record<string, unknown>).role ?? '') === 'Admin'
   } catch {
     return false
   }
@@ -132,6 +148,24 @@ async function bustExternalLinksCache(): Promise<void> {
   } catch {}
 }
 
+// Map a raw libsql row (from the external_links table) to the DTO the frontend
+// expects. Boolean columns come back as 0/1 from SQLite — toBool() converts.
+function mapExternalLink(row: Record<string, unknown>): ExternalLinkDTO {
+  return {
+    id: String(row.id ?? ''),
+    label: String(row.label ?? ''),
+    url: String(row.url ?? ''),
+    icon:
+      row.icon === null || row.icon === undefined ? null : String(row.icon),
+    description:
+      row.description === null || row.description === undefined
+        ? null
+        : String(row.description),
+    isActive: toBool(row.isActive),
+    order: Number(row.order ?? 0),
+  }
+}
+
 // ============================================================================
 // GET /api/external-links
 //   - Public: returns only active links, sorted by `order` then `createdAt`
@@ -164,30 +198,29 @@ export async function GET(request: NextRequest) {
       })
     }
 
-    // 2) Cache miss — query the database
-    await ensureDbConnection()
+    // 2) Cache miss — query the database (libsql singleton, lazy connect).
+    const client = getLibsql()
 
     // Only reveal inactive links to verified Super Admin.
     // For the admin path we must verify; for the public path we skip the
     // extra DB query entirely (always active-only).
     const allowAll = showAll ? await verifySuperAdmin(adminUserId) : false
 
-    const links = await db.externalLink.findMany({
-      where: allowAll ? {} : { isActive: true },
-      orderBy: [{ order: 'asc' }, { createdAt: 'asc' }]
-    })
+    const sql = allowAll
+      ? `SELECT id, label, url, icon, description, isActive, \`order\`
+         FROM external_links
+         ORDER BY \`order\` ASC, createdAt ASC`
+      : `SELECT id, label, url, icon, description, isActive, \`order\`
+         FROM external_links
+         WHERE isActive = 1
+         ORDER BY \`order\` ASC, createdAt ASC`
 
-    const result: ExternalLinkDTO[] = links.map(l => ({
-      id: l.id,
-      label: l.label,
-      url: l.url,
-      icon: l.icon,
-      description: l.description,
-      isActive: l.isActive,
-      order: l.order
-    }))
+    const result = await client.execute({ sql, args: [] })
+    const links = result.rows.map((row) =>
+      mapExternalLink(row as Record<string, unknown>),
+    )
 
-    const response = NextResponse.json({ links: result })
+    const response = NextResponse.json({ links })
     // 3) Cache the successful response (non-blocking via waitUntil)
     await writeCache(cacheKey, response, ttl)
     return response
@@ -195,7 +228,7 @@ export async function GET(request: NextRequest) {
     console.error('Get external links error:', error)
     return NextResponse.json(
       { error: 'Gagal memuat daftar link eksternal' },
-      { status: 500 }
+      { status: 500 },
     )
   }
 }
@@ -206,51 +239,96 @@ export async function GET(request: NextRequest) {
 // ============================================================================
 export async function POST(request: NextRequest) {
   try {
-    await ensureDbConnection()
-
     const body = await request.json()
-    const { adminUserId, label, url, icon, description, isActive, order } = body
+    const { adminUserId, label, url, icon, description, isActive, order } = body as {
+      adminUserId?: string
+      label?: string
+      url?: string
+      icon?: string
+      description?: string
+      isActive?: boolean
+      order?: number
+    }
 
-    if (!(await verifySuperAdmin(adminUserId))) {
+    if (!(await verifySuperAdmin(adminUserId ?? null))) {
       return NextResponse.json(
         { error: 'Hanya Super Admin yang dapat menambahkan link eksternal' },
-        { status: 403 }
+        { status: 403 },
       )
     }
 
     if (!label || typeof label !== 'string' || !label.trim()) {
       return NextResponse.json(
         { error: 'Nama link wajib diisi' },
-        { status: 400 }
+        { status: 400 },
       )
     }
     if (!url || typeof url !== 'string' || !isValidUrl(url.trim())) {
       return NextResponse.json(
         { error: 'URL tidak valid. Gunakan format http:// atau https://' },
-        { status: 400 }
+        { status: 400 },
       )
     }
 
-    // Determine next order if not provided
+    // Determine next order if not provided — replaces Prisma's findFirst
+    // orderBy: { order: 'desc' }. LIMIT 1 keeps this cheap.
     let nextOrder = typeof order === 'number' ? order : 0
     if (typeof order !== 'number') {
-      const maxRow = await db.externalLink.findFirst({
-        orderBy: { order: 'desc' },
-        select: { order: true }
+      const client0 = getLibsql()
+      const maxRes = await client0.execute({
+        sql: `SELECT \`order\` AS o FROM external_links ORDER BY \`order\` DESC LIMIT 1`,
+        args: [],
       })
-      nextOrder = maxRow ? maxRow.order + 1 : 0
+      if (maxRes.rows.length > 0) {
+        nextOrder = Number((maxRes.rows[0] as Record<string, unknown>).o ?? 0) + 1
+      }
     }
 
-    const created = await db.externalLink.create({
-      data: {
-        label: label.trim(),
-        url: url.trim(),
-        icon: typeof icon === 'string' && icon.trim() ? icon.trim() : null,
-        description: typeof description === 'string' && description.trim() ? description.trim() : null,
-        isActive: typeof isActive === 'boolean' ? isActive : true,
-        order: nextOrder
-      }
+    const id = genId()
+    const ts = nowMs()
+    const client = getLibsql()
+    const safeIcon = typeof icon === 'string' && icon.trim() ? icon.trim() : null
+    const safeDescription =
+      typeof description === 'string' && description.trim()
+        ? description.trim()
+        : null
+    const safeActive = typeof isActive === 'boolean' ? isActive : true
+
+    await client.execute({
+      sql: `INSERT INTO external_links
+            (id, label, url, icon, description, isActive, \`order\`, createdAt, updatedAt)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      args: [
+        bind(id),
+        bind(label.trim()),
+        bind(url.trim()),
+        bind(safeIcon),
+        bind(safeDescription),
+        bind(safeActive ? 1 : 0),
+        bind(nextOrder),
+        bind(ts),
+        bind(ts),
+      ],
     })
+
+    // Re-fetch to mirror Prisma's `create()` returning the persisted row.
+    const selRes = await client.execute({
+      sql: `SELECT id, label, url, icon, description, isActive, \`order\`
+            FROM external_links WHERE id = ? LIMIT 1`,
+      args: [bind(id)],
+    })
+    const created =
+      selRes.rows.length > 0
+        ? mapExternalLink(selRes.rows[0] as Record<string, unknown>)
+        : {
+            id,
+            label: label.trim(),
+            url: url.trim(),
+            icon: safeIcon,
+            description: safeDescription,
+            isActive: safeActive,
+            order: nextOrder,
+          }
 
     await bustExternalLinksCache()
     return NextResponse.json({ success: true, link: created })
@@ -258,7 +336,7 @@ export async function POST(request: NextRequest) {
     console.error('Create external link error:', error)
     return NextResponse.json(
       { error: 'Gagal menambahkan link eksternal' },
-      { status: 500 }
+      { status: 500 },
     )
   }
 }
@@ -269,65 +347,131 @@ export async function POST(request: NextRequest) {
 // ============================================================================
 export async function PUT(request: NextRequest) {
   try {
-    await ensureDbConnection()
-
     const body = await request.json()
-    const { adminUserId, id, label, url, icon, description, isActive, order } = body
+    const { adminUserId, id, label, url, icon, description, isActive, order } = body as {
+      adminUserId?: string
+      id?: string
+      label?: string
+      url?: string
+      icon?: string
+      description?: string
+      isActive?: boolean
+      order?: number
+    }
 
-    if (!(await verifySuperAdmin(adminUserId))) {
+    if (!(await verifySuperAdmin(adminUserId ?? null))) {
       return NextResponse.json(
         { error: 'Hanya Super Admin yang dapat mengubah link eksternal' },
-        { status: 403 }
+        { status: 403 },
       )
     }
 
     if (!id || typeof id !== 'string') {
       return NextResponse.json(
         { error: 'ID link wajib diisi' },
-        { status: 400 }
+        { status: 400 },
       )
     }
 
-    const updateData: {
-      label?: string
-      url?: string
-      icon?: string | null
-      description?: string | null
-      isActive?: boolean
-      order?: number
-    } = {}
+    // Build the dynamic SET clause — only update provided fields.
+    const sets: string[] = []
+    const args: InValue[] = []
 
-    if (typeof label === 'string' && label.trim()) updateData.label = label.trim()
+    if (typeof label === 'string' && label.trim()) {
+      sets.push('label = ?')
+      args.push(bind(label.trim()))
+    }
     if (typeof url === 'string') {
       if (!isValidUrl(url.trim())) {
         return NextResponse.json(
           { error: 'URL tidak valid. Gunakan format http:// atau https://' },
-          { status: 400 }
+          { status: 400 },
         )
       }
-      updateData.url = url.trim()
+      sets.push('url = ?')
+      args.push(bind(url.trim()))
     }
     if (icon !== undefined) {
-      updateData.icon = typeof icon === 'string' && icon.trim() ? icon.trim() : null
+      sets.push('icon = ?')
+      args.push(
+        bind(
+          typeof icon === 'string' && icon.trim() ? icon.trim() : null,
+        ),
+      )
     }
     if (description !== undefined) {
-      updateData.description = typeof description === 'string' && description.trim() ? description.trim() : null
+      sets.push('description = ?')
+      args.push(
+        bind(
+          typeof description === 'string' && description.trim()
+            ? description.trim()
+            : null,
+        ),
+      )
     }
-    if (typeof isActive === 'boolean') updateData.isActive = isActive
-    if (typeof order === 'number') updateData.order = order
+    if (typeof isActive === 'boolean') {
+      sets.push('isActive = ?')
+      args.push(bind(isActive ? 1 : 0))
+    }
+    if (typeof order === 'number') {
+      sets.push('`order` = ?')
+      args.push(bind(order))
+    }
 
-    const updated = await db.externalLink.update({
-      where: { id },
-      data: updateData
+    const client = getLibsql()
+
+    if (sets.length === 0) {
+      // Nothing to update — return the existing row so the caller gets a
+      // consistent response shape (matching the original Prisma behavior).
+      const existing = await client.execute({
+        sql: `SELECT id, label, url, icon, description, isActive, \`order\`
+              FROM external_links WHERE id = ? LIMIT 1`,
+        args: [bind(id)],
+      })
+      if (existing.rows.length === 0) {
+        return NextResponse.json(
+          { error: 'Link tidak ditemukan' },
+          { status: 404 },
+        )
+      }
+      return NextResponse.json({
+        success: true,
+        link: mapExternalLink(existing.rows[0] as Record<string, unknown>),
+      })
+    }
+
+    sets.push('updatedAt = ?')
+    args.push(bind(nowMs()))
+    args.push(bind(id))
+
+    await client.execute({
+      sql: `UPDATE external_links SET ${sets.join(', ')} WHERE id = ?`,
+      args,
     })
 
+    // Re-fetch the updated row — mirrors Prisma's `update()` return shape.
+    const selRes = await client.execute({
+      sql: `SELECT id, label, url, icon, description, isActive, \`order\`
+            FROM external_links WHERE id = ? LIMIT 1`,
+      args: [bind(id)],
+    })
+    if (selRes.rows.length === 0) {
+      return NextResponse.json(
+        { error: 'Link tidak ditemukan' },
+        { status: 404 },
+      )
+    }
+
     await bustExternalLinksCache()
-    return NextResponse.json({ success: true, link: updated })
+    return NextResponse.json({
+      success: true,
+      link: mapExternalLink(selRes.rows[0] as Record<string, unknown>),
+    })
   } catch (error) {
     console.error('Update external link error:', error)
     return NextResponse.json(
       { error: 'Gagal mengubah link eksternal' },
-      { status: 500 }
+      { status: 500 },
     )
   }
 }
@@ -337,8 +481,6 @@ export async function PUT(request: NextRequest) {
 // ============================================================================
 export async function DELETE(request: NextRequest) {
   try {
-    await ensureDbConnection()
-
     const url = new URL(request.url)
     const id = url.searchParams.get('id')
     const adminUserId = url.searchParams.get('adminUserId')
@@ -346,18 +488,22 @@ export async function DELETE(request: NextRequest) {
     if (!(await verifySuperAdmin(adminUserId))) {
       return NextResponse.json(
         { error: 'Hanya Super Admin yang dapat menghapus link eksternal' },
-        { status: 403 }
+        { status: 403 },
       )
     }
 
     if (!id) {
       return NextResponse.json(
         { error: 'ID link wajib diisi' },
-        { status: 400 }
+        { status: 400 },
       )
     }
 
-    await db.externalLink.delete({ where: { id } })
+    const client = getLibsql()
+    await client.execute({
+      sql: `DELETE FROM external_links WHERE id = ?`,
+      args: [bind(id)],
+    })
 
     await bustExternalLinksCache()
     return NextResponse.json({ success: true })
@@ -365,7 +511,7 @@ export async function DELETE(request: NextRequest) {
     console.error('Delete external link error:', error)
     return NextResponse.json(
       { error: 'Gagal menghapus link eksternal' },
-      { status: 500 }
+      { status: 500 },
     )
   }
 }
