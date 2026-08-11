@@ -109,31 +109,50 @@ export const GET = withEdgeCache(async (request: NextRequest) => {
     let foldersByProject = new Map<string, any[]>()
 
     if (projectIds.length > 0) {
-      const placeholders = projectIds.map(() => '?').join(',')
-
-      const tasksRes = await client.execute({
-        sql: `SELECT id, role, stage, status, assignedTo, data, revisionCount, projectId
-              FROM tasks
-              WHERE projectId IN (${placeholders})`,
-        args: projectIds,
-      })
-      for (const row of tasksRes.rows) {
-        const pid = String(row.projectId)
-        if (!tasksByProject.has(pid)) tasksByProject.set(pid, [])
-        tasksByProject.get(pid)!.push(row)
+      // D1 limit: max 100 SQL variables per query. Chunk projectIds into
+      // batches of 100 to avoid "too many SQL variables" error when there are
+      // 100+ projects. Each chunk runs a separate query, results are merged
+      // into the same Map.
+      const CHUNK_SIZE = 100
+      const tasksRes = await client.batch(
+        Array.from({ length: Math.ceil(projectIds.length / CHUNK_SIZE) }, (_, i) => {
+          const chunk = projectIds.slice(i * CHUNK_SIZE, (i + 1) * CHUNK_SIZE)
+          const placeholders = chunk.map(() => '?').join(',')
+          return {
+            sql: `SELECT id, role, stage, status, assignedTo, data, revisionCount, projectId
+                   FROM tasks
+                   WHERE projectId IN (${placeholders})`,
+            args: chunk,
+          }
+        }),
+      )
+      for (const result of tasksRes) {
+        for (const row of (result as { rows?: Record<string, unknown>[] }).rows ?? []) {
+          const pid = String(row.projectId)
+          if (!tasksByProject.has(pid)) tasksByProject.set(pid, [])
+          tasksByProject.get(pid)!.push(row)
+        }
       }
 
-      const foldersRes = await client.execute({
-        sql: `SELECT id, folderId, name, description, link, assignedRoles,
+      const foldersRes = await client.batch(
+        Array.from({ length: Math.ceil(projectIds.length / CHUNK_SIZE) }, (_, i) => {
+          const chunk = projectIds.slice(i * CHUNK_SIZE, (i + 1) * CHUNK_SIZE)
+          const placeholders = chunk.map(() => '?').join(',')
+          return {
+            sql: `SELECT id, folderId, name, description, link, assignedRoles,
                      color, bgColor, borderColor, assignedUsers, parentFolderId, projectId
-              FROM drive_folders
-              WHERE projectId IN (${placeholders})`,
-        args: projectIds,
-      })
-      for (const row of foldersRes.rows) {
-        const pid = String(row.projectId)
-        if (!foldersByProject.has(pid)) foldersByProject.set(pid, [])
-        foldersByProject.get(pid)!.push(row)
+                   FROM drive_folders
+                   WHERE projectId IN (${placeholders})`,
+            args: chunk,
+          }
+        }),
+      )
+      for (const result of foldersRes) {
+        for (const row of (result as { rows?: Record<string, unknown>[] }).rows ?? []) {
+          const pid = String(row.projectId)
+          if (!foldersByProject.has(pid)) foldersByProject.set(pid, [])
+          foldersByProject.get(pid)!.push(row)
+        }
       }
     }
 
@@ -212,8 +231,11 @@ export const GET = withEdgeCache(async (request: NextRequest) => {
     })
   } catch (error) {
     console.error('Get projects error:', error)
+    const errDetails = error instanceof Error
+      ? { message: error.message, stack: error.stack?.split('\n').slice(0, 5).join(' | '), name: error.name }
+      : { message: String(error) }
     return NextResponse.json(
-      { error: 'Failed to fetch projects' },
+      { error: 'Failed to fetch projects', details: errDetails },
       { status: 500 },
     )
   }

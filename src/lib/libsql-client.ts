@@ -43,6 +43,10 @@ export type { InStatement, InArgs, InValue }
 
 // Singleton client — reused across requests in the same isolate/process.
 let _client: Client | null = null
+// Separate singleton for the legacy/libsql client (used by /api/migrate-to-d1
+// to read from Turso even when D1 binding is the primary). Never used by
+// normal route code.
+let _legacyClient: Client | null = null
 
 // Minimal D1Database type (avoids importing workers types which don't exist
 // in next dev). At runtime, env.DB on Cloudflare Workers is a real D1Database.
@@ -121,6 +125,26 @@ export function getLibsql(): Client {
   const authToken = process.env.DATABASE_AUTH_TOKEN || undefined
   _client = createClient({ url, authToken })
   return _client
+}
+
+/**
+ * Get a libsql client that always uses the DATABASE_URL (Turso/file:),
+ * bypassing the D1 binding. Used by /api/migrate-to-d1 to read source data
+ * from Turso even when D1 is the active primary database.
+ *
+ * Returns null if DATABASE_URL is not set (e.g. in pure D1-only deployments).
+ */
+export function getLibsqlLegacy(): Client | null {
+  if (_legacyClient) return _legacyClient
+  const url = process.env.DATABASE_URL
+  if (!url) return null
+  if (url.startsWith('file:')) {
+    _legacyClient = createLocalSqliteClient(url)
+    return _legacyClient
+  }
+  const authToken = process.env.DATABASE_AUTH_TOKEN || undefined
+  _legacyClient = createClient({ url, authToken })
+  return _legacyClient
 }
 
 // ---------------------------------------------------------------------------

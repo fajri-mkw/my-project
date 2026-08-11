@@ -67,3 +67,7 @@ db/*.db-wal
 db/*.db
 db/*.db-shm
 db/*.db-wal
+
+# Wrangler local D1 state (created by wrangler2 dev for local D1 testing)
+.wrangler/
+
