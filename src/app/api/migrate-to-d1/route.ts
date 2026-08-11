@@ -64,6 +64,36 @@ interface TableMigrateResult {
 }
 
 export async function GET() {
+  // ============================================================================
+  // DISABLED — one-shot migration already completed on 2026-08-11 (Task 21).
+  //
+  // Returns 410 Gone to prevent accidental re-runs that would burn:
+  //   - D1 write quota (~4400 INSERT OR IGNORE attempts per call)
+  //   - Workers CPU time (10ms free-tier limit can be exceeded by the loop)
+  //   - Turso fallback reads (if DATABASE_URL secret is still set)
+  //
+  // The file is kept for documentation. To re-enable (e.g. for a fresh
+  // environment), temporarily comment out this guard and redeploy.
+  // ============================================================================
+  return NextResponse.json(
+    {
+      success: false,
+      error: 'Migration endpoint has been disabled.',
+      reason:
+        'One-shot Turso → D1 migration already completed on 2026-08-11. ' +
+        'All 4,400 rows (19 users, 150 projects, 797 tasks, 530 surat_tugas, ' +
+        '67 surat, 1474 drive_folders, 1365 notifications) are live in D1. ' +
+        'This endpoint is disabled to protect free-tier quota.',
+      migratedAt: '2026-08-11T06:33:00.000Z',
+      d1DatabaseId: 'e16468ee-3d49-40dc-99a9-b06a8436984a',
+    },
+    { status: 410 },
+  )
+}
+
+// Original migration implementation preserved below for reference.
+// To re-enable: rename the function below to `GET` and delete the guard above.
+async function _disabledGET() {
   const startedAt = Date.now()
   const results: TableMigrateResult[] = []
 
