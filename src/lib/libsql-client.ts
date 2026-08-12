@@ -41,6 +41,104 @@ import { getCloudflareContext } from '@opennextjs/cloudflare'
 // without importing directly from @libsql/client.
 export type { InStatement, InArgs, InValue }
 
+// ---------------------------------------------------------------------------
+// Defensive validator — catches SQL placeholder / argument count mismatches
+// BEFORE the statement is sent to D1/Turso. Without this, a typo like
+// `VALUES (?, ?, ?, ?, ?)` for a 4-column INSERT only surfaces as a vague
+// "X values for Y columns: SQLITE_ERROR" from D1 — which the user sees as a
+// generic "Gagal menyimpan surat" with no useful context.
+//
+// This was the root cause of the surat creation bug (IMG-20260812-WA0010.jpg):
+// INSERT INTO surat had 20 value placeholders for 19 columns → D1_ERROR →
+// user saw "Gagal membuat surat". The validator now throws a clear,
+// dev-friendly error BEFORE the statement reaches D1.
+//
+// The validator counts `?` placeholders in the SQL, skipping:
+//   - `?` inside single-quoted string literals ('...?...')
+//   - `?` inside double-quoted identifiers ("...?...")
+//   - `?` inside line comments (-- ...) and block comments (/* ... */)
+//   - `??` (escaped question mark — not standard SQL but be safe)
+//   - `?NNN` named placeholders (not used by our code, but be safe)
+// ---------------------------------------------------------------------------
+
+function countPlaceholders(sql: string): number {
+  let count = 0
+  let i = 0
+  const len = sql.length
+  let state: 'normal' | 'single' | 'double' | 'line-comment' | 'block-comment' = 'normal'
+
+  while (i < len) {
+    const ch = sql[i]
+    const next = sql[i + 1]
+    switch (state) {
+      case 'normal':
+        if (ch === "'") { state = 'single'; i++ }
+        else if (ch === '"') { state = 'double'; i++ }
+        else if (ch === '-' && next === '-') { state = 'line-comment'; i += 2 }
+        else if (ch === '/' && next === '*') { state = 'block-comment'; i += 2 }
+        else if (ch === '?') {
+          if (next === '?') { i += 2 }
+          else if (next && /\d/.test(next)) { i++; while (i < len && /\d/.test(sql[i])) i++ }
+          else { count++; i++ }
+        } else { i++ }
+        break
+      case 'single':
+        if (ch === "'") { if (next === "'") { i += 2 } else { state = 'normal'; i++ } } else { i++ }
+        break
+      case 'double':
+        if (ch === '"') { if (next === '"') { i += 2 } else { state = 'normal'; i++ } } else { i++ }
+        break
+      case 'line-comment':
+        if (ch === '\n') { state = 'normal' }
+        i++
+        break
+      case 'block-comment':
+        if (ch === '*' && next === '/') { state = 'normal'; i += 2 } else { i++ }
+        break
+    }
+  }
+  return count
+}
+
+function validateStatement(stmt: InStatement): void {
+  if (typeof stmt === 'string') return
+  const sql = stmt.sql
+  const args = stmt.args ?? []
+  const placeholderCount = countPlaceholders(sql)
+  if (placeholderCount !== args.length) {
+    const sqlPreview = sql.length > 200 ? sql.slice(0, 200) + '...' : sql
+    throw new Error(
+      `SQL placeholder/argument mismatch: SQL has ${placeholderCount} '?' placeholders ` +
+      `but ${args.length} argument(s) were provided. ` +
+      `This is a bug — the column count and value count in the SQL do not match. ` +
+      `SQL: ${sqlPreview}`,
+    )
+  }
+}
+
+/** Wrap a Client so every execute()/batch() call is validated before being sent. */
+function wrapWithValidation(raw: Client): Client {
+  return new Proxy(raw, {
+    get(target, prop, receiver) {
+      if (prop === 'execute') {
+        return async (stmt: InStatement | string, args?: InArgs) => {
+          const statement: InStatement =
+            typeof stmt === 'string' ? { sql: stmt, args: args ?? [] } : stmt
+          validateStatement(statement)
+          return target.execute(statement)
+        }
+      }
+      if (prop === 'batch') {
+        return async (statements: InStatement[], mode?: 'deferred' | 'write' | 'async') => {
+          for (const s of statements) validateStatement(s)
+          return target.batch(statements, mode)
+        }
+      }
+      return Reflect.get(target, prop, receiver)
+    },
+  })
+}
+
 // Singleton client — reused across requests in the same isolate/process.
 let _client: Client | null = null
 // Separate singleton for the legacy/libsql client (used by /api/migrate-to-d1
@@ -100,7 +198,7 @@ export function getLibsql(): Client {
   // 1. Try Cloudflare D1 binding first (production on Workers)
   const d1 = tryGetD1Binding()
   if (d1) {
-    _client = createD1Client(d1)
+    _client = wrapWithValidation(createD1Client(d1))
     return _client
   }
 
@@ -117,13 +215,13 @@ export function getLibsql(): Client {
     // Local dev branch — never reached on Cloudflare Workers (prod uses D1).
     // Lazy-require better-sqlite3 so the native module is never bundled into
     // the Workers build.
-    _client = createLocalSqliteClient(url)
+    _client = wrapWithValidation(createLocalSqliteClient(url))
     return _client
   }
 
   // 3. Legacy fallback: remote libsql:// URL (Turso)
   const authToken = process.env.DATABASE_AUTH_TOKEN || undefined
-  _client = createClient({ url, authToken })
+  _client = wrapWithValidation(createClient({ url, authToken }))
   return _client
 }
 

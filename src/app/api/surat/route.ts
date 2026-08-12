@@ -177,7 +177,7 @@ export async function POST(request: NextRequest) {
               (id, nomorSurat, jenisSurat, kategori, tanggalSurat, pengirim, penerima,
                perihal, deskripsi, status, catatan, documents, administratorId,
                location, executionTime, picName, picWhatsApp, createdAt, updatedAt)
-              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'diterima', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'diterima', ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         args: [
           bind(id),
           bind(nomorSurat),
