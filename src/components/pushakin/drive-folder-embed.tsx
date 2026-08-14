@@ -3,6 +3,13 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+} from '@/components/ui/dialog'
 import { cn } from '@/lib/utils'
 import {
   ExternalLink,
@@ -17,6 +24,10 @@ import {
   Image as ImageIcon,
   FileText,
   Archive,
+  UploadCloud,
+  ChevronRight,
+  X,
+  ExternalLink as ExternalLinkIcon,
 } from 'lucide-react'
 
 interface DriveFolderEmbedProps {
@@ -27,6 +38,16 @@ interface DriveFolderEmbedProps {
     folderLink: string
     files: Array<{ id: string; name: string; mimeType: string; size?: string; modifiedTime?: string }>
   }) => void
+  /**
+   * Completion props — when provided, the in-modal "Selesaikan & Serahkan"
+   * button is rendered so the petugas can hand over the project WITHOUT
+   * leaving the upload modal. This solves the "petugas lupa kembali ke
+   * halaman unggah hasil" problem.
+   */
+  onComplete?: () => void
+  canComplete?: boolean
+  isSubmitting?: boolean
+  showCompleteButton?: boolean
   className?: string
 }
 
@@ -36,6 +57,15 @@ interface DriveFile {
   mimeType: string
   size?: string
   modifiedTime?: string
+}
+
+interface UploadTask {
+  id: string
+  file: File
+  status: 'pending' | 'uploading' | 'done' | 'error'
+  progress: number // 0-100
+  error?: string
+  result?: { id: string; name: string; webViewLink?: string }
 }
 
 // Extract real Google Drive folder ID from URL (reject constructed/mock IDs)
@@ -90,10 +120,126 @@ function formatTime(iso?: string) {
   }
 }
 
+// ============================================================================
+// Direct browser → Google Drive resumable upload.
+//
+// WHY: The old chunked FileUpload proxied every chunk through Cloudflare
+// Workers, which hit the 50-subrequest limit + 10ms CPU limit and errored
+// out on many files. This implementation:
+//   1. Asks our API for a resumable upload session URI (1 cheap server call,
+//      uses cached access token — no JWT signing on the hot path).
+//   2. PUTs the file body DIRECTLY to Google from the browser (XMLHttpRequest).
+//      This bypasses CF Workers entirely → no subrequest/CPU limits, supports
+//      any file size, and gives real progress bars via XHR upload events.
+//
+// The session URI is single-use and scoped to this specific file upload, so
+// exposing it to the browser is NOT a security risk (unlike exposing the
+// service-account access token would be).
+// ============================================================================
+function uploadFileToDrive(
+  file: File,
+  folderId: string,
+  onProgress: (loaded: number, total: number) => void,
+): Promise<{ id: string; name: string; webViewLink?: string }> {
+  return new Promise(async (resolve, reject) => {
+    let initRes: Response
+    try {
+      initRes = await fetch('/api/drive/upload-url', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          fileName: file.name,
+          mimeType: file.type || 'application/octet-stream',
+          folderId,
+        }),
+      })
+    } catch (err) {
+      reject(new Error('Gagal menghubungi server untuk memulai upload'))
+      return
+    }
+
+    if (!initRes.ok) {
+      const d = await initRes.json().catch(() => ({}))
+      reject(new Error(d?.error || `Gagal memulai upload (HTTP ${initRes.status})`))
+      return
+    }
+
+    const { uploadUrl } = await initRes.json()
+    if (!uploadUrl) {
+      reject(new Error('Server tidak mengembalikan URL upload'))
+      return
+    }
+
+    // Now PUT the file directly to Google's resumable upload session URI.
+    // XMLHttpRequest gives us upload progress events (fetch doesn't).
+    const xhr = new XMLHttpRequest()
+    xhr.open('PUT', uploadUrl, true)
+    xhr.setRequestHeader('Content-Type', file.type || 'application/octet-stream')
+    if (file.size > 0) {
+      xhr.setRequestHeader(
+        'Content-Range',
+        `bytes 0-${file.size - 1}/${file.size}`,
+      )
+    }
+    // No timeout — large video files can take a long time on slow connections.
+    // The session URI stays valid for ~1 week, so the user can retry if needed.
+    xhr.timeout = 0
+
+    xhr.upload.onprogress = (e) => {
+      if (e.lengthComputable) {
+        onProgress(e.loaded, e.total)
+      }
+    }
+
+    xhr.onload = () => {
+      if (xhr.status >= 200 && xhr.status < 300) {
+        try {
+          const data = JSON.parse(xhr.responseText || '{}')
+          resolve({
+            id: data.id || '',
+            name: data.name || file.name,
+            webViewLink: data.webViewLink,
+          })
+        } catch {
+          // Upload succeeded but response wasn't JSON — still a success.
+          resolve({ id: '', name: file.name })
+        }
+      } else {
+        let detail = `HTTP ${xhr.status}`
+        try {
+          const errData = JSON.parse(xhr.responseText || '{}')
+          if (errData.error?.message) detail = errData.error.message
+        } catch {
+          // ignore parse error
+        }
+        reject(new Error(`Upload gagal: ${detail}`))
+      }
+    }
+
+    xhr.onerror = () => {
+      // This fires on network errors AND CORS blocks. Since the PUT goes
+      // directly to www.googleapis.com, a CORS block would land here.
+      reject(
+        new Error(
+          'Koneksi error saat upload. Jika error berulang, gunakan tombol "Buka di Tab Baru" untuk upload via Google Drive langsung.',
+        ),
+      )
+    }
+
+    xhr.ontimeout = () => reject(new Error('Upload timeout — coba lagi'))
+
+    xhr.send(file)
+  })
+}
+
 export function DriveFolderEmbed({
   folderLink,
   folderLabel,
   onFilesDetected,
+  onComplete,
+  canComplete = false,
+  isSubmitting = false,
+  showCompleteButton = false,
   className,
 }: DriveFolderEmbedProps) {
   const folderId = extractFolderId(folderLink)
@@ -104,6 +250,13 @@ export function DriveFolderEmbed({
   const [lastChecked, setLastChecked] = useState<Date | null>(null)
   const pollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const mountedRef = useRef(true)
+
+  // === Modal state ===
+  const [modalOpen, setModalOpen] = useState(false)
+  const [uploadTasks, setUploadTasks] = useState<UploadTask[]>([])
+  const [isDragOver, setIsDragOver] = useState(false)
+  const fileInputRef = useRef<HTMLInputElement>(null)
+  const uploadCanceledRef = useRef(false)
 
   const checkFiles = useCallback(
     async (silent = false) => {
@@ -121,7 +274,6 @@ export function DriveFolderEmbed({
         }
         const data = await res.json()
         if (data.mock) {
-          // Mock mode — show zero but don't error
           setFileCount(0)
           setFiles([])
           return
@@ -148,7 +300,8 @@ export function DriveFolderEmbed({
     [folderId, folderLink, onFilesDetected],
   )
 
-  // Initial check + auto-poll every 20 seconds
+  // Initial check + auto-poll every 20 seconds (only while modal is closed —
+  // when modal is open we poll faster + on-demand after each upload)
   useEffect(() => {
     mountedRef.current = true
     if (!folderId) {
@@ -157,10 +310,8 @@ export function DriveFolderEmbed({
       return
     }
 
-    // Initial check
     checkFiles()
 
-    // Polling loop — every 20 seconds, silent (no spinner)
     const startPoll = () => {
       pollTimerRef.current = setTimeout(async () => {
         if (!mountedRef.current) return
@@ -175,6 +326,157 @@ export function DriveFolderEmbed({
       if (pollTimerRef.current) clearTimeout(pollTimerRef.current)
     }
   }, [folderId, checkFiles])
+
+  // Poll faster (every 5s) while the modal is open, so the file list updates
+  // quickly after an upload completes.
+  useEffect(() => {
+    if (!modalOpen || !folderId) return
+    const fastPoll = setInterval(() => {
+      if (mountedRef.current) checkFiles(true)
+    }, 5_000)
+    return () => clearInterval(fastPoll)
+  }, [modalOpen, folderId, checkFiles])
+
+  // Reset upload state when modal closes
+  useEffect(() => {
+    if (!modalOpen) {
+      uploadCanceledRef.current = true
+      // Keep uploadTasks for a moment so the closing animation doesn't flash
+      // an empty list; clear after the dialog unmounts.
+      const t = setTimeout(() => setUploadTasks([]), 300)
+      return () => clearTimeout(t)
+    }
+    uploadCanceledRef.current = false
+  }, [modalOpen])
+
+  // === Handle file selection (from input or drag-drop) ===
+  const handleFilesSelected = useCallback(
+    async (selectedFiles: FileList | File[]) => {
+      if (!folderId) return
+      const fileArr = Array.from(selectedFiles)
+      if (fileArr.length === 0) return
+
+      uploadCanceledRef.current = false
+
+      const newTasks: UploadTask[] = fileArr.map((f) => ({
+        id:
+          typeof crypto !== 'undefined' && crypto.randomUUID
+            ? crypto.randomUUID()
+            : `task-${Date.now()}-${Math.random()}`,
+        file: f,
+        status: 'pending',
+        progress: 0,
+      }))
+      setUploadTasks((prev) => [...prev, ...newTasks])
+
+      // Upload sequentially — parallel uploads to the same Shared Drive can
+      // cause Google rate-limit (429) errors, especially on the free tier.
+      for (const task of newTasks) {
+        if (uploadCanceledRef.current) break
+
+        setUploadTasks((prev) =>
+          prev.map((t) => (t.id === task.id ? { ...t, status: 'uploading' } : t)),
+        )
+
+        try {
+          const result = await uploadFileToDrive(
+            task.file,
+            folderId,
+            (loaded, total) => {
+              const pct = total > 0 ? Math.round((loaded / total) * 100) : 0
+              setUploadTasks((prev) =>
+                prev.map((t) =>
+                  t.id === task.id ? { ...t, progress: pct } : t,
+                ),
+              )
+            },
+          )
+          setUploadTasks((prev) =>
+            prev.map((t) =>
+              t.id === task.id
+                ? { ...t, status: 'done', progress: 100, result }
+                : t,
+            ),
+          )
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : 'Upload gagal'
+          setUploadTasks((prev) =>
+            prev.map((t) =>
+              t.id === task.id ? { ...t, status: 'error', error: msg } : t,
+            ),
+          )
+        }
+      }
+
+      // After all uploads finish, immediately refresh the folder file list
+      // so onFilesDetected fires and the completion gate opens.
+      await checkFiles()
+    },
+    [folderId, checkFiles],
+  )
+
+  const handleDrop = useCallback(
+    (e: React.DragEvent) => {
+      e.preventDefault()
+      setIsDragOver(false)
+      if (e.dataTransfer.files.length > 0) {
+        handleFilesSelected(e.dataTransfer.files)
+      }
+    },
+    [handleFilesSelected],
+  )
+
+  const handleRetryTask = useCallback(
+    async (taskId: string) => {
+      const task = uploadTasks.find((t) => t.id === taskId)
+      if (!task || !folderId) return
+      setUploadTasks((prev) =>
+        prev.map((t) =>
+          t.id === taskId
+            ? { ...t, status: 'uploading', progress: 0, error: undefined }
+            : t,
+        ),
+      )
+      try {
+        const result = await uploadFileToDrive(
+          task.file,
+          folderId,
+          (loaded, total) => {
+            const pct = total > 0 ? Math.round((loaded / total) * 100) : 0
+            setUploadTasks((prev) =>
+              prev.map((t) =>
+                t.id === taskId ? { ...t, progress: pct } : t,
+              ),
+            )
+          },
+        )
+        setUploadTasks((prev) =>
+          prev.map((t) =>
+            t.id === taskId
+              ? { ...t, status: 'done', progress: 100, result }
+              : t,
+          ),
+        )
+        await checkFiles()
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : 'Upload gagal'
+        setUploadTasks((prev) =>
+          prev.map((t) =>
+            t.id === taskId ? { ...t, status: 'error', error: msg } : t,
+          ),
+        )
+      }
+    },
+    [uploadTasks, folderId, checkFiles],
+  )
+
+  const handleCompleteClick = useCallback(async () => {
+    if (!onComplete) return
+    await onComplete()
+    // If onComplete resolved without throwing, the project likely advanced
+    // and this card unmounts. Close the modal as a safety net.
+    setModalOpen(false)
+  }, [onComplete])
 
   // Invalid folder — show mock-mode warning
   if (!folderId) {
@@ -192,12 +494,11 @@ export function DriveFolderEmbed({
     )
   }
 
-  // Build the embed URL — Google Drive's embeddedfolderview shows a read-only
-  // file list that updates live as the user uploads files in another tab.
-  // Two view modes available: #list (table) or #grid (thumbnails). We use #list
-  // because it shows file sizes + modified time, which is more useful for
-  // verifying that uploads completed.
   const embedUrl = `https://drive.google.com/embeddedfolderview?folderId=${folderId}#list`
+
+  const completedCount = uploadTasks.filter((t) => t.status === 'done').length
+  const errorCount = uploadTasks.filter((t) => t.status === 'error').length
+  const uploadingCount = uploadTasks.filter((t) => t.status === 'uploading').length
 
   return (
     <div className={cn('space-y-3', className)}>
@@ -235,16 +536,19 @@ export function DriveFolderEmbed({
             )}
             <span className="ml-1 hidden sm:inline">Refresh</span>
           </Button>
-          <a href={folderLink} target="_blank" rel="noreferrer">
-            <Button
-              type="button"
-              size="sm"
-              className="h-7 px-3 text-xs bg-green-600 hover:bg-green-700 text-white gap-1.5"
-            >
-              <ExternalLink className="w-3.5 h-3.5" />
-              Buka di Drive
-            </Button>
-          </a>
+          {/* === "Buka di Drive" — now opens an in-page modal (NOT a new tab) ===
+              The modal contains a drag-drop uploader + live folder preview +
+              the "Selesaikan & Serahkan" button, so petugas never has to
+              leave the page to mark the task done. */}
+          <Button
+            type="button"
+            size="sm"
+            onClick={() => setModalOpen(true)}
+            className="h-7 px-3 text-xs bg-green-600 hover:bg-green-700 text-white gap-1.5"
+          >
+            <UploadCloud className="w-3.5 h-3.5" />
+            Buka di Drive
+          </Button>
         </div>
       </div>
 
@@ -259,18 +563,17 @@ export function DriveFolderEmbed({
               Upload langsung via Google Drive
             </p>
             <p className="text-xs text-green-800 leading-relaxed">
-              Klik <strong>&quot;Buka di Drive&quot;</strong> di kanan atas, lalu upload
-              semua file Anda langsung di Google Drive. Lebih cepat, minim error, dan
-              mendukung file besar. File yang sudah terupload akan otomatis terdeteksi
-              di bawah ini — Anda tidak perlu kembali ke halaman ini untuk mencentang
-              penyelesaian.
+              Klik <strong>&quot;Buka di Drive&quot;</strong> di kanan atas. Jendela
+              upload akan muncul di halaman ini — seret file Anda, tunggu upload
+              selesai, lalu klik <strong>Selesaikan &amp; Serahkan</strong> langsung
+              di jendela tersebut. Tidak perlu pindah tab atau kembali ke halaman ini.
             </p>
             <div className="mt-2 flex items-center gap-2 text-[10px] text-green-700">
               {lastChecked ? (
                 <>
                   <span className="inline-block w-1.5 h-1.5 bg-green-500 rounded-full animate-pulse" />
                   <span>
-                    Diperbarui otomatis setiap 20 detik · Terakhir: {lastChecked.toLocaleTimeString('id-ID')}
+                    Diperbarui otomatis · Terakhir: {lastChecked.toLocaleTimeString('id-ID')}
                   </span>
                 </>
               ) : (
@@ -335,7 +638,7 @@ export function DriveFolderEmbed({
             })}
             {files.length > 5 && (
               <li className="px-3 py-2 text-center text-[10px] text-stone-400">
-                +{files.length - 5} file lainnya — lihat semua di Google Drive
+                +{files.length - 5} file lainnya — klik &quot;Buka di Drive&quot; untuk melihat semua
               </li>
             )}
           </ul>
@@ -359,6 +662,279 @@ export function DriveFolderEmbed({
           loading="lazy"
         />
       </div>
+
+      {/* === IN-PAGE UPLOAD MODAL ===
+          Replaces the old "open new tab to Google Drive" behavior.
+          Petugas can upload files AND click "Selesaikan & Serahkan" without
+          ever leaving this page. */}
+      <Dialog open={modalOpen} onOpenChange={setModalOpen}>
+        <DialogContent className="sm:max-w-2xl max-h-[92vh] overflow-hidden flex flex-col gap-0 p-0">
+          <DialogHeader className="px-5 pt-5 pb-3 border-b border-stone-200">
+            <DialogTitle className="flex items-center gap-2 text-base">
+              <Folder className="w-4 h-4 text-amber-500" />
+              Upload ke {folderLabel || 'Folder Drive'}
+            </DialogTitle>
+            <DialogDescription className="text-xs">
+              Seret file ke kotak di bawah atau klik untuk memilih. File langsung
+              tersimpan ke Google Drive dan terdeteksi otomatis.
+            </DialogDescription>
+          </DialogHeader>
+
+          {/* Scrollable body */}
+          <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
+            {/* Drag-drop / file picker zone */}
+            <div
+              onDragOver={(e) => {
+                e.preventDefault()
+                setIsDragOver(true)
+              }}
+              onDragLeave={() => setIsDragOver(false)}
+              onDrop={handleDrop}
+              onClick={() => fileInputRef.current?.click()}
+              className={cn(
+                'border-2 border-dashed rounded-xl p-6 text-center cursor-pointer transition-colors',
+                isDragOver
+                  ? 'border-green-500 bg-green-50'
+                  : 'border-stone-300 hover:border-green-400 hover:bg-green-50/50',
+              )}
+            >
+              <UploadCloud className="w-8 h-8 mx-auto mb-2 text-stone-400" />
+              <p className="text-sm font-medium text-stone-700">
+                Seret file ke sini, atau{' '}
+                <span className="text-green-700 underline">klik untuk pilih file</span>
+              </p>
+              <p className="text-[10px] text-stone-400 mt-1">
+                Mendukung semua jenis file (foto, video, dokumen) — tanpa batas ukuran
+              </p>
+              <input
+                ref={fileInputRef}
+                type="file"
+                multiple
+                className="hidden"
+                onChange={(e) => {
+                  if (e.target.files?.length) handleFilesSelected(e.target.files)
+                  e.target.value = ''
+                }}
+              />
+            </div>
+
+            {/* Upload progress list */}
+            {uploadTasks.length > 0 && (
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <p className="text-xs font-bold text-stone-600 uppercase tracking-wide">
+                    Status Upload
+                  </p>
+                  {(completedCount > 0 || errorCount > 0) && (
+                    <p className="text-[10px] text-stone-500">
+                      {completedCount} selesai · {errorCount} gagal
+                      {uploadingCount > 0 && ` · ${uploadingCount} sedang upload`}
+                    </p>
+                  )}
+                </div>
+                <ul className="space-y-1.5 max-h-56 overflow-y-auto pr-1">
+                  {uploadTasks.map((t) => {
+                    const Icon = getFileIcon(t.file.name, t.file.type)
+                    return (
+                      <li
+                        key={t.id}
+                        className="flex items-center gap-3 p-2 rounded-lg border border-stone-200 bg-white"
+                      >
+                        <Icon className="w-4 h-4 text-stone-400 flex-shrink-0" />
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center justify-between gap-2">
+                            <p className="text-xs font-medium text-stone-700 truncate">
+                              {t.file.name}
+                            </p>
+                            <span className="text-[10px] text-stone-400 flex-shrink-0">
+                              {formatFileSize(t.file.size)}
+                            </span>
+                          </div>
+                          {t.status === 'uploading' && (
+                            <div className="mt-1 flex items-center gap-2">
+                              <div className="flex-1 h-1.5 bg-stone-200 rounded-full overflow-hidden">
+                                <div
+                                  className="h-full bg-green-500 transition-all duration-200"
+                                  style={{ width: `${t.progress}%` }}
+                                />
+                              </div>
+                              <span className="text-[10px] text-stone-500 w-9 text-right">
+                                {t.progress}%
+                              </span>
+                            </div>
+                          )}
+                          {t.status === 'done' && (
+                            <p className="text-[10px] text-green-600 flex items-center gap-1 mt-0.5">
+                              <CheckCircle2 className="w-3 h-3" />
+                              Berhasil terupload
+                            </p>
+                          )}
+                          {t.status === 'error' && (
+                            <div className="mt-0.5 flex items-center justify-between gap-2">
+                              <p className="text-[10px] text-red-600 flex items-center gap-1 truncate">
+                                <AlertCircle className="w-3 h-3 flex-shrink-0" />
+                                <span className="truncate">{t.error}</span>
+                              </p>
+                              <button
+                                type="button"
+                                onClick={() => handleRetryTask(t.id)}
+                                className="text-[10px] text-red-700 underline flex-shrink-0 hover:text-red-900"
+                              >
+                                Ulangi
+                              </button>
+                            </div>
+                          )}
+                          {t.status === 'pending' && (
+                            <p className="text-[10px] text-stone-400 mt-0.5">
+                              Menunggu giliran...
+                            </p>
+                          )}
+                        </div>
+                        {t.status === 'done' && (
+                          <CheckCircle2 className="w-4 h-4 text-green-500 flex-shrink-0" />
+                        )}
+                        {t.status === 'uploading' && (
+                          <Loader2 className="w-4 h-4 text-green-500 animate-spin flex-shrink-0" />
+                        )}
+                        {t.status === 'error' && (
+                          <AlertCircle className="w-4 h-4 text-red-500 flex-shrink-0" />
+                        )}
+                      </li>
+                    )
+                  })}
+                </ul>
+              </div>
+            )}
+
+            {/* Live folder file list */}
+            <div className="rounded-xl border border-stone-200 overflow-hidden">
+              <div className="px-3 py-2 bg-stone-50 border-b border-stone-200 flex items-center justify-between">
+                <p className="text-xs font-bold text-stone-600 flex items-center gap-1.5">
+                  <Folder className="w-3.5 h-3.5 text-amber-500" />
+                  File di Folder
+                  <Badge
+                    className={cn(
+                      'text-[10px] font-bold',
+                      fileCount > 0
+                        ? 'bg-green-100 text-green-700 border-green-200'
+                        : 'bg-stone-100 text-stone-500 border-stone-200',
+                    )}
+                  >
+                    {fileCount}
+                  </Badge>
+                </p>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => checkFiles()}
+                  disabled={isChecking}
+                  className="h-6 px-2 text-[11px] text-stone-600 hover:bg-stone-100"
+                >
+                  {isChecking ? (
+                    <Loader2 className="w-3 h-3 animate-spin" />
+                  ) : (
+                    <RefreshCw className="w-3 h-3" />
+                  )}
+                  Refresh
+                </Button>
+              </div>
+              <div className="max-h-40 overflow-y-auto bg-white">
+                {files.length === 0 ? (
+                  <p className="text-xs text-stone-400 text-center py-6">
+                    Belum ada file di folder ini
+                  </p>
+                ) : (
+                  <ul className="divide-y divide-stone-100">
+                    {files.slice(0, 20).map((f) => {
+                      const Icon = getFileIcon(f.name, f.mimeType)
+                      return (
+                        <li
+                          key={f.id}
+                          className="px-3 py-1.5 flex items-center gap-2"
+                        >
+                          <Icon className="w-3.5 h-3.5 text-stone-400 flex-shrink-0" />
+                          <span className="text-xs text-stone-700 truncate flex-1">
+                            {f.name}
+                          </span>
+                          <span className="text-[10px] text-stone-400 flex-shrink-0">
+                            {formatFileSize(f.size)}
+                          </span>
+                        </li>
+                      )
+                    })}
+                    {files.length > 20 && (
+                      <li className="px-3 py-1.5 text-center text-[10px] text-stone-400">
+                        +{files.length - 20} file lainnya
+                      </li>
+                    )}
+                  </ul>
+                )}
+              </div>
+            </div>
+
+            {/* Fallback: open Drive in new tab (for very large files or if
+                the in-modal uploader has issues) */}
+            <div className="flex items-center justify-center gap-2 pt-1">
+              <a
+                href={folderLink}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex items-center gap-1 text-[11px] text-stone-500 hover:text-stone-700 underline"
+              >
+                <ExternalLinkIcon className="w-3 h-3" />
+                Buka Google Drive di tab baru (alternatif)
+              </a>
+            </div>
+          </div>
+
+          {/* === Footer with "Selesaikan & Serahkan" ===
+              Only rendered when showCompleteButton is true (upload-type tasks).
+              The button activates as soon as ≥1 file is detected in the folder,
+              so the petugas can hand over immediately after uploading — without
+              closing the modal or navigating anywhere. */}
+          {showCompleteButton && (
+            <div className="border-t border-stone-200 bg-stone-50 px-5 py-3 flex items-center justify-between gap-3 flex-wrap">
+              <div className="text-xs">
+                {fileCount > 0 ? (
+                  <span className="text-green-700 font-medium flex items-center gap-1.5">
+                    <CheckCircle2 className="w-4 h-4" />
+                    {fileCount} file terdeteksi — siap diserahkan
+                  </span>
+                ) : (
+                  <span className="text-amber-600 flex items-center gap-1.5">
+                    <AlertCircle className="w-4 h-4" />
+                    Upload minimal 1 file untuk mengaktifkan serah-terima
+                  </span>
+                )}
+              </div>
+              <Button
+                type="button"
+                disabled={!canComplete || isSubmitting}
+                onClick={handleCompleteClick}
+                className={cn(
+                  'gap-2 min-w-[180px] justify-center',
+                  canComplete && !isSubmitting
+                    ? 'bg-indigo-600 hover:bg-indigo-700 ring-2 ring-indigo-200 ring-offset-2'
+                    : 'bg-stone-200 text-stone-400 cursor-not-allowed shadow-none',
+                )}
+              >
+                {isSubmitting ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    <span>Memproses Serah Terima…</span>
+                  </>
+                ) : (
+                  <>
+                    <span>Selesaikan &amp; Serahkan</span>
+                    <ChevronRight className="w-4 h-4" />
+                  </>
+                )}
+              </Button>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

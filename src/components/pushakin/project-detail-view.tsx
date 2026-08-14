@@ -3442,6 +3442,16 @@ function TaskCard({
                                   })
                                 }
                               }}
+                              // === In-modal completion ===
+                              // These props let the petugas click "Selesaikan &
+                              // Serahkan" directly inside the upload modal —
+                              // they never have to leave the page after uploading.
+                              // Only shown for upload-type tasks where the worker
+                              // is the assigned petugas (not admin/manager override).
+                              showCompleteButton={requiresFileUpload && !isOverriding}
+                              canComplete={isVerified && isValid()}
+                              isSubmitting={isSubmitting}
+                              onComplete={handleComplete}
                             />
                           </div>
                         ))}
