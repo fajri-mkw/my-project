@@ -27,6 +27,7 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import { useAppStore, STAGES, ROLE_CONFIG, getRoleDisplayName, getStage2Dependency } from '@/lib/store'
 import { chunkedUploadFile } from '@/lib/chunked-upload'
 import { FileUpload } from '@/components/pushakin/file-upload'
+import { DriveFolderEmbed } from '@/components/pushakin/drive-folder-embed'
 import { 
   ArrowLeft, 
   Edit, 
@@ -2864,6 +2865,17 @@ function TaskCard({
   const [uploadedFilesCount, setUploadedFilesCount] = useState<number>(() =>
     inputValue && /drive\.google\.com/i.test(inputValue) ? 1 : 0
   )
+  // folderFilesDetected: becomes true when the DriveFolderEmbed's polling detects
+  // ANY file in any of the user's upload folders. This is the new completion gate
+  // (replaces the old "must upload via chunked FileUpload" rule) — petugas now
+  // uploads directly via Google Drive (faster, no CF Worker errors), and the
+  // embedded folder view auto-detects the uploads.
+  const [folderFilesDetected, setFolderFilesDetected] = useState<boolean>(false)
+  // folderLinkSetRef: ensures we only set task.data.link to the folder link ONCE
+  // (the first time files are detected). Without this, every 20-second poll would
+  // call onFileUploaded() again, causing the displayed link to flicker between
+  // folders if the user has multiple upload folders (e.g. Foto/, Video/).
+  const folderLinkSetRef = useRef<boolean>(false)
   // isSubmitting: tracks whether the "Selesaikan & Serahkan" / approve / revise
   // action is currently in flight, so we can show a spinner on the button.
   const [isSubmitting, setIsSubmitting] = useState(false)
@@ -2876,6 +2888,27 @@ function TaskCard({
   // Fetch users from store to populate the "Ganti Petugas" dropdown.
   // Filtered by task.role on the fly (only same-role users are eligible).
   const users = useAppStore(state => state.users)
+
+  // === Auto-check the "Verifikasi Serah Terima" checkbox when files are detected ===
+  // WHY: Petugas now uploads directly via Google Drive (not via the app's chunked
+  // FileUpload). The DriveFolderEmbed component polls /api/drive/folder-files
+  // every 20s and calls onFilesDetected when files appear. When that happens,
+  // we auto-check the verification checkbox so the petugas can immediately
+  // click "Selesaikan & Serahkan" — solving the "petugas lupa centang" problem
+  // where they uploaded files via Drive but never came back to mark the task done.
+  //
+  // Only applies to upload-type tasks (config.type === 'upload' or 'download_upload')
+  // and only when the current user is the assigned petugas (not admin/manager
+  // override mode). For review/paste/publisher tasks, the checkbox must stay
+  // manual because it represents a different semantic action.
+  useEffect(() => {
+    if (!config) return
+    const isUploadType = config.type === 'upload' || config.type === 'download_upload'
+    const isOverrideMode = canManageProject && !isAssignedToMe
+    if (isUploadType && !isOverrideMode && folderFilesDetected && !isVerified) {
+      setIsVerified(true)
+    }
+  }, [folderFilesDetected, config, canManageProject, isAssignedToMe, isVerified, setIsVerified])
 
   if (!config) return null
 
@@ -3061,16 +3094,22 @@ function TaskCard({
     }
     // For upload/download_upload tasks, the worker must have uploaded at least
     // one file to the Drive folder before they can mark the task as complete.
+    // Two ways to satisfy this:
+    //   1. uploadedFilesCount > 0 — legacy chunked FileUpload (kept for backward compat)
+    //   2. folderFilesDetected === true — new Drive embed auto-detection
+    //      (petugas uploaded directly via Google Drive; we polled /api/drive/folder-files
+    //      and confirmed at least one file exists in their assigned folder).
     // Admin/Manager override mode is exempt (they are force-completing on
     // someone else's behalf and may not need to upload themselves).
     if (requiresFileUpload && !isOverriding) {
-      return uploadedFilesCount > 0
+      return uploadedFilesCount > 0 || folderFilesDetected
     }
     return true
   }
 
   // Whether the upload requirement is currently blocking completion (for UI hints).
-  const uploadRequirementBlocking = requiresFileUpload && !isOverriding && uploadedFilesCount === 0
+  // Blocking only when the worker hasn't uploaded anything via either method.
+  const uploadRequirementBlocking = requiresFileUpload && !isOverriding && uploadedFilesCount === 0 && !folderFilesDetected
 
   return (
     <Card className={cn(
@@ -3295,7 +3334,23 @@ function TaskCard({
                   </div>
                 )}
 
-                {/* Upload Section */}
+                {/* Upload Section — Drive Embed Mode */}
+                {/*
+                  REDESIGNED: Petugas now uploads directly via Google Drive (not via
+                  the app's chunked FileUpload). This is faster, supports any file
+                  size, and avoids Cloudflare Worker subrequest/CPU errors that
+                  frequently occurred when uploading many files at once.
+
+                  The DriveFolderEmbed component:
+                    1. Shows a live read-only preview of the assigned folder
+                       (iframe via embeddedfolderview).
+                    2. Polls /api/drive/folder-files every 20s to detect new files.
+                    3. Auto-checks the "Verifikasi Serah Terima" checkbox when ≥1
+                       file is detected (so the petugas can't forget to mark done).
+                    4. Stores the FOLDER link (not single file link) as
+                       task.data.link — so the PDF/Excel report shows the folder,
+                       giving reviewers access to ALL uploaded files at once.
+                */}
                 {showUploadSection && (
                   <div className="mb-4 bg-stone-50 p-5 rounded-2xl border border-stone-200">
                     <div className="flex items-center justify-between gap-2 mb-3">
@@ -3306,14 +3361,14 @@ function TaskCard({
                       {uploadedFilesCount > 0 && (
                         <Badge className="bg-green-100 text-green-700 border-green-200 text-[10px] font-bold">
                           <CheckCircle2 className="w-3 h-3 mr-0.5" />
-                          {uploadedFilesCount} file terunggah
+                          {uploadedFilesCount} file terdeteksi
                         </Badge>
                       )}
                     </div>
                     <p className="text-xs text-stone-600 mb-4 leading-relaxed">
                       {isReview
-                        ? "Jika ada revisi yang Anda lakukan sendiri, silakan unggah file langsung dari komputer Anda."
-                        : "Unggah hasil pekerjaan Anda langsung dari komputer. File akan otomatis tersimpan di Google Drive."}
+                        ? "Jika ada revisi yang Anda lakukan sendiri, upload langsung ke folder Google Drive di bawah ini."
+                        : "Upload hasil pekerjaan Anda langsung ke folder Google Drive di bawah ini. Lebih cepat, minim error, dan mendukung file besar."}
                     </p>
                     {requiresFileUpload && !isOverriding && (
                       <div className={cn(
@@ -3325,8 +3380,8 @@ function TaskCard({
                         <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5" />
                         <span>
                           {uploadedFilesCount > 0
-                            ? <>File telah diunggah. Anda dapat mencentang verifikasi dan menyerahkan tugas.</>
-                            : <> <strong>Wajib unggah minimal 1 file</strong> ke folder di bawah ini sebelum Anda dapat menyelesaikan & menyerahkan tugas.</>}
+                            ? <>File terdeteksi di folder Google Drive Anda. Centang verifikasi di bawah sudah otomatis aktif — silakan klik <strong>Selesaikan &amp; Serahkan</strong> untuk meneruskan ke tahap berikutnya.</>
+                            : <> <strong>Wajib upload minimal 1 file</strong> ke folder Google Drive di bawah ini sebelum Anda dapat menyelesaikan &amp; menyerahkan tugas. Klik tombol <strong>Buka di Drive</strong>, lalu upload file Anda langsung di Google Drive.</>}
                         </span>
                       </div>
                     )}
@@ -3356,36 +3411,35 @@ function TaskCard({
                             </div>
                           </div>
                         )}
-                        {/* Direct File Upload */}
+                        {/* Drive Folder Embed — replaces the old chunked FileUpload.
+                            Petugas uploads directly via Google Drive; we poll the
+                            Drive API to detect files and auto-enable completion. */}
                         {getUploadFolders().map(folder => (
                           <div key={`upload-${folder.id}`} className="bg-white p-4 rounded-xl border border-stone-200">
-                            <div className="flex items-center justify-between mb-3">
-                              <span className="text-sm font-semibold text-stone-700">
-                                📁 {formatFolderLabel(folder)}
-                              </span>
-                              <a
-                                href={folder.link}
-                                target="_blank"
-                                rel="noreferrer"
-                                className="text-xs text-indigo-600 hover:text-indigo-800 hover:underline flex items-center gap-1"
-                              >
-                                <Folder className="w-3 h-3" />
-                                Buka di Drive
-                              </a>
-                            </div>
-                            <FileUpload
+                            <DriveFolderEmbed
                               folderLink={folder.link || ''}
-                              projectId={project.id}
-                              projectTitle={project.title}
-                              executionTime={project.executionTime}
-                              uploaderName={currentUser?.name}
-                              onUploadComplete={(file) => {
-                                console.log('[UPLOAD] File uploaded:', file.name)
+                              folderLabel={formatFolderLabel(folder)}
+                              onFilesDetected={(info) => {
                                 // Track that at least one file has been uploaded
-                                setUploadedFilesCount(prev => prev + 1)
-                                // Auto-fill link field with uploaded file link
-                                if (file.webViewLink) {
-                                  onFileUploaded(file)
+                                // across any of the user's folders. Use the max so
+                                // re-polls don't decrement the count.
+                                setUploadedFilesCount(prev => Math.max(prev, info.fileCount))
+                                setFolderFilesDetected(info.fileCount > 0)
+                                // Auto-fill the link field with the FOLDER link
+                                // (not single file link) so the PDF/Excel report
+                                // shows the folder — giving reviewers access to
+                                // ALL uploaded files at once.
+                                //
+                                // Only set the link ONCE (the first time files are
+                                // detected) to avoid the displayed link flickering
+                                // between folders on every 20-second poll cycle
+                                // when the user has multiple upload folders.
+                                if (info.fileCount > 0 && info.folderLink && !folderLinkSetRef.current) {
+                                  folderLinkSetRef.current = true
+                                  onFileUploaded({
+                                    name: `Folder Drive: ${formatFolderLabel(folder)}`,
+                                    webViewLink: info.folderLink,
+                                  })
                                 }
                               }}
                             />
@@ -3635,7 +3689,7 @@ function TaskCard({
                         {uploadRequirementBlocking && (
                           <span className="text-[10px] text-amber-600 font-bold mt-1 flex items-center gap-1">
                             <AlertCircle className="w-3 h-3" />
-                            Wajib unggah minimal 1 file di "Unggah Hasil Kerja" terlebih dahulu.
+                            Wajib upload minimal 1 file ke folder Google Drive di &quot;Unggah Hasil Kerja&quot; terlebih dahulu.
                           </span>
                         )}
                       </div>
