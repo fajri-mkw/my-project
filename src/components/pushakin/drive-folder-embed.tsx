@@ -66,6 +66,7 @@ interface UploadTask {
   progress: number // 0-100
   error?: string
   result?: { id: string; name: string; webViewLink?: string }
+  verified?: boolean // true if success was confirmed via folder re-scan (not a direct XHR 2xx)
 }
 
 // Extract real Google Drive folder ID from URL (reject constructed/mock IDs)
@@ -135,43 +136,93 @@ function formatTime(iso?: string) {
 // The session URI is single-use and scoped to this specific file upload, so
 // exposing it to the browser is NOT a security risk (unlike exposing the
 // service-account access token would be).
+//
 // ============================================================================
-function uploadFileToDrive(
+// CRITICAL FIX — Post-error verification (solves the "upload succeeded but
+// XHR reported error" problem):
+//
+// When the browser PUTs a file directly to www.googleapis.com (cross-origin),
+// Google's resumable upload endpoint sometimes:
+//   - Receives all the file bytes and saves the file successfully, BUT
+//   - Returns a response that the browser can't read (missing/wrong CORS
+//     headers on the response, or the TCP connection drops right after
+//     the last byte is received but before the response arrives).
+//
+// Result: xhr.onerror fires (or xhr.onload with status 0) even though the
+// file IS in Google Drive. The user sees a confusing red "Koneksi error"
+// message while the file list below shows the file as present.
+//
+// FIX: After ANY XHR error, we wait a moment then query /api/drive/folder-files
+// to check if a file with the same name now exists in the target folder.
+//   - If found → the upload actually succeeded → resolve as success
+//     (marked as "verified" so the UI can show a reassuring message).
+//   - If not found → the upload genuinely failed → reject with the error.
+//
+// This is more robust than retrying, because retrying a file that's already
+// in Drive would create a duplicate. Verification is idempotent and safe.
+// ============================================================================
+
+interface UploadResult {
+  id: string
+  name: string
+  webViewLink?: string
+  verified?: boolean // true if success was confirmed via folder re-scan
+}
+
+// Check if a file with the given name exists in the Drive folder.
+// Used for post-error verification.
+async function checkFileExistsInFolder(
+  folderId: string,
+  fileName: string,
+): Promise<{ id: string; name: string } | null> {
+  try {
+    const res = await fetch(
+      `/api/drive/folder-files?folderId=${encodeURIComponent(folderId)}`,
+      { cache: 'no-store' },
+    )
+    if (!res.ok) return null
+    const data = await res.json()
+    if (data.mock || !data.files) return null
+    const match = data.files.find(
+      (f: { name: string; id: string }) => f.name === fileName,
+    )
+    return match ? { id: match.id, name: match.name } : null
+  } catch {
+    return null
+  }
+}
+
+// Create a resumable upload session via our API (returns the session URI).
+async function createUploadSession(
   file: File,
   folderId: string,
+): Promise<string> {
+  const initRes = await fetch('/api/drive/upload-url', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      fileName: file.name,
+      mimeType: file.type || 'application/octet-stream',
+      folderId,
+    }),
+  })
+  if (!initRes.ok) {
+    const d = await initRes.json().catch(() => ({}))
+    throw new Error(d?.error || `Gagal memulai upload (HTTP ${initRes.status})`)
+  }
+  const { uploadUrl } = await initRes.json()
+  if (!uploadUrl) throw new Error('Server tidak mengembalikan URL upload')
+  return uploadUrl
+}
+
+// PUT a file to a resumable upload session URI via XHR.
+// Returns the parsed response on 2xx, throws on non-2xx/network error.
+function putFileToSession(
+  uploadUrl: string,
+  file: File,
   onProgress: (loaded: number, total: number) => void,
 ): Promise<{ id: string; name: string; webViewLink?: string }> {
-  return new Promise(async (resolve, reject) => {
-    let initRes: Response
-    try {
-      initRes = await fetch('/api/drive/upload-url', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          fileName: file.name,
-          mimeType: file.type || 'application/octet-stream',
-          folderId,
-        }),
-      })
-    } catch (err) {
-      reject(new Error('Gagal menghubungi server untuk memulai upload'))
-      return
-    }
-
-    if (!initRes.ok) {
-      const d = await initRes.json().catch(() => ({}))
-      reject(new Error(d?.error || `Gagal memulai upload (HTTP ${initRes.status})`))
-      return
-    }
-
-    const { uploadUrl } = await initRes.json()
-    if (!uploadUrl) {
-      reject(new Error('Server tidak mengembalikan URL upload'))
-      return
-    }
-
-    // Now PUT the file directly to Google's resumable upload session URI.
-    // XMLHttpRequest gives us upload progress events (fetch doesn't).
+  return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest()
     xhr.open('PUT', uploadUrl, true)
     xhr.setRequestHeader('Content-Type', file.type || 'application/octet-stream')
@@ -182,7 +233,6 @@ function uploadFileToDrive(
       )
     }
     // No timeout — large video files can take a long time on slow connections.
-    // The session URI stays valid for ~1 week, so the user can retry if needed.
     xhr.timeout = 0
 
     xhr.upload.onprogress = (e) => {
@@ -217,19 +267,78 @@ function uploadFileToDrive(
     }
 
     xhr.onerror = () => {
-      // This fires on network errors AND CORS blocks. Since the PUT goes
-      // directly to www.googleapis.com, a CORS block would land here.
-      reject(
-        new Error(
-          'Koneksi error saat upload. Jika error berulang, gunakan tombol "Buka di Tab Baru" untuk upload via Google Drive langsung.',
-        ),
-      )
+      // This fires on network errors AND CORS response issues. The file may
+      // still have been received by Google — the caller must verify.
+      reject(new Error('__XHR_NETWORK_ERROR__'))
     }
 
     xhr.ontimeout = () => reject(new Error('Upload timeout — coba lagi'))
 
     xhr.send(file)
   })
+}
+
+// Wait for a number of milliseconds.
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
+
+async function uploadFileToDrive(
+  file: File,
+  folderId: string,
+  onProgress: (loaded: number, total: number) => void,
+): Promise<UploadResult> {
+  // === Attempt 1: create session + PUT file ===
+  const uploadUrl = await createUploadSession(file, folderId)
+
+  try {
+    const result = await putFileToSession(uploadUrl, file, onProgress)
+    return result
+  } catch (err) {
+    const errMsg = err instanceof Error ? err.message : String(err)
+
+    // === Post-error verification ===
+    // If the XHR errored (network/CORS), the file may still have landed in
+    // Google Drive. Wait 2 seconds for Google to index it, then check.
+    if (errMsg === '__XHR_NETWORK_ERROR__') {
+      onProgress(file.size, file.size) // show 100% while we verify
+      await sleep(2000)
+      const existing = await checkFileExistsInFolder(folderId, file.name)
+      if (existing) {
+        // The file IS in Drive — the XHR error was a false alarm (response
+        // lost, not the upload itself). Mark as verified success.
+        return {
+          id: existing.id,
+          name: existing.name,
+          verified: true,
+        }
+      }
+
+      // === Attempt 2: retry with a fresh session URI ===
+      // The first session may have been consumed (Google received the bytes
+      // but the browser couldn't read the response). A fresh session gives
+      // us a clean retry. If the file was partially uploaded, Google's
+      // resumable protocol will resume from where it left off.
+      try {
+        const retryUrl = await createUploadSession(file, folderId)
+        const retryResult = await putFileToSession(retryUrl, file, onProgress)
+        return retryResult
+      } catch (retryErr) {
+        // Retry also failed — do one more verification in case the retry
+        // uploaded the bytes but (again) lost the response.
+        await sleep(2000)
+        const verified = await checkFileExistsInFolder(folderId, file.name)
+        if (verified) {
+          return { id: verified.id, name: verified.name, verified: true }
+        }
+        // Genuine failure.
+        throw new Error(
+          'Koneksi error saat upload. File tidak terdeteksi di folder. Jika error berulang, gunakan tombol "Buka di Tab Baru" untuk upload via Google Drive langsung.',
+        )
+      }
+    }
+
+    // Non-network error (e.g. HTTP 4xx from Google) — don't retry, just rethrow.
+    throw err
+  }
 }
 
 export function DriveFolderEmbed({
@@ -394,7 +503,7 @@ export function DriveFolderEmbed({
           setUploadTasks((prev) =>
             prev.map((t) =>
               t.id === task.id
-                ? { ...t, status: 'done', progress: 100, result }
+                ? { ...t, status: 'done', progress: 100, result, verified: result.verified }
                 : t,
             ),
           )
@@ -453,7 +562,7 @@ export function DriveFolderEmbed({
         setUploadTasks((prev) =>
           prev.map((t) =>
             t.id === taskId
-              ? { ...t, status: 'done', progress: 100, result }
+              ? { ...t, status: 'done', progress: 100, result, verified: result.verified }
               : t,
           ),
         )
@@ -761,12 +870,19 @@ export function DriveFolderEmbed({
                               <span className="text-[10px] text-stone-500 w-9 text-right">
                                 {t.progress}%
                               </span>
+                              {t.progress >= 100 && (
+                                <span className="text-[10px] text-stone-500 italic flex-shrink-0">
+                                  memverifikasi...
+                                </span>
+                              )}
                             </div>
                           )}
                           {t.status === 'done' && (
                             <p className="text-[10px] text-green-600 flex items-center gap-1 mt-0.5">
                               <CheckCircle2 className="w-3 h-3" />
-                              Berhasil terupload
+                              {t.verified
+                                ? 'Berhasil terupload (terverifikasi)'
+                                : 'Berhasil terupload'}
                             </p>
                           )}
                           {t.status === 'error' && (
