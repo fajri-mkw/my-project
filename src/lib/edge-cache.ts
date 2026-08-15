@@ -45,13 +45,35 @@ function buildCacheKey(request: Request, opts: CacheOptions): string {
   if (opts.includeQuery === false) {
     return `https://edge-cache.pushakin-flows.workers.dev${prefix}`
   }
-  // For per-user endpoints, include relevant query params
+  // ===========================================================================
+  // CRITICAL FIX: Include the FULL query string in the cache key.
+  //
+  // The previous implementation only extracted `userId` and `role` params,
+  // but many endpoints use different param names (e.g. `userRole` instead of
+  // `role`) and additional filtering params (e.g. `jenisSurat`, `status`).
+  // This caused TWO severe bugs:
+  //
+  //   1. Cross-query cache collision: GET /api/surat?...&jenisSurat=Surat+Masuk
+  //      and GET /api/surat?...&jenisSurat=Surat+Keluar shared the SAME cache
+  //      key (only userId was included), so Surat Masuk and Surat Keluar lists
+  //      contaminated each other.
+  //
+  //   2. `role` param was always null (endpoints use `userRole`), so the role
+  //      portion of the key was silently dropped.
+  //
+  // Using the full sorted query string guarantees every distinct query gets
+  // its own cache entry. Params are sorted for deterministic keys regardless
+  // of insertion order.
+  // ===========================================================================
   const params = url.searchParams
-  const userId = params.get('userId')
-  const role = params.get('role')
-  const query = userId ? `?userId=${userId}` : ''
-  const roleQuery = role ? `${query ? '&' : '?'}role=${role}` : ''
-  return `https://edge-cache.pushakin-flows.workers.dev${prefix}${query}${roleQuery}`
+  const sortedEntries = Array.from(params.entries())
+    .filter(([, v]) => v != null && v !== '')
+    .sort(([a], [b]) => a.localeCompare(b))
+  const queryString = sortedEntries
+    .map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(v)}`)
+    .join('&')
+  const query = queryString ? `?${queryString}` : ''
+  return `https://edge-cache.pushakin-flows.workers.dev${prefix}${query}`
 }
 
 export function withEdgeCache<T extends Request>(
@@ -142,13 +164,25 @@ export function withEdgeCache<T extends Request>(
 /**
  * Invalidate cache for a specific prefix.
  * Call this after POST/PUT/DELETE to bust stale cache.
+ *
+ * IMPORTANT LIMITATION: The Cloudflare Cache API only supports deleting keys by
+ * their EXACT value — there is no wildcard/prefix deletion. Since `buildCacheKey`
+ * now includes the full query string, a single endpoint can have MANY cached
+ * keys (one per distinct query). `invalidateCache(prefix)` only deletes the
+ * no-query key, which may not match any actual cached entry.
+ *
+ * For endpoints where stale data after a write is unacceptable (e.g. `/api/surat`
+ * where a just-created record MUST appear in the next list fetch), the correct
+ * solution is to NOT use `withEdgeCache` on that GET endpoint at all — see
+ * `/api/surat/route.ts` for the reference implementation.
+ *
+ * This function is kept as a best-effort helper for endpoints that cache
+ * query-less responses (e.g. `/api/settings`, `/api/maintenance`).
  */
 export async function invalidateCache(prefix: string): Promise<void> {
   const cache = getCache()
   if (!cache) return
   try {
-    // Cache API doesn't support wildcard deletion, but we can delete specific keys
-    // For simplicity, we just delete the main endpoint cache
     const key = `https://edge-cache.pushakin-flows.workers.dev${prefix}`
     await cache.delete(key)
   } catch {}

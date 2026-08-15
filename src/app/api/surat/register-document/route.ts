@@ -1,5 +1,6 @@
 import { db } from '@/lib/db'
 import { NextRequest, NextResponse } from 'next/server'
+import { invalidateCache, deferToBackground } from '@/lib/edge-cache'
 
 interface DocumentMeta {
   id: string
@@ -64,6 +65,9 @@ export async function POST(request: NextRequest) {
       where: { id: suratId },
       data: { documents: JSON.stringify(existingDocs) },
     })
+
+    // Defense-in-depth: bust any residual edge cache for the surat list endpoint.
+    deferToBackground(invalidateCache('/api/surat'))
 
     return NextResponse.json({
       success: true,

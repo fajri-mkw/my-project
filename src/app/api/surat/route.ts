@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { checkMaintenanceMode } from '@/lib/maintenance-check'
-import { withEdgeCache } from '@/lib/edge-cache'
+import { invalidateCache, deferToBackground } from '@/lib/edge-cache'
 import {
   getLibsql,
   toDateISO,
@@ -19,6 +19,22 @@ import {
 //
 // Rewritten to use @libsql/client directly via @/lib/libsql-client — same pattern
 // as src/app/api/maintenance/route.ts and src/app/api/users/route.ts.
+//
+// ============================================================================
+// EDGE CACHE REMOVED (2026-08-15):
+// The GET handler was previously wrapped in `withEdgeCache({ ttl: 30 })`. This
+// caused a critical data-consistency bug: after a user created/updated/deleted a
+// surat (POST/PUT/DELETE), the edge cache was NOT invalidated (Cloudflare's
+// Cache API cannot delete param-ized keys by wildcard). The result was that the
+// "Tutup" button on the success modal called `fetchSurat()`, which hit the
+// stale 30s cache and returned the OLD list — overwriting the optimistic
+// `addSurat` update and making the just-saved surat VANISH from the list.
+// Symptom reported by user: "berhasil disimpan oleh administrator, tapi tidak
+// tersimpan pada surat masuk."
+//
+// The surat GET is a single indexed SELECT via libsql (a subrequest that does
+// NOT count toward the Workers 10ms CPU limit), so it is fast enough to serve
+// uncached. Removing the cache eliminates the entire class of stale-data bugs.
 // ============================================================================
 
 /** Convert a nullable SQLite cell to string | null (matches Prisma String? shape). */
@@ -97,8 +113,8 @@ async function generateNomorSurat(client: ReturnType<typeof getLibsql>, jenisSur
   return `${prefix}-${String(nextNumber).padStart(3, '0')}/${year}`
 }
 
-// GET all surat (edge-cached 30s)
-export const GET = withEdgeCache(async (request: NextRequest) => {
+// GET all surat — NO edge cache (see header comment for rationale).
+export async function GET(request: NextRequest) {
   try {
     const client = getLibsql()
     const { searchParams } = new URL(request.url)
@@ -145,7 +161,7 @@ export const GET = withEdgeCache(async (request: NextRequest) => {
     const msg = error instanceof Error ? error.message : 'Unknown error'
     return NextResponse.json({ error: 'Failed to fetch surat', details: msg, surat: [] }, { status: 500 })
   }
-}, { ttl: 30 })
+}
 
 // POST create surat
 export async function POST(request: NextRequest) {
@@ -271,6 +287,10 @@ export async function POST(request: NextRequest) {
       updatedAt: toDateISO(now),
     }
 
+    // Defense-in-depth: bust any residual edge cache for this endpoint.
+    // (GET is no longer cached, but this protects against future re-enablement.)
+    deferToBackground(invalidateCache('/api/surat'))
+
     return NextResponse.json(result)
   } catch (error) {
     console.error('Create surat error:', error)
@@ -383,6 +403,9 @@ export async function PUT(request: NextRequest) {
       console.error('Failed to create surat forwarding notifications:', notifErr)
     }
 
+    // Defense-in-depth: bust any residual edge cache for this endpoint.
+    deferToBackground(invalidateCache('/api/surat'))
+
     return NextResponse.json(updated)
   } catch (error) {
     console.error('Update surat error:', error)
@@ -416,6 +439,10 @@ export async function DELETE(request: NextRequest) {
       sql: `DELETE FROM surat WHERE id = ?`,
       args: [bind(id)],
     })
+
+    // Defense-in-depth: bust any residual edge cache for this endpoint.
+    deferToBackground(invalidateCache('/api/surat'))
+
     return NextResponse.json({ success: true })
   } catch (error) {
     console.error('Delete surat error:', error)

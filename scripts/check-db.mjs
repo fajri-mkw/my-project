@@ -1,0 +1,11 @@
+import Database from 'better-sqlite3'
+const db = new Database('/home/z/my-project/db/custom.db', { readonly: true })
+console.log('=== USERS ===')
+const users = db.prepare('SELECT id, name, role, email FROM users LIMIT 10').all()
+console.log(JSON.stringify(users, null, 2))
+console.log('=== SURAT COUNT ===')
+console.log(db.prepare('SELECT COUNT(*) as c FROM surat').get())
+console.log('=== SURAT SAMPLE (latest 5) ===')
+const surat = db.prepare('SELECT id, nomorSurat, jenisSurat, administratorId, perihal, createdAt FROM surat ORDER BY createdAt DESC LIMIT 5').all()
+console.log(JSON.stringify(surat, null, 2))
+db.close()
