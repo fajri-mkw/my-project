@@ -101,7 +101,7 @@
   "private": true,
   "scripts": {
     "dev": "node scripts/setup-db.js && next dev",
-    "build": "prisma generate && next build",
+    "build": "prisma generate && next build --experimental-build-mode=compile",
     "start": "next start",
     "lint": "next lint",
     "postinstall": "node scripts/setup-db.js",
