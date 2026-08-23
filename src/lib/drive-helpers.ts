@@ -26,10 +26,11 @@
 import { getLibsql, bind } from '@/lib/libsql-client'
 import {
   getCachedAccessToken,
-  listFoldersByName,
-  getFileParents,
+  listFoldersByParent,
   createDriveFolder,
   shareWithAnyone,
+  resolveDriveTarget,
+  type DriveTarget,
 } from '@/lib/drive-service'
 
 // ---------------------------------------------------------------------------
@@ -39,6 +40,8 @@ import {
 export interface DriveSettings {
   driveServiceAccountKey: string | null
   driveSharedDriveId: string | null
+  driveFolderId: string | null
+  driveMode: string | null
   driveParentFolderId: string | null
   driveAutoCreate: boolean
 }
@@ -73,7 +76,7 @@ export async function readDriveSettings(): Promise<DriveSettings | null> {
   try {
     const client = getLibsql()
     const res = await client.execute({
-      sql: `SELECT driveServiceAccountKey, driveSharedDriveId, driveParentFolderId, driveAutoCreate FROM settings WHERE id = 'main' LIMIT 1`,
+      sql: `SELECT driveServiceAccountKey, driveSharedDriveId, driveFolderId, driveMode, driveParentFolderId, driveAutoCreate FROM settings WHERE id = 'main' LIMIT 1`,
       args: [],
     })
     if (res.rows.length === 0) return null
@@ -81,6 +84,8 @@ export async function readDriveSettings(): Promise<DriveSettings | null> {
     return {
       driveServiceAccountKey: (row.driveServiceAccountKey as string | null) ?? null,
       driveSharedDriveId: (row.driveSharedDriveId as string | null) ?? null,
+      driveFolderId: (row.driveFolderId as string | null) ?? null,
+      driveMode: (row.driveMode as string | null) ?? null,
       driveParentFolderId: (row.driveParentFolderId as string | null) ?? null,
       driveAutoCreate: Boolean(Number(row.driveAutoCreate ?? 0)),
     }
@@ -96,20 +101,29 @@ export async function readDriveSettings(): Promise<DriveSettings | null> {
 
 /**
  * Find or create the Year > Month > {category} folder hierarchy inside the
- * Shared Drive, using NATIVE fetch (NO googleapis).
+ * resolved Drive target (Shared Drive or My Drive folder), using NATIVE
+ * fetch (NO googleapis).
  *
  * Returns the {category} folder ID where the entity (surat/kegiatan/project)
  * folder should be placed.
  *
+ * DUAL-MODE BEHAVIOR:
+ *   - Shared mode (default): Year/Month/Category folders are created INSIDE
+ *     the Shared Drive (root = driveSharedDriveId, or driveParentFolderId if
+ *     set). createDriveFolder passes sharedDriveId so files get driveId metadata.
+ *   - Folder mode: Year/Month/Category folders are created INSIDE the
+ *     My Drive folder shared with the Service Account (root = driveFolderId).
+ *     createDriveFolder passes sharedDriveId='' so no driveId metadata is set —
+ *     files inherit parent's location.
+ *
  * Subrequest budget per call:
  *   - getAccessToken: 1 (cached for 50 min afterwards)
- *   - listFoldersByName × 3 (year/month/category): 3 subrequests
- *   - getFileParents × 3 (one per folder lookup, to verify parent): 3 subrequests
+ *   - listFoldersByParent × 3 (year/month/category): 3 subrequests
  *   - createDriveFolder × 3 (only if folders don't exist): 3 subrequests
- *   TOTAL WORST CASE: ~10 subrequests (vs 20+ with googleapis).
+ *   TOTAL WORST CASE: ~7 subrequests (vs 10+ before — getFileParents removed)
  *   TOTAL BEST CASE (warm cache + folders exist): 4 subrequests.
  *
- * @param settings Drive settings (must have driveServiceAccountKey + driveSharedDriveId)
+ * @param settings Drive settings (must have driveServiceAccountKey + a valid resolved target)
  * @param category Folder name inside Month (e.g. "SURAT", "KEGIATAN", "PROJECT")
  * @param date Date used to determine Year + Month folder names
  */
@@ -118,8 +132,23 @@ export async function findOrCreateYearMonthCategoryFolder(
   category: string,
   date: Date,
 ): Promise<string> {
-  const sharedDriveId = settings.driveSharedDriveId!
-  const rootParentId = settings.driveParentFolderId || sharedDriveId
+  const target = resolveDriveTarget(settings)
+  if (!target) {
+    throw new Error('Drive tidak dikonfigurasi — driveSharedDriveId atau driveFolderId belum diisi')
+  }
+
+  // Effective root parent: where Year folder goes
+  // - Shared mode: driveParentFolderId (if set), else shared drive root
+  // - Folder mode: driveFolderId (the shared My Drive folder)
+  const rootParentId = target.mode === 'folder'
+    ? target.rootId
+    : (target.parentFolderId || target.rootId)
+
+  // driveIdForCreate: passed to createDriveFolder. In folder mode this is ''
+  // (empty), which causes createDriveFolder to omit the driveId metadata
+  // field — exactly the behavior we want for My Drive folder uploads.
+  const driveIdForCreate = target.isSharedDrive ? target.rootId : ''
+
   const accessToken = await getCachedAccessToken(settings.driveServiceAccountKey!)
 
   const year = date.getFullYear().toString()
@@ -127,65 +156,50 @@ export async function findOrCreateYearMonthCategoryFolder(
 
   // --- Year folder ---
   let yearFolderId: string | null = null
-  const yearFolders = await listFoldersByName(accessToken, sharedDriveId, year)
-  for (const f of yearFolders) {
-    if (!f.id) continue
-    const parentList = await getFileParents(accessToken, f.id)
-    if (parentList.includes(rootParentId) || parentList.includes(sharedDriveId)) {
-      yearFolderId = f.id
-      break
-    }
+  const yearFolders = await listFoldersByParent(accessToken, rootParentId, year)
+  if (yearFolders.length > 0 && yearFolders[0].id) {
+    yearFolderId = yearFolders[0].id
   }
   if (!yearFolderId) {
     const created = await createDriveFolder(accessToken, {
       name: year,
       parentId: rootParentId,
-      sharedDriveId,
+      sharedDriveId: driveIdForCreate,
     })
     yearFolderId = created.id
-    console.log(`[DRIVE HELPERS] Created Year folder: ${year} (${yearFolderId})`)
+    console.log(`[DRIVE HELPERS] Created Year folder: ${year} (${yearFolderId}) [mode=${target.mode}]`)
   }
 
   // --- Month folder (inside Year) ---
   let monthFolderId: string | null = null
-  const monthFolders = await listFoldersByName(accessToken, sharedDriveId, monthName)
-  for (const f of monthFolders) {
-    if (!f.id) continue
-    const parentList = await getFileParents(accessToken, f.id)
-    if (parentList.includes(yearFolderId)) {
-      monthFolderId = f.id
-      break
-    }
+  const monthFolders = await listFoldersByParent(accessToken, yearFolderId, monthName)
+  if (monthFolders.length > 0 && monthFolders[0].id) {
+    monthFolderId = monthFolders[0].id
   }
   if (!monthFolderId) {
     const created = await createDriveFolder(accessToken, {
       name: monthName,
       parentId: yearFolderId,
-      sharedDriveId,
+      sharedDriveId: driveIdForCreate,
     })
     monthFolderId = created.id
-    console.log(`[DRIVE HELPERS] Created Month folder: ${monthName} (${monthFolderId})`)
+    console.log(`[DRIVE HELPERS] Created Month folder: ${monthName} (${monthFolderId}) [mode=${target.mode}]`)
   }
 
   // --- Category folder (inside Month) ---
   let categoryFolderId: string | null = null
-  const categoryFolders = await listFoldersByName(accessToken, sharedDriveId, category)
-  for (const f of categoryFolders) {
-    if (!f.id) continue
-    const parentList = await getFileParents(accessToken, f.id)
-    if (parentList.includes(monthFolderId)) {
-      categoryFolderId = f.id
-      break
-    }
+  const categoryFolders = await listFoldersByParent(accessToken, monthFolderId, category)
+  if (categoryFolders.length > 0 && categoryFolders[0].id) {
+    categoryFolderId = categoryFolders[0].id
   }
   if (!categoryFolderId) {
     const created = await createDriveFolder(accessToken, {
       name: category,
       parentId: monthFolderId,
-      sharedDriveId,
+      sharedDriveId: driveIdForCreate,
     })
     categoryFolderId = created.id
-    console.log(`[DRIVE HELPERS] Created ${category} folder in ${monthName} ${year} (${categoryFolderId})`)
+    console.log(`[DRIVE HELPERS] Created ${category} folder in ${monthName} ${year} (${categoryFolderId}) [mode=${target.mode}]`)
   }
 
   return categoryFolderId
@@ -196,19 +210,28 @@ export async function findOrCreateYearMonthCategoryFolder(
  * parent folder, share it with anyone-who-has-link, and return its info.
  *
  * Uses native fetch only (NO googleapis).
+ *
+ * DUAL-MODE: driveId metadata is set ONLY in shared mode. In folder mode,
+ * the new folder inherits the parent's location (My Drive shared folder) —
+ * no driveId metadata is sent.
  */
 export async function createEntityFolder(
   settings: DriveSettings,
   folderName: string,
   parentFolderId: string,
 ): Promise<DriveFolderInfo> {
+  const target = resolveDriveTarget(settings)
+  if (!target) {
+    throw new Error('Drive tidak dikonfigurasi — driveSharedDriveId atau driveFolderId belum diisi')
+  }
+
   const accessToken = await getCachedAccessToken(settings.driveServiceAccountKey!)
-  const sharedDriveId = settings.driveSharedDriveId!
+  const driveIdForCreate = target.isSharedDrive ? target.rootId : ''
 
   const folder = await createDriveFolder(accessToken, {
     name: folderName,
     parentId: parentFolderId,
-    sharedDriveId,
+    sharedDriveId: driveIdForCreate,
   })
 
   // Share folder with anyone who has the link (reader) — best-effort
@@ -222,6 +245,15 @@ export async function createEntityFolder(
     id: folder.id,
     webViewLink: folder.webViewLink,
   }
+}
+
+/**
+ * Resolve the configured Drive target (mode + rootId) from settings.
+ * Convenience wrapper around drive-service.resolveDriveTarget that returns
+ * a typed DriveTarget or null when Drive is not configured.
+ */
+export function getDriveTarget(settings: DriveSettings): DriveTarget | null {
+  return resolveDriveTarget(settings)
 }
 
 // ---------------------------------------------------------------------------

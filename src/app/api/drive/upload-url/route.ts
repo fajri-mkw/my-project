@@ -1,6 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getCachedSettings } from '@/lib/drive-settings-cache'
-import { getCachedAccessToken } from '@/lib/drive-service'
+import {
+  getCachedAccessToken,
+  listFoldersByParent,
+  createDriveFolder,
+  resolveDriveTarget,
+} from '@/lib/drive-service'
 
 /**
  * Generate a sanitized, formatted filename for uploaded files.
@@ -58,11 +63,17 @@ function buildAutoFileName(
  * Used to organize uploaded documents into named subfolders inside the
  * main kegiatan/surat folder (e.g. "Notulensi", "Dokumentasi").
  *
+ * DUAL-MODE: uses listFoldersByParent + createDriveFolder from drive-service,
+ * which work in BOTH shared-drive mode and folder mode. The mode is resolved
+ * from settings via resolveDriveTarget; in shared mode the new subfolder gets
+ * driveId metadata (places it in the shared drive), in folder mode it inherits
+ * the parent's location (My Drive shared folder).
+ *
  * Returns the subfolder ID, or the parent folder ID if subfolderName is empty/invalid.
  */
 async function findOrCreateSubfolder(
   accessToken: string,
-  sharedDriveId: string,
+  driveIdForCreate: string,
   parentFolderId: string,
   subfolderName: string
 ): Promise<string> {
@@ -70,61 +81,37 @@ async function findOrCreateSubfolder(
   const safeName = subfolderName.trim().replace(/[/\\?%*:|"<>]/g, '-').substring(0, 100)
   if (!safeName) return parentFolderId
 
-  // Search for an existing subfolder with this name inside parentFolderId
-  const searchUrl = new URL('https://www.googleapis.com/drive/v3/files')
-  // Escape single quotes for Drive query syntax
-  const escapedName = safeName.replace(/'/g, "\\'")
-  searchUrl.searchParams.set('q', `name='${escapedName}' and mimeType='application/vnd.google-apps.folder' and trashed=false`)
-  searchUrl.searchParams.set('corpora', 'drive')
-  searchUrl.searchParams.set('driveId', sharedDriveId)
-  searchUrl.searchParams.set('fields', 'files(id,name,parents)')
-  searchUrl.searchParams.set('supportsAllDrives', 'true')
-  searchUrl.searchParams.set('includeItemsFromAllDrives', 'true')
-  searchUrl.searchParams.set('pageSize', '10')
-
-  const searchResp = await fetch(searchUrl.toString(), {
-    headers: { 'Authorization': `Bearer ${accessToken}` },
-  })
-
-  if (searchResp.ok) {
-    const searchData = await searchResp.json()
-    if (Array.isArray(searchData.files)) {
-      for (const f of searchData.files) {
-        if (f.id && Array.isArray(f.parents) && f.parents.includes(parentFolderId)) {
-          return f.id
-        }
-      }
+  // Search for an existing subfolder with this name inside parentFolderId.
+  // listFoldersByParent uses the query 'parentId in parents' which works in
+  // both shared-drive mode and folder mode (1 subrequest, no parent-traversal).
+  try {
+    const matches = await listFoldersByParent(accessToken, parentFolderId, safeName)
+    if (matches.length > 0 && matches[0].id) {
+      return matches[0].id
     }
+  } catch (searchErr) {
+    // Non-fatal — fall through to create a new subfolder
+    console.error('[UPLOAD-URL] subfolder search failed, attempting create:', searchErr)
   }
 
-  // Not found — create the subfolder inside parentFolderId
-  const createUrl = new URL('https://www.googleapis.com/drive/v3/files')
-  createUrl.searchParams.set('fields', 'id,name')
-  createUrl.searchParams.set('supportsAllDrives', 'true')
-
-  const createResp = await fetch(createUrl.toString(), {
-    method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${accessToken}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
+  // Not found — create the subfolder inside parentFolderId.
+  // createDriveFolder accepts sharedDriveId: '' (folder mode) or the drive ID
+  // (shared mode), and conditionally sets the driveId metadata field.
+  try {
+    const created = await createDriveFolder(accessToken, {
       name: safeName,
-      mimeType: 'application/vnd.google-apps.folder',
-      parents: [parentFolderId],
-    }),
-  })
-
-  if (createResp.ok) {
-    const createData = await createResp.json()
-    if (createData.id) {
-      console.log(`[UPLOAD-URL] Created subfolder "${safeName}" inside ${parentFolderId}`)
-      return createData.id
+      parentId: parentFolderId,
+      sharedDriveId: driveIdForCreate,
+    })
+    if (created?.id) {
+      console.log(`[UPLOAD-URL] Created subfolder "${safeName}" inside ${parentFolderId} [driveIdForCreate=${driveIdForCreate ? 'set' : 'empty'}]`)
+      return created.id
     }
+  } catch (createErr) {
+    console.error('[UPLOAD-URL] subfolder create failed, falling back to parent:', createErr)
   }
 
   // Fallback: upload to parent folder if subfolder creation failed
-  console.error('[UPLOAD-URL] Failed to create subfolder, falling back to parent folder')
   return parentFolderId
 }
 
@@ -210,17 +197,21 @@ export async function POST(request: NextRequest) {
 
     // Determine the target folder for the file upload.
     // If subfolderName is provided, find or create a subfolder inside folderId.
+    // Mode-aware: in shared mode, the subfolder gets driveId metadata; in
+    // folder mode, it inherits the parent's location (My Drive shared folder).
+    const target = resolveDriveTarget(settings)
+    const driveIdForCreate = target?.isSharedDrive ? target.rootId : ''
     let targetFolderId = folderId
     if (
       subfolderName &&
       typeof subfolderName === 'string' &&
       subfolderName.trim() &&
-      settings.driveSharedDriveId
+      target
     ) {
       try {
         targetFolderId = await findOrCreateSubfolder(
           accessToken,
-          settings.driveSharedDriveId,
+          driveIdForCreate,
           folderId,
           subfolderName,
         )

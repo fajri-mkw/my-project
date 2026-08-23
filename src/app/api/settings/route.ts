@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { invalidateMaintenanceCache } from '@/lib/maintenance-check'
 import { sanitizeServiceAccountKey, validateServiceAccountKeyString } from '@/lib/drive-service'
+import { clearSettingsCache } from '@/lib/drive-settings-cache'
 import { withEdgeCache, invalidateCache } from '@/lib/edge-cache'
 import {
   getLibsql,
@@ -22,8 +23,8 @@ import {
 // ============================================================================
 
 // Settings columns used by this route (GET selects these; PUT may update any subset).
-const SETTINGS_COLUMNS = `id, driveAutoCreate, driveParentFolderId, driveSharedDriveId,
-  driveServiceAccountKey, driveApiKey, maintenanceMode, maintenanceMessage,
+const SETTINGS_COLUMNS = `id, driveAutoCreate, driveMode, driveParentFolderId, driveSharedDriveId,
+  driveFolderId, driveServiceAccountKey, driveApiKey, maintenanceMode, maintenanceMessage,
   notifWaEnabled, notifWaToken, notifWaDeviceId, notifWaSenderNumber,
   notifEmailEnabled, notifEmailHost, notifEmailPort, notifEmailUser, notifEmailPass,
   notifEmailFromName, updatedAt`
@@ -40,8 +41,12 @@ const BOOLEAN_SETTINGS_KEYS = new Set([
 function formatSettingsResponse(row: Record<string, unknown>) {
   return {
     driveAutoCreate: toBool(row.driveAutoCreate),
+    driveMode: row.driveMode === null || row.driveMode === undefined
+      ? 'shared'
+      : String(row.driveMode),
     driveParentFolderId: row.driveParentFolderId === null || row.driveParentFolderId === undefined ? '' : String(row.driveParentFolderId),
     driveSharedDriveId: row.driveSharedDriveId === null || row.driveSharedDriveId === undefined ? '' : String(row.driveSharedDriveId),
+    driveFolderId: row.driveFolderId === null || row.driveFolderId === undefined ? '' : String(row.driveFolderId),
     hasServiceAccountKey: !!row.driveServiceAccountKey,
     driveApiKey: row.driveApiKey === null || row.driveApiKey === undefined ? '' : String(row.driveApiKey),
     maintenanceMode: toBool(row.maintenanceMode),
@@ -107,7 +112,7 @@ export async function PUT(request: NextRequest) {
   try {
     const client = getLibsql()
     const body = await request.json()
-    const { driveAutoCreate, driveParentFolderId, driveSharedDriveId, driveServiceAccountKey, driveApiKey, maintenanceMode, maintenanceMessage, forceClear } = body
+    const { driveAutoCreate, driveMode, driveParentFolderId, driveSharedDriveId, driveFolderId, driveServiceAccountKey, driveApiKey, maintenanceMode, maintenanceMessage, forceClear } = body
 
     // Fetch the existing settings so we can protect non-empty values from
     // being overwritten by accidental empty-string submissions.
@@ -120,6 +125,19 @@ export async function PUT(request: NextRequest) {
 
     if (typeof driveAutoCreate === 'boolean') {
       updateData.driveAutoCreate = driveAutoCreate
+    }
+    if (driveMode !== undefined) {
+      // Validate driveMode — must be 'shared' or 'folder'. Anything else → 'shared' (default).
+      // Empty string means the user is clearing the field; we treat that as 'shared' too.
+      const modeVal = driveMode === 'folder' ? 'folder' : 'shared'
+      updateData.driveMode = modeVal
+      // Clear the inactive-mode's root ID when switching modes, so the stale
+      // value doesn't get cached/persisted. forceClear handles explicit clears.
+      if (modeVal === 'folder' && forceClear === true) {
+        updateData.driveSharedDriveId = null
+      } else if (modeVal === 'shared' && forceClear === true) {
+        updateData.driveFolderId = null
+      }
     }
     if (driveParentFolderId !== undefined) {
       // Protected field: don't overwrite an existing non-empty value with
@@ -146,6 +164,19 @@ export async function PUT(request: NextRequest) {
         updateData.driveSharedDriveId = newVal
       } else {
         console.warn('[SETTINGS] Ignored empty driveSharedDriveId (existing value preserved). Pass forceClear:true to override.')
+      }
+    }
+    if (driveFolderId !== undefined) {
+      // Protected field: same safeguard — only used when driveMode='folder'.
+      const newVal = driveFolderId || null
+      const oldVal =
+        existing?.driveFolderId === null || existing?.driveFolderId === undefined
+          ? null
+          : String(existing.driveFolderId)
+      if (newVal || !oldVal || forceClear === true) {
+        updateData.driveFolderId = newVal
+      } else {
+        console.warn('[SETTINGS] Ignored empty driveFolderId (existing value preserved). Pass forceClear:true to override.')
       }
     }
     if (driveServiceAccountKey !== undefined) {
@@ -234,6 +265,9 @@ export async function PUT(request: NextRequest) {
     }
 
     await invalidateCache('/api/settings')
+    // Bust the in-memory Drive settings cache so the next upload uses the new
+    // driveMode/driveFolderId immediately, instead of waiting for the 5-min TTL.
+    clearSettingsCache()
     // Also bust the maintenance GET cache if maintenance mode changed (so the
     // AppShell banner updates immediately).
     if (typeof maintenanceMode === 'boolean' || maintenanceMessage !== undefined) {

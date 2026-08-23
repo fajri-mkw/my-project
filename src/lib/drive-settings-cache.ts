@@ -23,6 +23,8 @@ import { getLibsql } from '@/lib/libsql-client'
 export interface DriveSettings {
   driveServiceAccountKey: string
   driveSharedDriveId: string
+  driveFolderId: string
+  driveMode: string  // 'shared' (default) | 'folder' — drives upload-mode selection
   driveParentFolderId?: string | null
 }
 
@@ -52,7 +54,7 @@ export async function getCachedSettings(): Promise<DriveSettings | null> {
   // Cache miss or expired — fetch from DB
   const client = getLibsql()
   const result = await client.execute({
-    sql: `SELECT driveServiceAccountKey, driveSharedDriveId, driveParentFolderId FROM settings WHERE id = 'main' LIMIT 1`,
+    sql: `SELECT driveServiceAccountKey, driveSharedDriveId, driveFolderId, driveMode, driveParentFolderId FROM settings WHERE id = 'main' LIMIT 1`,
     args: [],
   })
 
@@ -67,6 +69,8 @@ export async function getCachedSettings(): Promise<DriveSettings | null> {
   const data: DriveSettings = {
     driveServiceAccountKey: (row.driveServiceAccountKey as string) || '',
     driveSharedDriveId: (row.driveSharedDriveId as string) || '',
+    driveFolderId: (row.driveFolderId as string) || '',
+    driveMode: (row.driveMode as string) || 'shared', // NULL → 'shared' for backward compat
     driveParentFolderId: (row.driveParentFolderId as string) || null,
   }
 

@@ -32,8 +32,10 @@ import { ExternalLinksManager } from './external-links-manager'
 
 interface SettingsData {
   driveAutoCreate: boolean
+  driveMode: 'shared' | 'folder'  // 'shared' (Shared Drive) | 'folder' (My Drive folder)
   driveParentFolderId: string
-  driveSharedDriveId: string
+  driveSharedDriveId: string  // used when driveMode='shared'
+  driveFolderId: string       // used when driveMode='folder'
   hasServiceAccountKey: boolean
   driveApiKey: string
   maintenanceMode: boolean
@@ -68,8 +70,10 @@ export function SettingsView() {
 
   const [settings, setSettings] = useState<SettingsData>({
     driveAutoCreate: false,
+    driveMode: 'shared',
     driveParentFolderId: '',
     driveSharedDriveId: '',
+    driveFolderId: '',
     hasServiceAccountKey: false,
     driveApiKey: '',
     maintenanceMode: false,
@@ -131,8 +135,10 @@ export function SettingsView() {
         const data = await settingsRes.json()
         setSettings({
           driveAutoCreate: data.driveAutoCreate || false,
+          driveMode: data.driveMode === 'folder' ? 'folder' : 'shared',
           driveParentFolderId: data.driveParentFolderId || '',
           driveSharedDriveId: data.driveSharedDriveId || '',
+          driveFolderId: data.driveFolderId || '',
           hasServiceAccountKey: data.hasServiceAccountKey || false,
           driveApiKey: data.driveApiKey || '',
           maintenanceMode: data.maintenanceMode || false,
@@ -225,11 +231,27 @@ export function SettingsView() {
       if (dirtyFields.has('driveAutoCreate')) {
         updateData.driveAutoCreate = settings.driveAutoCreate
       }
+      if (dirtyFields.has('driveMode')) {
+        updateData.driveMode = settings.driveMode
+        // When switching modes, also send the inactive-mode's empty value so the
+        // backend can clear it (with forceClear:true). The backend's PUT handler
+        // protects non-empty values from being wiped by empty submissions, so we
+        // must include forceClear to actually clear the old value when switching.
+        if (settings.driveMode === 'folder') {
+          updateData.driveSharedDriveId = '' // clear the inactive field
+        } else {
+          updateData.driveFolderId = '' // clear the inactive field
+        }
+        updateData.forceClear = true
+      }
       if (dirtyFields.has('driveParentFolderId')) {
         updateData.driveParentFolderId = settings.driveParentFolderId
       }
       if (dirtyFields.has('driveSharedDriveId')) {
         updateData.driveSharedDriveId = settings.driveSharedDriveId
+      }
+      if (dirtyFields.has('driveFolderId')) {
+        updateData.driveFolderId = settings.driveFolderId
       }
 
       // Service account key: only sent when the user types a new one.
@@ -254,8 +276,10 @@ export function SettingsView() {
         setSettings(prev => ({
           ...prev,
           driveAutoCreate: data.driveAutoCreate,
+          driveMode: data.driveMode === 'folder' ? 'folder' : 'shared',
           driveParentFolderId: data.driveParentFolderId,
           driveSharedDriveId: data.driveSharedDriveId,
+          driveFolderId: data.driveFolderId,
           hasServiceAccountKey: data.hasServiceAccountKey
         }))
         setServiceAccountKey('')
@@ -1039,7 +1063,7 @@ export function SettingsView() {
             />
           </div>
 
-          {/* Warning when required config is missing */}
+          {/* Warning when required config is missing — mode-aware */}
           {settings.driveAutoCreate && !settings.hasServiceAccountKey && (
             <div className="p-4 bg-amber-50 border border-amber-200 rounded-xl text-amber-800 text-sm">
               <div className="flex items-start gap-3">
@@ -1054,78 +1078,195 @@ export function SettingsView() {
             </div>
           )}
 
-          {settings.driveAutoCreate && settings.hasServiceAccountKey && !settings.driveSharedDriveId && (
+          {settings.driveAutoCreate && settings.hasServiceAccountKey && settings.driveMode === 'shared' && !settings.driveSharedDriveId && (
             <div className="p-4 bg-amber-50 border border-amber-200 rounded-xl text-amber-800 text-sm">
               <div className="flex items-start gap-3">
                 <AlertCircle className="w-5 h-5 flex-shrink-0 mt-0.5" />
                 <div>
                   <p className="font-semibold">Shared Drive ID diperlukan</p>
                   <p className="mt-1">
-                    Auto-Create sudah diaktifkan, tetapi folder tidak dapat dibuat tanpa Shared Drive ID. Masukkan ID di bawah.
+                    Drive Mode = "Shared Drive". Masukkan Shared Drive ID di bawah, atau ganti Drive Mode ke "Folder di My Drive" untuk menggunakan folder My Drive Anda sendiri.
                   </p>
                 </div>
               </div>
             </div>
           )}
 
-          {/* Shared Drive ID - IMPORTANT */}
-          <div className="space-y-2 p-4 bg-indigo-50 rounded-xl border border-indigo-200">
-            <div className="flex items-center gap-2">
-              <HardDrive className="w-4 h-4 text-indigo-600" />
-              <Label htmlFor="sharedDrive" className="font-semibold text-indigo-900">
-                Shared Drive ID (WAJIB)
-              </Label>
+          {settings.driveAutoCreate && settings.hasServiceAccountKey && settings.driveMode === 'folder' && !settings.driveFolderId && (
+            <div className="p-4 bg-amber-50 border border-amber-200 rounded-xl text-amber-800 text-sm">
+              <div className="flex items-start gap-3">
+                <AlertCircle className="w-5 h-5 flex-shrink-0 mt-0.5" />
+                <div>
+                  <p className="font-semibold">Drive Folder ID diperlukan</p>
+                  <p className="mt-1">
+                    Drive Mode = "Folder di My Drive". Buat folder di Google Drive Anda, share ke email Service Account dengan akses <strong>Editor</strong>, lalu masukkan ID folder-nya di bawah.
+                  </p>
+                </div>
+              </div>
             </div>
-            <Input
-              id="sharedDrive"
-              value={settings.driveSharedDriveId}
-              onChange={(e) => {
-                setSettings(prev => ({ ...prev, driveSharedDriveId: e.target.value }))
-                markDirty('driveSharedDriveId')
-              }}
-              placeholder="Contoh: 0AEd3EhGff9SaUk9PVA"
-              className="bg-white"
-            />
-            <p className="text-xs text-indigo-700">
-              <strong>Cara mendapatkan Shared Drive ID:</strong> Buka Shared Drive di Google Drive,
-              lihat URL: <code className="bg-white px-1 rounded">drive.google.com/drive/folders/[SHARED_DRIVE_ID]</code>
+          )}
+
+          {/* Drive Mode selector — switch between Shared Drive and My Drive Folder */}
+          <div className="space-y-2 p-4 bg-stone-50 rounded-xl border border-stone-200">
+            <Label className="font-semibold text-stone-900">Drive Mode</Label>
+            <p className="text-xs text-stone-500 -mt-1">
+              Pilih lokasi penyimpanan Google Drive. Default: <strong>Shared Drive</strong>.
             </p>
+            <div className="grid grid-cols-2 gap-2 mt-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setSettings(prev => ({ ...prev, driveMode: 'shared' }))
+                  markDirty('driveMode')
+                }}
+                className={cn(
+                  "flex flex-col items-start gap-1 p-3 rounded-lg border-2 text-left transition-all",
+                  settings.driveMode === 'shared'
+                    ? "border-indigo-500 bg-indigo-50 shadow-sm"
+                    : "border-stone-200 bg-white hover:border-stone-300"
+                )}
+              >
+                <div className="flex items-center gap-2">
+                  <HardDrive className={cn("w-4 h-4", settings.driveMode === 'shared' ? "text-indigo-600" : "text-stone-400")} />
+                  <span className={cn("font-semibold text-sm", settings.driveMode === 'shared' ? "text-indigo-900" : "text-stone-700")}>
+                    Shared Drive
+                  </span>
+                </div>
+                <span className="text-[11px] text-stone-500 leading-tight">
+                  File disimpan di Shared Drive organisasi. Kuota 100 GB (naikkan via admin.google.com).
+                </span>
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setSettings(prev => ({ ...prev, driveMode: 'folder' }))
+                  markDirty('driveMode')
+                }}
+                className={cn(
+                  "flex flex-col items-start gap-1 p-3 rounded-lg border-2 text-left transition-all",
+                  settings.driveMode === 'folder'
+                    ? "border-emerald-500 bg-emerald-50 shadow-sm"
+                    : "border-stone-200 bg-white hover:border-stone-300"
+                )}
+              >
+                <div className="flex items-center gap-2">
+                  <Folder className={cn("w-4 h-4", settings.driveMode === 'folder' ? "text-emerald-600" : "text-stone-400")} />
+                  <span className={cn("font-semibold text-sm", settings.driveMode === 'folder' ? "text-emerald-900" : "text-stone-700")}>
+                    Folder di My Drive
+                  </span>
+                </div>
+                <span className="text-[11px] text-stone-500 leading-tight">
+                  File disimpan di folder My Drive Anda (kuota 2 TB). Wajib share folder ke email Service Account.
+                </span>
+              </button>
+            </div>
           </div>
 
-          {/* Parent Folder ID */}
-          <div className="space-y-2">
-            <Label htmlFor="parentFolder">Parent Folder ID (Opsional)</Label>
-            <div className="flex gap-2">
+          {/* === SHARED DRIVE MODE fields === */}
+          {settings.driveMode === 'shared' && (
+            <>
+              {/* Shared Drive ID */}
+              <div className="space-y-2 p-4 bg-indigo-50 rounded-xl border border-indigo-200">
+                <div className="flex items-center gap-2">
+                  <HardDrive className="w-4 h-4 text-indigo-600" />
+                  <Label htmlFor="sharedDrive" className="font-semibold text-indigo-900">
+                    Shared Drive ID (WAJIB untuk mode Shared Drive)
+                  </Label>
+                </div>
+                <Input
+                  id="sharedDrive"
+                  value={settings.driveSharedDriveId}
+                  onChange={(e) => {
+                    setSettings(prev => ({ ...prev, driveSharedDriveId: e.target.value }))
+                    markDirty('driveSharedDriveId')
+                  }}
+                  placeholder="Contoh: 0AEd3EhGff9SaUk9PVA"
+                  className="bg-white"
+                />
+                <p className="text-xs text-indigo-700">
+                  <strong>Cara mendapatkan Shared Drive ID:</strong> Buka Shared Drive di Google Drive,
+                  lihat URL: <code className="bg-white px-1 rounded">drive.google.com/drive/folders/[SHARED_DRIVE_ID]</code>
+                </p>
+              </div>
+
+              {/* Parent Folder ID (shared-drive-only, optional) */}
+              <div className="space-y-2">
+                <Label htmlFor="parentFolder">Parent Folder ID (Opsional)</Label>
+                <div className="flex gap-2">
+                  <Input
+                    id="parentFolder"
+                    value={settings.driveParentFolderId}
+                    onChange={(e) => {
+                      setSettings(prev => ({ ...prev, driveParentFolderId: e.target.value }))
+                      markDirty('driveParentFolderId')
+                    }}
+                    placeholder="Contoh: 1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OEgvA"
+                    className="flex-1"
+                  />
+                  {settings.driveParentFolderId && (
+                    <Button variant="ghost" size="icon" asChild>
+                      <a
+                        href={`https://drive.google.com/drive/folders/${settings.driveParentFolderId}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                      >
+                        <ExternalLink className="w-4 h-4" />
+                      </a>
+                    </Button>
+                  )}
+                </div>
+                <p className="text-xs text-stone-500">
+                  ID folder induk di dalam Shared Drive tempat folder proyek akan dibuat. Kosongkan untuk membuat di root Shared Drive.
+                </p>
+              </div>
+            </>
+          )}
+
+          {/* === FOLDER MODE fields === */}
+          {settings.driveMode === 'folder' && (
+            <div className="space-y-3 p-4 bg-emerald-50 rounded-xl border border-emerald-200">
+              <div className="flex items-center gap-2">
+                <Folder className="w-4 h-4 text-emerald-600" />
+                <Label htmlFor="driveFolderId" className="font-semibold text-emerald-900">
+                  Drive Folder ID (WAJIB untuk mode Folder My Drive)
+                </Label>
+              </div>
               <Input
-                id="parentFolder"
-                value={settings.driveParentFolderId}
+                id="driveFolderId"
+                value={settings.driveFolderId}
                 onChange={(e) => {
-                  setSettings(prev => ({ ...prev, driveParentFolderId: e.target.value }))
-                  markDirty('driveParentFolderId')
+                  setSettings(prev => ({ ...prev, driveFolderId: e.target.value }))
+                  markDirty('driveFolderId')
                 }}
                 placeholder="Contoh: 1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OEgvA"
-                className="flex-1"
+                className="bg-white"
               />
-              {settings.driveParentFolderId && (
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  asChild
-                >
+              {settings.driveFolderId && (
+                <Button variant="ghost" size="sm" asChild>
                   <a
-                    href={`https://drive.google.com/drive/folders/${settings.driveParentFolderId}`}
+                    href={`https://drive.google.com/drive/folders/${settings.driveFolderId}`}
                     target="_blank"
                     rel="noopener noreferrer"
+                    className="text-emerald-700"
                   >
-                    <ExternalLink className="w-4 h-4" />
+                    <ExternalLink className="w-4 h-4 mr-1" />
+                    Buka folder di Drive
                   </a>
                 </Button>
               )}
+              <div className="mt-2 p-3 bg-white/70 rounded-lg border border-emerald-100">
+                <p className="text-xs text-emerald-900 font-semibold mb-1">Setup 3 langkah (WAJIB):</p>
+                <ol className="text-xs text-emerald-800 space-y-1 list-decimal list-inside">
+                  <li>Buat folder baru di <strong>My Drive</strong> Anda (mis. "Pushakin-Flows").</li>
+                  <li>Klik kanan folder → <strong>Share</strong> → tambahkan email Service Account (terlihat di field JSON di bawah setelah upload key — field <code>client_email</code>) → beri akses <strong>Editor</strong>.</li>
+                  <li>Salin ID folder dari URL <code className="bg-emerald-50 px-1 rounded">drive.google.com/drive/folders/[FOLDER_ID]</code> dan paste ke field di atas.</li>
+                </ol>
+                <p className="text-[11px] text-emerald-700 mt-2 leading-relaxed">
+                  💡 Semua file upload akan disimpan di folder ini (dan subfolder year/month/category otomatis dibuat di dalamnya). Storage dihitung dari kuota My Drive Anda (2 TB), bukan Shared Drive. <strong>Service Account menjadi pemilik file upload</strong> — pastikan tidak menghapus Service Account setelah upload dimulai.
+                </p>
+              </div>
             </div>
-            <p className="text-xs text-stone-500">
-              ID folder induk di dalam Shared Drive tempat folder proyek akan dibuat. Kosongkan untuk membuat di root Shared Drive.
-            </p>
-          </div>
+          )}
 
           {/* Service Account Key */}
           <div className="space-y-2">
@@ -1175,6 +1316,7 @@ export function SettingsView() {
                       body: JSON.stringify({
                         driveServiceAccountKey: '',
                         driveSharedDriveId: '',
+                        driveFolderId: '',
                         driveParentFolderId: '',
                         driveAutoCreate: false,
                         forceClear: true
@@ -1185,8 +1327,10 @@ export function SettingsView() {
                       setSettings(prev => ({
                         ...prev,
                         driveAutoCreate: data.driveAutoCreate,
+                        driveMode: 'shared',
                         driveParentFolderId: data.driveParentFolderId,
                         driveSharedDriveId: data.driveSharedDriveId,
+                        driveFolderId: data.driveFolderId,
                         hasServiceAccountKey: data.hasServiceAccountKey
                       }))
                       setServiceAccountKey('')

@@ -160,8 +160,10 @@ model SuratTugas {
 model Settings {
   id                    String   @id @default("main")
   driveAutoCreate       Boolean  @default(false)
+  driveMode             String?  // 'shared' (default) | 'folder' — selects Shared Drive mode vs My Drive folder mode
   driveParentFolderId   String?
   driveSharedDriveId    String?
+  driveFolderId         String?  // My Drive folder ID used when driveMode = 'folder'
   driveServiceAccountKey String?
   driveApiKey           String?
   maintenanceMode       Boolean  @default(false)

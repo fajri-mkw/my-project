@@ -108,8 +108,10 @@ CREATE TABLE "surat_tugas" (
 CREATE TABLE "settings" (
     "id" TEXT NOT NULL PRIMARY KEY DEFAULT 'main',
     "driveAutoCreate" BOOLEAN NOT NULL DEFAULT false,
+    "driveMode" TEXT,
     "driveParentFolderId" TEXT,
     "driveSharedDriveId" TEXT,
+    "driveFolderId" TEXT,
     "driveServiceAccountKey" TEXT,
     "driveApiKey" TEXT,
     "maintenanceMode" BOOLEAN NOT NULL DEFAULT false,

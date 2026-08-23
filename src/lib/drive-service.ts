@@ -518,6 +518,150 @@ export async function checkSharedDriveAccess(
   }
 }
 
+// ---------------------------------------------------------------------------
+// Dual-mode Drive target resolution.
+//
+// The app supports two Drive integration modes:
+//   - 'shared' : Service Account is a Manager/Content Manager of a Shared Drive
+//                (driveSharedDriveId). All uploads use the driveId metadata field.
+//   - 'folder' : Service Account has Editor access to a folder in someone's
+//                My Drive (driveFolderId). All uploads use only the parents
+//                field (no driveId) — files go inside that shared folder.
+//
+// resolveDriveTarget() reads the raw settings row and returns the resolved
+// target. NULL driveMode falls back to 'shared' for backward compatibility
+// (existing deployments have driveMode=NULL but driveSharedDriveId set).
+// ---------------------------------------------------------------------------
+
+export interface DriveTarget {
+  mode: 'shared' | 'folder'
+  rootId: string           // sharedDriveId or driveFolderId, depending on mode
+  isSharedDrive: boolean   // = (mode === 'shared')
+  parentFolderId: string | null  // driveParentFolderId (used as initial parent in shared mode; ignored in folder mode)
+}
+
+/**
+ * Resolve a DriveTarget from the raw settings row fields.
+ *
+ * Returns null if the mode-appropriate root ID is missing (Drive not configured).
+ * Always call this to convert raw settings into an actionable target — it
+ * centralizes the mode logic so every Drive-touching route uses the same
+ * resolution rules.
+ */
+export function resolveDriveTarget(settings: {
+  driveMode?: string | null
+  driveSharedDriveId?: string | null
+  driveFolderId?: string | null
+  driveParentFolderId?: string | null
+}): DriveTarget | null {
+  const mode: 'shared' | 'folder' = settings.driveMode === 'folder' ? 'folder' : 'shared'
+  const rootId = mode === 'folder'
+    ? (settings.driveFolderId || '').trim()
+    : (settings.driveSharedDriveId || '').trim()
+  if (!rootId) return null
+  return {
+    mode,
+    rootId,
+    isSharedDrive: mode === 'shared',
+    parentFolderId: settings.driveParentFolderId || null,
+  }
+}
+
+/**
+ * Check whether the Service Account can access a specific Drive folder
+ * (used in 'folder' mode to verify the user shared the My Drive folder
+ * with the Service Account email).
+ *
+ * GET /drive/v3/files/{folderId}?fields=id,name,mimeType&supportsAllDrives=true
+ */
+export async function checkFolderAccess(
+  accessToken: string,
+  folderId: string,
+): Promise<{ ok: boolean; error?: string; name?: string }> {
+  try {
+    const params = new URLSearchParams({
+      fields: 'id,name,mimeType',
+      supportsAllDrives: 'true',
+    })
+    const response = await fetch(
+      `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(folderId)}?${params}`,
+      {
+        method: 'GET',
+        headers: { 'Authorization': `Bearer ${accessToken}` },
+      },
+    )
+    if (response.ok) {
+      const data = await response.json()
+      // Defensive: ensure the ID actually points to a folder (not a file)
+      if (data.mimeType && data.mimeType !== 'application/vnd.google-apps.folder') {
+        return {
+          ok: false,
+          error: `ID bukan folder (mimeType: ${data.mimeType}). Pastikan ID adalah folder di My Drive.`,
+        }
+      }
+      return { ok: true, name: data.name }
+    }
+    const errText = await response.text().catch(() => '')
+    return {
+      ok: false,
+      error: `HTTP ${response.status}: ${errText.substring(0, 200)}`,
+    }
+  } catch (err) {
+    return {
+      ok: false,
+      error: err instanceof Error ? err.message : String(err),
+    }
+  }
+}
+
+/**
+ * List child folders of a given parent folder, optionally filtered by name.
+ *
+ * This works in BOTH modes:
+ *   - In 'shared' mode: parentId is a folder inside the Shared Drive
+ *     (or the drive root). The query 'parentId in parents' scopes results
+ *     to direct children of that folder — same as listFoldersByName +
+ *     getFileParents check, but in 1 subrequest instead of 2-3.
+ *   - In 'folder' mode: parentId is the My Drive folder shared with the
+ *     Service Account. The same 'parentId in parents' query returns the
+ *     subfolders inside it.
+ *
+ * GET /drive/v3/files?q=...&supportsAllDrives=true
+ */
+export async function listFoldersByParent(
+  accessToken: string,
+  parentId: string,
+  name?: string,
+): Promise<Array<{ id: string; name: string }>> {
+  // Escape single quotes for Drive query syntax (parentId is a Drive ID —
+  // safe alphanumeric, but escape defensively).
+  const safeParent = parentId.replace(/'/g, "\\'")
+  const escapedName = name ? name.replace(/'/g, "\\'") : null
+  const q = escapedName
+    ? `name='${escapedName}' and mimeType='application/vnd.google-apps.folder' and trashed=false and '${safeParent}' in parents`
+    : `mimeType='application/vnd.google-apps.folder' and trashed=false and '${safeParent}' in parents`
+  const params = new URLSearchParams({
+    q,
+    fields: 'files(id, name)',
+    supportsAllDrives: 'true',
+    includeItemsFromAllDrives: 'true',
+    pageSize: '10',
+  })
+  const response = await fetch(
+    `https://www.googleapis.com/drive/v3/files?${params}`,
+    {
+      method: 'GET',
+      headers: { 'Authorization': `Bearer ${accessToken}` },
+    },
+  )
+  if (!response.ok) {
+    const errText = await response.text().catch(() => '')
+    throw new Error(`Drive list (parent) failed (HTTP ${response.status}): ${errText.substring(0, 200)}`)
+  }
+  const data = await response.json()
+  return (data.files || []) as Array<{ id: string; name: string }>
+}
+
 /**
  * List files/folders in a Shared Drive matching a name query.
  *

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { checkMaintenanceMode } from '@/lib/maintenance-check'
+import { resolveDriveTarget } from '@/lib/drive-service'
 import {
   readDriveSettings,
   readSuratForUpload,
@@ -48,7 +49,8 @@ export async function POST(request: NextRequest) {
     if (!surat) {
       return NextResponse.json({ error: 'Surat tidak ditemukan' }, { status: 404 })
     }
-    if (!settings?.driveServiceAccountKey || !settings?.driveSharedDriveId) {
+    // Mode-aware validation: works for both shared-drive and folder modes.
+    if (!settings?.driveServiceAccountKey || !resolveDriveTarget(settings)) {
       return NextResponse.json(
         { error: 'Google Drive belum dikonfigurasi. Hubungi Super Admin.' },
         { status: 400 }

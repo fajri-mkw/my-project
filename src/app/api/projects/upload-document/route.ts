@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { checkMaintenanceMode } from '@/lib/maintenance-check'
-import { uploadFileToDrive, getAccessToken, shareWithAnyone } from '@/lib/drive-service'
+import { uploadFileToDrive, getAccessToken, shareWithAnyone, resolveDriveTarget } from '@/lib/drive-service'
 import {
   readDriveSettings,
   readProjectForUpload,
@@ -51,15 +51,37 @@ export async function POST(request: NextRequest) {
     if (!project) {
       return NextResponse.json({ error: 'Proyek tidak ditemukan' }, { status: 404 })
     }
-    if (!settings?.driveServiceAccountKey || !settings?.driveSharedDriveId) {
+    // Mode-aware validation: resolve the Drive target — works in both
+    // shared-drive mode (driveSharedDriveId) and folder mode (driveFolderId).
+    if (!settings?.driveServiceAccountKey) {
       return NextResponse.json(
         { error: 'Google Drive belum dikonfigurasi. Hubungi Admin.' },
         { status: 400 }
       )
     }
+    const target = resolveDriveTarget(settings)
+    if (!target) {
+      const isFolderMode = settings.driveMode === 'folder'
+      return NextResponse.json(
+        {
+          error: isFolderMode
+            ? 'Drive Folder ID belum dikonfigurasi. Hubungi Admin.'
+            : 'Shared Drive ID belum dikonfigurasi. Hubungi Admin.',
+        },
+        { status: 400 }
+      )
+    }
 
-    // Determine upload target — either driveParentFolderId or shared drive root
-    const targetFolderId = settings.driveParentFolderId || settings.driveSharedDriveId
+    // Determine upload target.
+    //   - shared mode: driveParentFolderId (if set) or shared drive root
+    //   - folder mode: driveFolderId (the shared My Drive folder)
+    const targetFolderId = target.mode === 'folder'
+      ? target.rootId
+      : (target.parentFolderId || target.rootId)
+    // Pass sharedDriveId ONLY in shared-drive mode. In folder mode, leave
+    // undefined so uploadFileToDrive omits the driveId metadata field —
+    // the new file inherits the parent's location (My Drive shared folder).
+    const driveIdForCreate = target.isSharedDrive ? target.rootId : undefined
 
     // Upload file via direct fetch + multipart/related (1 Drive API subrequest)
     const fileContent = new Uint8Array(await file.arrayBuffer())
@@ -71,7 +93,7 @@ export async function POST(request: NextRequest) {
       mimeType: fileMime,
       content: fileContent,
       parents: [targetFolderId],
-      sharedDriveId: settings.driveSharedDriveId,
+      sharedDriveId: driveIdForCreate,
     })
 
     // Share with anyone who has the link (reader) — 1 Drive API subrequest

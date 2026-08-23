@@ -1,6 +1,7 @@
 import { db, ensureDbConnection } from '@/lib/db'
 import { NextRequest, NextResponse } from 'next/server'
 import { checkMaintenanceMode } from '@/lib/maintenance-check'
+import { resolveDriveTarget } from '@/lib/drive-service'
 
 /**
  * POST /api/projects/prepare-upload
@@ -11,6 +12,9 @@ import { checkMaintenanceMode } from '@/lib/maintenance-check'
  *
  * Body: { projectId: string }
  * Returns: { folderId: string }
+ *
+ * DUAL-MODE: in 'shared' mode, returns driveParentFolderId || sharedDriveId.
+ * In 'folder' mode, returns driveFolderId (the My Drive shared folder).
  */
 export async function POST(request: NextRequest) {
   const maintenanceBlock = await checkMaintenanceMode(request)
@@ -29,17 +33,35 @@ export async function POST(request: NextRequest) {
     }
 
     const settings = await db.settings.findUnique({ where: { id: 'main' } })
-    if (!settings?.driveServiceAccountKey || !settings?.driveSharedDriveId) {
+    if (!settings?.driveServiceAccountKey) {
       return NextResponse.json(
         { error: 'Google Drive belum dikonfigurasi. Hubungi Admin.' },
         { status: 400 }
       )
     }
 
-    // Projects use the shared parent folder (not a per-project folder)
-    const targetFolderId = settings.driveParentFolderId || settings.driveSharedDriveId
+    // Mode-aware target resolution.
+    const target = resolveDriveTarget(settings)
+    if (!target) {
+      const isFolderMode = settings.driveMode === 'folder'
+      return NextResponse.json(
+        {
+          error: isFolderMode
+            ? 'Drive Folder ID belum dikonfigurasi. Hubungi Admin.'
+            : 'Shared Drive ID belum dikonfigurasi. Hubungi Admin.',
+        },
+        { status: 400 }
+      )
+    }
 
-    return NextResponse.json({ folderId: targetFolderId })
+    // Projects use the shared parent folder (not a per-project folder).
+    //   - shared mode: driveParentFolderId (if set) || shared drive root
+    //   - folder mode: driveFolderId (the shared My Drive folder)
+    const targetFolderId = target.mode === 'folder'
+      ? target.rootId
+      : (target.parentFolderId || target.rootId)
+
+    return NextResponse.json({ folderId: targetFolderId, driveMode: target.mode })
   } catch (error) {
     console.error('[PROJECTS PREPARE] Error:', error)
     return NextResponse.json(

@@ -28,7 +28,7 @@ import { db } from './db'
 import { getLibsql, bind } from './libsql-client'
 
 // Increment this when adding new migrations
-const SCHEMA_VERSION = 10
+const SCHEMA_VERSION = 11
 
 let syncPerformed = false
 let syncPromise: Promise<boolean> | null = null
@@ -301,6 +301,15 @@ async function syncSqlite(): Promise<void> {
   ])
   // Clamp project.currentStage 6 → 5 (Selesai). Project complete = 5 (Selesai).
   await shiftSqliteStage('projects', 'currentStage', 6, 5)
+
+  // === Version 11: Add driveMode + driveFolderId columns to settings table ===
+  // This enables the dual-mode Drive integration: 'shared' (Shared Drive — original)
+  // or 'folder' (My Drive folder shared with the Service Account).
+  // Backward compat: NULL driveMode defaults to 'shared' in resolveDriveTarget().
+  await Promise.all([
+    addSqliteColumnIfNotExists('settings', 'driveMode', 'TEXT'),
+    addSqliteColumnIfNotExists('settings', 'driveFolderId', 'TEXT'),
+  ])
 }
 
 async function addSqliteColumnIfNotExists(
@@ -503,6 +512,13 @@ async function syncPostgres(): Promise<void> {
   ])
   // Clamp project.currentStage 6 → 5 (Selesai).
   await shiftPostgresStage('projects', 'currentStage', 6, 5)
+
+  // === Version 11: Add driveMode + driveFolderId columns to settings table ===
+  // (See syncSqlite Version 11 for details on dual-mode Drive integration.)
+  await Promise.all([
+    addPostgresColumnIfNotExists('settings', 'driveMode', 'TEXT'),
+    addPostgresColumnIfNotExists('settings', 'driveFolderId', 'TEXT'),
+  ])
 }
 
 async function addPostgresColumnIfNotExists(

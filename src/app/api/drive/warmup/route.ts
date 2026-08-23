@@ -81,8 +81,11 @@ export async function POST() {
     return NextResponse.json({
       ok: true,
       warmed: true,
-      // Include sharedDriveId so frontend can validate Drive is configured
+      // Return the resolved Drive target so the frontend can validate Drive
+      // is configured in the right mode (shared-drive ID vs My Drive folder ID).
+      driveMode: settings.driveMode || 'shared',
       sharedDriveId: settings.driveSharedDriveId || null,
+      driveFolderId: settings.driveFolderId || null,
     })
   } catch (error) {
     console.error('[WARMUP] Error:', error)

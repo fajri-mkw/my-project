@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { checkMaintenanceMode } from '@/lib/maintenance-check'
-import { uploadFileToDrive, getAccessToken, shareWithAnyone } from '@/lib/drive-service'
+import { uploadFileToDrive, getAccessToken, shareWithAnyone, resolveDriveTarget } from '@/lib/drive-service'
 import {
   readDriveSettings,
   readKegiatanForUpload,
@@ -53,12 +53,29 @@ export async function POST(request: NextRequest) {
     if (!kegiatan) {
       return NextResponse.json({ error: 'Kegiatan tidak ditemukan' }, { status: 404 })
     }
-    if (!settings?.driveServiceAccountKey || !settings?.driveSharedDriveId) {
+    // Mode-aware validation: resolve the Drive target — works in both
+    // shared-drive mode (driveSharedDriveId) and folder mode (driveFolderId).
+    if (!settings?.driveServiceAccountKey) {
       return NextResponse.json(
         { error: 'Google Drive belum dikonfigurasi. Hubungi Super Admin.' },
         { status: 400 }
       )
     }
+    const target = resolveDriveTarget(settings)
+    if (!target) {
+      const isFolderMode = settings.driveMode === 'folder'
+      return NextResponse.json(
+        {
+          error: isFolderMode
+            ? 'Drive Folder ID belum dikonfigurasi. Hubungi Super Admin.'
+            : 'Shared Drive ID belum dikonfigurasi. Hubungi Super Admin.',
+        },
+        { status: 400 }
+      )
+    }
+    // driveIdForCreate: empty in folder mode (no driveId metadata in upload);
+    // the Shared Drive ID in shared mode (upload gets driveId metadata).
+    const driveIdForCreate = target.isSharedDrive ? target.rootId : undefined
 
     // Determine target folder: use kegiatan's driveFolderId, or create a new one
     let targetFolderId = kegiatan.driveFolderId
@@ -101,7 +118,10 @@ export async function POST(request: NextRequest) {
       mimeType: fileMime,
       content: fileContent,
       parents: [targetFolderId],
-      sharedDriveId: settings.driveSharedDriveId,
+      // Pass sharedDriveId ONLY in shared-drive mode. In folder mode, leave
+      // undefined so uploadFileToDrive omits the driveId metadata field —
+      // the new file inherits the parent's location (My Drive shared folder).
+      sharedDriveId: driveIdForCreate,
     })
 
     const driveFileId = driveResponse.id
