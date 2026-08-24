@@ -105,7 +105,12 @@ export function withEdgeCache<T extends Request>(
     try {
       const cached = await cache.match(cacheKey)
       if (cached) {
-        // Return cached response with a header indicating cache hit
+        // Return cached response with a header indicating cache hit.
+        // The cached entry already has Cache-Control (set during the MISS
+        // path below), so the browser will ALSO cache it — meaning repeat
+        // requests within the TTL won't even hit the Worker (0 Worker
+        // requests for browser-cached responses). This is the key
+        // optimization that reduces request COUNT, not just CPU usage.
         const headers = new Headers(cached.headers)
         headers.set('x-edge-cache', 'HIT')
         return new Response(cached.body, {
@@ -129,13 +134,22 @@ export function withEdgeCache<T extends Request>(
         // original (returned to client) and the clone (stored in cache) can be
         // read independently.
         const responseClone = response.clone()
-        const headers = new Headers(responseClone.headers)
-        headers.set('Cache-Control', `public, max-age=${ttl}`)
-        headers.set('x-edge-cache', 'MISS')
+        const cacheHeaders = new Headers(responseClone.headers)
+        // Set Cache-Control on the cached entry — but ONLY if the handler
+        // didn't explicitly set one. This respects handlers that use
+        // 'no-store' to opt out of browser caching (e.g., /api/projects
+        // sets no-store to prevent stale data after writes). On HIT, the
+        // cached entry's Cache-Control is returned to the browser — so if
+        // the handler set no-store, HIT responses also have no-store,
+        // keeping browser behavior consistent across MISS and HIT paths.
+        if (!cacheHeaders.has('Cache-Control')) {
+          cacheHeaders.set('Cache-Control', `public, max-age=${ttl}`)
+        }
+        cacheHeaders.set('x-edge-cache', 'MISS')
         const cachedResponse = new Response(responseClone.body, {
           status: responseClone.status,
           statusText: responseClone.statusText,
-          headers,
+          headers: cacheHeaders,
         })
         // Use waitUntil to not block the response. Same pattern as
         // deferToBackground: getCloudflareContext() on OpenNext provides ctx.
@@ -155,6 +169,49 @@ export function withEdgeCache<T extends Request>(
           await cache.put(cacheKey, cachedResponse)
         }
       } catch {}
+
+      // =========================================================================
+      // CRITICAL: Also set Cache-Control on the response RETURNED to the client.
+      //
+      // The edge Cache API (caches.default) reduces CPU usage (skips handler
+      // on HIT) but does NOT reduce request COUNT — every HTTP request to the
+      // Worker still counts against the free plan's 100K/day cap.
+      //
+      // Setting `Cache-Control: public, max-age=<ttl>` on the response tells
+      // the BROWSER to cache it locally. Repeat requests within the TTL are
+      // served from the browser cache WITHOUT hitting the Worker at all
+      // (0 Worker requests). This is the key optimization that reduces
+      // request COUNT.
+      //
+      // Example: /api/maintenance with ttl=120s. User refreshes dashboard 30
+      // times over 8 hours. Without browser cache: 30 Worker requests. With
+      // browser cache: ~4 Worker requests (one every 120s), rest served from
+      // browser cache. ~7.5x request-count reduction PER CACHED ENDPOINT.
+      //
+      // OPT-OUT: if the handler explicitly sets `Cache-Control: no-store` on
+      // its response (e.g., /api/projects does this to prevent stale data
+      // after a manager creates/updates a project), we RESPECT that and do
+      // NOT override it. The handler is opting out of browser caching for
+      // data-consistency reasons.
+      // =========================================================================
+      try {
+        const browserHeaders = new Headers(response.headers)
+        // Only set browser Cache-Control if the handler didn't explicitly
+        // set one. This respects handlers that use 'no-store' to opt out.
+        if (!browserHeaders.has('Cache-Control')) {
+          browserHeaders.set('Cache-Control', `public, max-age=${ttl}`)
+        }
+        browserHeaders.set('x-edge-cache', 'MISS')
+        return new Response(response.body, {
+          status: response.status,
+          statusText: response.statusText,
+          headers: browserHeaders,
+        })
+      } catch {
+        // If header modification fails (e.g., immutable headers in some
+        // runtime edge cases), return the original response unmodified.
+        return response
+      }
     }
 
     return response

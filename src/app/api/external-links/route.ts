@@ -223,6 +223,12 @@ export async function GET(request: NextRequest) {
     const response = NextResponse.json({ links })
     // 3) Cache the successful response (non-blocking via waitUntil)
     await writeCache(cacheKey, response, ttl)
+    // 4) Set Cache-Control on the RETURNED response so the browser also
+    // caches it. Repeat requests within the TTL are served from the browser
+    // cache WITHOUT hitting the Worker (0 Worker requests). This is the key
+    // optimization that reduces request COUNT, not just CPU usage.
+    // See src/lib/edge-cache.ts for the full rationale.
+    response.headers.set('Cache-Control', `public, max-age=${ttl}`)
     return response
   } catch (error) {
     console.error('Get external links error:', error)
