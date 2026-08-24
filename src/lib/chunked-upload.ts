@@ -98,8 +98,12 @@ export async function chunkedUploadFile(
   // Pre-caches settings + access token at the module level. Without this,
   // the upload-url endpoint may hit a cold isolate and exceed the 10ms CPU
   // limit, resulting in an empty HTTP 500 ("Gagal menyiapkan upload").
-  // Retry up to 5 times — the first warmup may also hit a cold isolate.
-  const warmupResult = await warmupDrive(5, signal)
+  // Reduced from 5 → 2 retries: warmup rarely fails on a warm isolate, and
+  // excessive retries pile up Worker requests under Cloudflare rate-limit
+  // stress (Error 1027). 2 attempts is enough — the first warmup may hit a
+  // cold isolate (10ms CPU limit on free plan), the second lands on a warm
+  // one. If both fail, the upload-url call has its own retry logic.
+  const warmupResult = await warmupDrive(2, signal)
   if (!warmupResult.ok) {
     // If warmup fails with a 4xx (Drive not configured), throw immediately.
     if (warmupResult.error && warmupResult.error.includes('belum dikonfigurasi')) {
@@ -194,6 +198,18 @@ export async function chunkedUploadFile(
   let consecutiveSessionErrors = 0
   let sessionRecreations = 0
 
+  // =========================================================================
+  // DIRECT BROWSER-TO-GOOGLE-DRIVE UPLOAD (saves Worker requests)
+  // See file-upload.tsx for full rationale — the resumable upload URL is
+  // pre-authenticated, so the browser can PUT chunk bytes DIRECTLY to it
+  // without going through /api/drive/upload-chunk. This eliminates 1 Worker
+  // request per chunk (e.g. 13 reqs saved for a 100 MB file).
+  //
+  // FALLBACK: if the direct PUT fails with a network/CORS error, switch to
+  // Worker-proxy mode for the rest of the file.
+  // =========================================================================
+  let useDirectUpload = true
+
   while (chunkIndex < totalChunks) {
     if (signal?.aborted) {
       throw new Error('Upload dibatalkan')
@@ -202,12 +218,8 @@ export async function chunkedUploadFile(
     const start = chunkIndex * CHUNK_SIZE
     const end = Math.min(start + CHUNK_SIZE, totalSize)
     const chunkBlob = file.slice(start, end)
-
-    const chunkFormData = new FormData()
-    chunkFormData.append('uploadUrl', uploadUrl as string)
-    chunkFormData.append('chunkIndex', chunkIndex.toString())
-    chunkFormData.append('totalSize', totalSize.toString())
-    chunkFormData.append('chunk', chunkBlob, file.name)
+    // Drive's Content-Range uses inclusive end (bytes start-end/total).
+    const rangeEnd = end - 1
 
     // Retry loop for transient failures
     let chunkResult: { complete: boolean; nextChunk: number; file?: { id?: string; name?: string; webViewLink?: string; webContentLink?: string } } | null = null
@@ -220,52 +232,148 @@ export async function chunkedUploadFile(
       }
 
       try {
-        const chunkResponse = await fetch('/api/drive/upload-chunk', {
-          method: 'POST',
-          body: chunkFormData,
-          signal,
-        })
-
-        if (chunkResponse.ok) {
-          chunkResult = await chunkResponse.json()
-          chunkError = null
-          consecutiveSessionErrors = 0
-          break
+        // === DIRECT UPLOAD PATH (browser → Google Drive, no Worker) ===
+        let chunkResponse: Response
+        if (useDirectUpload) {
+          try {
+            chunkResponse = await fetch(uploadUrl as string, {
+              method: 'PUT',
+              headers: {
+                'Content-Type': 'application/octet-stream',
+                'Content-Range': `bytes ${start}-${rangeEnd}/${totalSize}`,
+                'Content-Length': chunkBlob.size.toString(),
+              },
+              body: chunkBlob,
+              signal,
+            })
+          } catch (directErr) {
+            // Network/CORS error on direct PUT — switch to Worker-proxy mode
+            if (signal?.aborted) {
+              throw new Error('Upload dibatalkan')
+            }
+            console.warn('[chunked-upload] Direct chunk upload failed, falling back to Worker proxy:', directErr)
+            useDirectUpload = false
+            const fd = new FormData()
+            fd.append('uploadUrl', uploadUrl as string)
+            fd.append('chunkIndex', chunkIndex.toString())
+            fd.append('totalSize', totalSize.toString())
+            fd.append('chunk', chunkBlob, file.name)
+            chunkResponse = await fetch('/api/drive/upload-chunk', {
+              method: 'POST',
+              body: fd,
+              signal,
+            })
+          }
+        } else {
+          // === PROXY PATH (browser → Worker → Google Drive) ===
+          const chunkFormData = new FormData()
+          chunkFormData.append('uploadUrl', uploadUrl as string)
+          chunkFormData.append('chunkIndex', chunkIndex.toString())
+          chunkFormData.append('totalSize', totalSize.toString())
+          chunkFormData.append('chunk', chunkBlob, file.name)
+          chunkResponse = await fetch('/api/drive/upload-chunk', {
+            method: 'POST',
+            body: chunkFormData,
+            signal,
+          })
         }
 
-        // Non-OK response
-        let errorMsg = `Gagal upload chunk ${chunkIndex + 1}/${totalChunks}`
-        let isTransient = false
-        try {
-          const errData = await chunkResponse.json()
-          errorMsg = errData.error || errorMsg
-          isTransient = chunkResponse.status >= 500
-          sessionInvalidated = errData.sessionInvalidated === true
-        } catch {
-          errorMsg = `Server error (${chunkResponse.status})`
-          isTransient = chunkResponse.status >= 500 || chunkResponse.status === 0
+        // === Handle response (direct vs proxy have different shapes) ===
+        if (useDirectUpload) {
+          // Direct response from Google Drive
+          if (chunkResponse.status === 308) {
+            // 308 Resume Incomplete — more chunks needed
+            chunkResult = { complete: false, nextChunk: chunkIndex + 1 }
+            chunkError = null
+            consecutiveSessionErrors = 0
+            break
+          }
+          if (chunkResponse.status === 200 || chunkResponse.status === 201) {
+            // Upload complete
+            let fileData: Record<string, string | undefined> = {}
+            try {
+              fileData = await chunkResponse.json()
+            } catch {}
+            chunkResult = {
+              complete: true,
+              nextChunk: chunkIndex + 1,
+              file: {
+                id: fileData.id,
+                name: fileData.name,
+                webViewLink: fileData.webViewLink,
+                webContentLink: fileData.webContentLink,
+              },
+            }
+            chunkError = null
+            consecutiveSessionErrors = 0
+            break
+          }
+          // 404/410/401/403 = session invalidated
+          if ([404, 410, 401, 403].includes(chunkResponse.status)) {
+            chunkError = new Error(`Sesi upload kedaluwarsa (HTTP ${chunkResponse.status}). Sesi akan dibuat ulang.`)
+            consecutiveSessionErrors = 99
+            break
+          }
+          // 429 / 5xx — retry
+          const isRateLimit = chunkResponse.status === 429
+          const isTransient = chunkResponse.status >= 500
+          let errorMsg = `Gagal upload chunk ${chunkIndex + 1}/${totalChunks} (HTTP ${chunkResponse.status})`
+          try {
+            const errText = await chunkResponse.text()
+            if (errText) errorMsg = `${errorMsg}: ${errText.substring(0, 200)}`
+          } catch {}
+          if (!isTransient && !isRateLimit) {
+            chunkError = new Error(errorMsg)
+            break
+          }
+          if (chunkResponse.status >= 500) {
+            consecutiveSessionErrors++
+          }
+          if (attempt === MAX_CHUNK_RETRIES) {
+            chunkError = new Error(errorMsg)
+            break
+          }
+          const retryStatus = `Percobaan ulang #${attempt + 1} untuk chunk ${chunkIndex + 1}/${totalChunks}...`
+          onProgress?.(Math.round(5 + (chunkIndex / totalChunks) * 90), retryStatus)
+          const backoffMs = isRateLimit ? 5000 * (attempt + 1) : 1000 * (attempt + 1)
+          await new Promise((r) => setTimeout(r, backoffMs))
+          continue
+        } else {
+          // Proxy response (JSON envelope with complete/file/sessionInvalidated)
+          if (chunkResponse.ok) {
+            chunkResult = await chunkResponse.json()
+            chunkError = null
+            consecutiveSessionErrors = 0
+            break
+          }
+          let errorMsg = `Gagal upload chunk ${chunkIndex + 1}/${totalChunks}`
+          let isTransient = false
+          try {
+            const errData = await chunkResponse.json()
+            errorMsg = errData.error || errorMsg
+            isTransient = chunkResponse.status >= 500
+            sessionInvalidated = errData.sessionInvalidated === true
+          } catch {
+            errorMsg = `Server error (${chunkResponse.status})`
+            isTransient = chunkResponse.status >= 500 || chunkResponse.status === 0
+          }
+          if (sessionInvalidated) {
+            chunkError = new Error(errorMsg)
+            consecutiveSessionErrors = 99
+            break
+          }
+          if (!isTransient || attempt === MAX_CHUNK_RETRIES) {
+            chunkError = new Error(errorMsg)
+            break
+          }
+          if (chunkResponse.status >= 500) {
+            consecutiveSessionErrors++
+          }
+          const retryStatus = `Percobaan ulang #${attempt + 1} untuk chunk ${chunkIndex + 1}/${totalChunks}...`
+          onProgress?.(Math.round(5 + (chunkIndex / totalChunks) * 90), retryStatus)
+          await new Promise((r) => setTimeout(r, 1000 * (attempt + 1)))
+          continue
         }
-
-        // Server explicitly says session is invalidated — break out and recreate
-        if (sessionInvalidated) {
-          chunkError = new Error(errorMsg)
-          consecutiveSessionErrors = 99
-          break
-        }
-
-        if (!isTransient || attempt === MAX_CHUNK_RETRIES) {
-          chunkError = new Error(errorMsg)
-          break
-        }
-
-        if (chunkResponse.status >= 500) {
-          consecutiveSessionErrors++
-        }
-
-        // Show retry status
-        const retryStatus = `Percobaan ulang #${attempt + 1} untuk chunk ${chunkIndex + 1}/${totalChunks}...`
-        onProgress?.(Math.round(5 + (chunkIndex / totalChunks) * 90), retryStatus)
-        await new Promise((r) => setTimeout(r, 1000 * (attempt + 1)))
       } catch (fetchErr) {
         if (signal?.aborted) {
           throw new Error('Upload dibatalkan')

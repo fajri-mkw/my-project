@@ -127,7 +127,11 @@ export function FileUpload({ folderLink, projectId, onUploadComplete, className,
     // Only warmup if there's a valid folder link
     if (!folderLink || !extractFolderId(folderLink)) return
     // Fire and forget — don't block the UI
-    warmupDrive(3).catch(() => {
+    // Reduced from 3 → 1: under Cloudflare Workers free-plan rate-limit
+    // stress (Error 1027), warmup retries pile up and worsen the situation.
+    // 1 retry is enough — warmup either succeeds on the first try (warm
+    // isolate) or the second (after a 1s backoff for the isolate to warm).
+    warmupDrive(1).catch(() => {
       // Silent failure — the blocking warmup in uploadFile will retry
     })
   }, [folderLink])
@@ -252,7 +256,9 @@ export function FileUpload({ folderLink, projectId, onUploadComplete, className,
       // init all in one request), resulting in an empty HTTP 500 response
       // that shows as "Gagal menyiapkan upload (HTTP 500)".
       updateFile(fileId, f => ({ ...f, progress: 1, error: 'Menyiapkan koneksi Google Drive...' }))
-      const warmupResult = await warmupDrive(5, abortController.signal)
+      // Reduced from 5 → 2 retries: warmup rarely fails on a warm isolate,
+      // and excessive retries pile up Worker requests under rate-limit stress.
+      const warmupResult = await warmupDrive(2, abortController.signal)
       if (!warmupResult.ok) {
         // If warmup fails with a 4xx (Drive not configured), show that error.
         // If it fails with 5xx (cold isolate), proceed anyway — upload-url
@@ -293,6 +299,28 @@ export function FileUpload({ folderLink, projectId, onUploadComplete, className,
       const MAX_SESSION_RECREATIONS = 3
       let sessionRecreations = 0
 
+      // =========================================================================
+      // DIRECT BROWSER-TO-GOOGLE-DRIVE UPLOAD (saves Worker requests)
+      // -------------------------------------------------------------------------
+      // The resumable upload URL returned by /api/drive/upload-url is
+      // pre-authenticated (Google embeds the upload_id in the URL itself — no
+      // Authorization header needed). The browser can PUT chunk bytes DIRECTLY
+      // to that URL, bypassing /api/drive/upload-chunk entirely.
+      //
+      // This eliminates 1 Worker request per chunk — for a 100 MB file with
+      // 8 MB chunks, that's 13 Worker requests saved per upload. For a team
+      // uploading many video files daily, this saves hundreds to thousands of
+      // Worker requests per day, helping stay under the free-plan 100K/day cap.
+      //
+      // FALLBACK STRATEGY: Google Drive's resumable upload URL DOES support
+      // CORS for direct browser PUTs (Access-Control-Allow-Origin: *). But
+      // if a direct PUT ever fails with a network/CORS error (TypeError
+      // "Failed to fetch" with no HTTP status), we fall back to the Worker
+      // proxy (/api/drive/upload-chunk) for the rest of the file. This makes
+      // the optimization safe — worst case is the same as before.
+      // =========================================================================
+      let useDirectUpload = true
+
       while (chunkIndex < totalChunks && !uploadComplete) {
         // Check abort
         if (abortController.signal.aborted) {
@@ -302,12 +330,10 @@ export function FileUpload({ folderLink, projectId, onUploadComplete, className,
         const start = chunkIndex * CHUNK_SIZE
         const end = Math.min(start + CHUNK_SIZE, totalSize)
         const chunkBlob = file.slice(start, end)
-
-        const chunkFormData = new FormData()
-        chunkFormData.append('uploadUrl', uploadUrl)
-        chunkFormData.append('chunkIndex', chunkIndex.toString())
-        chunkFormData.append('totalSize', totalSize.toString())
-        chunkFormData.append('chunk', chunkBlob, file.name)
+        // Drive's Content-Range uses inclusive end (bytes start-end/total).
+        // Our `end` is exclusive (Math.min returns next chunk's start), so
+        // subtract 1 for the byte range.
+        const rangeEnd = end - 1
 
         // Retry loop for transient failures (CF Workers CPU spikes, network blips).
         // 4xx errors fail fast (client/validation error — won't fix on retry).
@@ -322,83 +348,200 @@ export function FileUpload({ folderLink, projectId, onUploadComplete, className,
           }
 
           try {
-            const chunkResponse = await fetch('/api/drive/upload-chunk', {
-              method: 'POST',
-              body: chunkFormData,
-              signal: abortController.signal
-            })
+            // === DIRECT UPLOAD PATH (browser → Google Drive, no Worker) ===
+            // Used when useDirectUpload=true. Falls back to Worker proxy if
+            // the direct PUT fails with a network/CORS error.
+            let chunkResponse: Response
+            if (useDirectUpload) {
+              try {
+                chunkResponse = await fetch(uploadUrl, {
+                  method: 'PUT',
+                  headers: {
+                    'Content-Type': 'application/octet-stream',
+                    'Content-Range': `bytes ${start}-${rangeEnd}/${totalSize}`,
+                    'Content-Length': chunkBlob.size.toString(),
+                  },
+                  body: chunkBlob,
+                  signal: abortController.signal,
+                  // mode: 'cors' is the default for cross-origin requests;
+                  // Google's API returns appropriate CORS headers.
+                })
+              } catch (directErr) {
+                // Network error on direct PUT — most likely a CORS preflight
+                // rejection or Google's CORS policy changed. Switch to
+                // Worker-proxy mode for the rest of this file (and retry
+                // this chunk via the proxy path below).
+                if (abortController.signal.aborted) {
+                  throw new Error('Upload dibatalkan')
+                }
+                console.warn('[UPLOAD] Direct chunk upload failed, falling back to Worker proxy:', directErr)
+                useDirectUpload = false
+                // Fall through to the proxy path below (do NOT `continue` —
+                // the proxy code is in the same try block, controlled by the
+                // useDirectUpload flag now set to false).
+                chunkResponse = await fetch('/api/drive/upload-chunk', {
+                  method: 'POST',
+                  body: (() => {
+                    const fd = new FormData()
+                    fd.append('uploadUrl', uploadUrl)
+                    fd.append('chunkIndex', chunkIndex.toString())
+                    fd.append('totalSize', totalSize.toString())
+                    fd.append('chunk', chunkBlob, file.name)
+                    return fd
+                  })(),
+                  signal: abortController.signal,
+                })
+              }
+            } else {
+              // === PROXY PATH (browser → Worker → Google Drive) ===
+              // Fallback when direct upload is unavailable. Same shape as
+              // before — Worker forwards chunk to Google Drive.
+              const chunkFormData = new FormData()
+              chunkFormData.append('uploadUrl', uploadUrl)
+              chunkFormData.append('chunkIndex', chunkIndex.toString())
+              chunkFormData.append('totalSize', totalSize.toString())
+              chunkFormData.append('chunk', chunkBlob, file.name)
 
-            if (chunkResponse.ok) {
-              chunkResult = await chunkResponse.json()
-              chunkError = null
-              consecutiveSessionErrors = 0 // reset on success
-              break
+              chunkResponse = await fetch('/api/drive/upload-chunk', {
+                method: 'POST',
+                body: chunkFormData,
+                signal: abortController.signal,
+              })
             }
 
-            // Non-OK response — try to parse error JSON
-            let errorMsg = `Gagal upload chunk ${chunkIndex + 1}/${totalChunks}`
-            let isTransient = false
-            let isRateLimit = false
-            let sessionInvalidated = false
-            try {
-              const errData = await chunkResponse.json()
-              errorMsg = errData.error || errorMsg
-              // 5xx errors are transient (server errors, CF CPU limits)
-              isTransient = chunkResponse.status >= 500
-              // 429 = Too Many Requests (Drive API rate-limit)
-              isRateLimit = chunkResponse.status === 429
-              // Server explicitly tells us the resumable session is invalidated
-              // (HTTP 404/410 from Google Drive) — we MUST recreate the session.
-              sessionInvalidated = errData.sessionInvalidated === true
-            } catch {
-              // Response body is not JSON (likely a CF error page)
-              errorMsg = `Server error (${chunkResponse.status})`
-              isTransient = chunkResponse.status >= 500 || chunkResponse.status === 0
-              isRateLimit = false
+            // === Handle the chunk response (same logic for both paths) ===
+            // Direct upload: Google Drive returns 308/200/201/4xx/5xx.
+            // Proxy upload: /api/drive/upload-chunk returns 200 with JSON
+            //   { complete: bool, nextChunk: number, file?: {...} } on success,
+            //   or 5xx with { error: string, sessionInvalidated?: bool }.
+            //
+            // We normalize both response shapes into the same chunkResult.
+            if (useDirectUpload) {
+              // Direct upload response from Google Drive
+              if (chunkResponse.status === 308) {
+                // 308 Resume Incomplete — more chunks needed
+                chunkResult = { complete: false, nextChunk: chunkIndex + 1 }
+                chunkError = null
+                consecutiveSessionErrors = 0
+                break
+              }
+              if (chunkResponse.status === 200 || chunkResponse.status === 201) {
+                // Upload complete (final chunk)
+                let fileData: Record<string, string | undefined> = {}
+                try {
+                  fileData = await chunkResponse.json()
+                } catch {
+                  // Response body might be empty — frontend will call
+                  // upload-complete to fetch metadata.
+                }
+                chunkResult = {
+                  complete: true,
+                  nextChunk: chunkIndex + 1,
+                  file: {
+                    id: fileData.id,
+                    name: fileData.name,
+                    webViewLink: fileData.webViewLink,
+                    webContentLink: fileData.webContentLink,
+                  },
+                }
+                chunkError = null
+                consecutiveSessionErrors = 0
+                break
+              }
+              // 404/410/401/403 = session invalidated
+              if ([404, 410, 401, 403].includes(chunkResponse.status)) {
+                chunkError = new Error(`Sesi upload kedaluwarsa (HTTP ${chunkResponse.status}). Sesi akan dibuat ulang.`)
+                consecutiveSessionErrors = 99 // force session recreation below
+                break
+              }
+              // 429 = Too Many Requests (Drive rate-limit)
+              const isRateLimit = chunkResponse.status === 429
+              // 5xx = server error (transient)
+              const isTransient = chunkResponse.status >= 500
+              let errorMsg = `Gagal upload chunk ${chunkIndex + 1}/${totalChunks} (HTTP ${chunkResponse.status})`
+              try {
+                const errText = await chunkResponse.text()
+                if (errText) errorMsg = `${errorMsg}: ${errText.substring(0, 200)}`
+              } catch {}
+              // 4xx (except 429) won't fix on retry
+              if (!isTransient && !isRateLimit) {
+                chunkError = new Error(errorMsg)
+                break
+              }
+              if (chunkResponse.status >= 500) {
+                consecutiveSessionErrors++
+              }
+              if (attempt === MAX_CHUNK_RETRIES) {
+                chunkError = new Error(errorMsg)
+                break
+              }
+              // Show retry status in the UI
+              updateFile(fileId, f => ({
+                ...f,
+                error: `Percobaan ulang #${attempt + 1} untuk chunk ${chunkIndex + 1}/${totalChunks}...`
+              }))
+              const backoffMs = isRateLimit
+                ? 5000 * (attempt + 1)
+                : 1000 * (attempt + 1)
+              await new Promise(r => setTimeout(r, backoffMs))
+              continue // retry the chunk
+            } else {
+              // Proxy upload response (same as original code)
+              if (chunkResponse.ok) {
+                chunkResult = await chunkResponse.json()
+                chunkError = null
+                consecutiveSessionErrors = 0
+                break
+              }
+              let errorMsg = `Gagal upload chunk ${chunkIndex + 1}/${totalChunks}`
+              let isTransient = false
+              let isRateLimit = false
+              let sessionInvalidated = false
+              try {
+                const errData = await chunkResponse.json()
+                errorMsg = errData.error || errorMsg
+                isTransient = chunkResponse.status >= 500
+                isRateLimit = chunkResponse.status === 429
+                sessionInvalidated = errData.sessionInvalidated === true
+              } catch {
+                errorMsg = `Server error (${chunkResponse.status})`
+                isTransient = chunkResponse.status >= 500 || chunkResponse.status === 0
+                isRateLimit = false
+              }
+              if (sessionInvalidated) {
+                chunkError = new Error(errorMsg)
+                consecutiveSessionErrors = 99
+                break
+              }
+              if (!isTransient && !isRateLimit) {
+                chunkError = new Error(errorMsg)
+                break
+              }
+              if (chunkResponse.status >= 500) {
+                consecutiveSessionErrors++
+              }
+              if (attempt === MAX_CHUNK_RETRIES) {
+                chunkError = new Error(errorMsg)
+                break
+              }
+              updateFile(fileId, f => ({
+                ...f,
+                error: `Percobaan ulang #${attempt + 1} untuk chunk ${chunkIndex + 1}/${totalChunks}...`
+              }))
+              const backoffMs = isRateLimit
+                ? 5000 * (attempt + 1)
+                : 1000 * (attempt + 1)
+              await new Promise(r => setTimeout(r, backoffMs))
+              continue // retry the chunk
             }
-
-            // Server says session is invalidated — break out of the chunk-retry
-            // loop immediately and recreate the upload session below.
-            if (sessionInvalidated) {
-              chunkError = new Error(errorMsg)
-              consecutiveSessionErrors = 99 // force session recreation below
-              break
-            }
-
-            // 4xx (except 429) won't fix on retry
-            if (!isTransient && !isRateLimit) {
-              chunkError = new Error(errorMsg)
-              break
-            }
-
-            // Track session-level errors (Drive may have invalidated the upload URL)
-            if (chunkResponse.status >= 500) {
-              consecutiveSessionErrors++
-            }
-
-            if (attempt === MAX_CHUNK_RETRIES) {
-              chunkError = new Error(errorMsg)
-              break
-            }
-
-            // Show retry status in the UI
-            updateFile(fileId, f => ({
-              ...f,
-              error: `Percobaan ulang #${attempt + 1} untuk chunk ${chunkIndex + 1}/${totalChunks}...`
-            }))
-
-            // Backoff: 429 gets a longer backoff (5s, 10s, 15s, 20s) since
-            // Drive's rate-limit window is typically 1-5 seconds.
-            // 5xx/network errors use shorter backoff (1s, 2s, 3s, 4s).
-            const backoffMs = isRateLimit
-              ? 5000 * (attempt + 1)
-              : 1000 * (attempt + 1)
-            await new Promise(r => setTimeout(r, backoffMs))
           } catch (fetchErr) {
             // Network error (fetch threw)
             if (abortController.signal.aborted) {
               throw new Error('Upload dibatalkan')
             }
+            // If we were trying direct upload, the catch above should have
+            // already switched to proxy. If we're here in proxy mode, it's
+            // a true network error.
             if (attempt === MAX_CHUNK_RETRIES) {
               chunkError = fetchErr instanceof Error ? fetchErr : new Error('Gagal mengupload chunk')
               break

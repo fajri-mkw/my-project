@@ -353,25 +353,45 @@ function AppContent() {
     fetchData()
   }, [setUsers, setProjects])
 
-  // Poll maintenance status every 5 minutes (was 30s).
+  // Poll maintenance status ONLY when the user returns to the tab (on focus)
+  // or when the page first loads. NO background interval polling.
   //
-  // REDUCED TO SAVE CLOUDFLARE WORKERS REQUEST QUOTA
-  // ------------------------------------------------
-  // The 30s polling was the #1 request consumer: with 19 active users each
-  // polling every 30s, this alone generated ~55,000 requests/day — over half
-  // of the free plan's 100K daily cap — pushing the app into Error 1027
-  // (rate-limited) by mid-morning.
+  // ELIMINATED BACKGROUND POLLING TO SAVE CLOUDFLARE WORKERS REQUEST QUOTA
+  // -------------------------------------------------------------------------
+  // Previously polled every 5 minutes (already reduced from 30s). But even
+  // at 5min × 19 active users = 5,520 req/day just for maintenance polling.
+  // Each open browser tab kept polling in the background, even when the user
+  // was on another tab or had walked away.
   //
-  // Maintenance mode is rarely toggled (only when admin pushes an update), so
-  // a 5-minute polling interval is plenty. When maintenance IS toggled, users
-  // will see it within 5 min — acceptable for an admin-communication channel.
-  // The edge cache (120s TTL on /api/maintenance) means most polls return a
-  // cached response without hitting the Worker origin, but the polling itself
-  // still counts as a Worker subrequest against the daily quota — so the
-  // interval reduction is the primary mitigation.
+  // The new approach:
+  //   - Poll on initial page load (already done by the initial fetchData effect)
+  //   - Poll when the user returns to the tab via document visibilitychange
+  //   - NO interval polling in the background
+  //
+  // This eliminates ALL background polling traffic. Maintenance mode is rarely
+  // toggled (only when admin pushes an update), and when it IS toggled, users
+  // will see it within ~5 min of returning to the tab — acceptable for an
+  // admin-communication channel.
   useEffect(() => {
-    const pollInterval = setInterval(fetchMaintenanceStatus, 300000)
-    return () => clearInterval(pollInterval)
+    if (typeof document === 'undefined') return
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        // User just returned to the tab — re-check maintenance status.
+        // Don't run if document is hidden (user switched away).
+        fetchMaintenanceStatus()
+      }
+    }
+
+    document.addEventListener('visibilitychange', handleVisibilityChange)
+    // Also re-check on window focus (some browsers don't fire visibilitychange
+    // when switching between windows of the same browser).
+    window.addEventListener('focus', handleVisibilityChange)
+
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange)
+      window.removeEventListener('focus', handleVisibilityChange)
+    }
   }, [fetchMaintenanceStatus])
 
   // Consolidated data fetch for role-specific data - runs once when user logs in
