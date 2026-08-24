@@ -149,8 +149,16 @@ export async function GET(request: NextRequest) {
     }
 
     const whereSql = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : ''
+    // LIMIT 500 as a defensive measure against D1 row-read quota.
+    // The Cloudflare D1 free tier enforces 5M rows read/day from September 1,
+    // 2026. Without a LIMIT, a query that returns ALL surat (potentially
+    // thousands) would read thousands of rows per call. 500 is well above the
+    // current ~67 surat in production, so this doesn't change behavior today
+    // but caps row reads if the dataset grows 10x in the future.
+    // Surat older than ~6 months should be archived manually if the count
+    // approaches 500.
     const result = await client.execute({
-      sql: `SELECT ${SURAT_COLUMNS} FROM surat ${whereSql} ORDER BY createdAt DESC`,
+      sql: `SELECT ${SURAT_COLUMNS} FROM surat ${whereSql} ORDER BY createdAt DESC LIMIT 500`,
       args,
     })
 

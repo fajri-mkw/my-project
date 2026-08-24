@@ -405,25 +405,53 @@ function AppContent() {
     lastFetchedUserId.current = userId
 
     const fetchRoleData = async () => {
-      // === Auto-repair stuck projects FIRST (Admin/Manager only) ===
-      // This must complete BEFORE the projects fetch so the dashboard shows
-      // fresh data immediately. Previously these ran in parallel, causing a
-      // race condition: the projects fetch would often complete first with
-      // STALE data and overwrite the fresh data from the repair re-fetch.
+      // === Auto-repair stuck projects (Admin/Manager only) ===
       //
-      // The repair endpoint uses a single efficient SQL UPDATE — typically
-      // <100ms — so blocking on it adds negligible latency.
+      // THROTTLED TO 10 MINUTES to reduce D1 row reads/writes.
+      // -------------------------------------------------------
+      // Before: this ran on EVERY dashboard mount, doing 2 table-scan
+      // UPDATEs + N+1 SELECTs per Admin/Manager session. With 19 users ×
+      // ~10 dashboard loads/day = ~190 repair calls/day, each reading
+      // ~3,400 rows (projects × tasks subqueries) = ~650K rows/day just
+      // for repair — ~13% of the 5M daily D1 free-tier read limit.
+      //
+      // After: throttle to once per 10 minutes per browser. Most repair-
+      // needed situations (project stuck after Cloudflare Worker crash)
+      // are detected within 10 minutes anyway, and the user can manually
+      // trigger repair by clicking the "Repair" button on the dashboard
+      // if they need it sooner. This cuts repair row reads to ~5-10% of
+      // previous volume.
+      const REPAIR_THROTTLE_KEY = 'pushakin_last_repair_ts'
+      const REPAIR_THROTTLE_MS = 10 * 60 * 1000 // 10 minutes
       if (['Admin', 'Manager'].includes(currentUser.role)) {
+        let shouldRunRepair = true
         try {
-          const repairRes = await fetch('/api/projects/repair', { method: 'POST' })
-          if (repairRes.ok) {
-            const repairData = await repairRes.json()
-            if (repairData?.repairedProjects > 0) {
-              console.info(`[Auto-Repair] Fixed ${repairData.repairedProjects} stuck project(s)`)
+          const lastRepair = localStorage.getItem(REPAIR_THROTTLE_KEY)
+          if (lastRepair) {
+            const elapsed = Date.now() - parseInt(lastRepair, 10)
+            if (elapsed < REPAIR_THROTTLE_MS) {
+              shouldRunRepair = false
             }
           }
-        } catch (error) {
-          console.error('[Auto-Repair] Failed:', error)
+        } catch {
+          // localStorage might be unavailable (private mode, etc.) — run repair
+        }
+
+        if (shouldRunRepair) {
+          try {
+            localStorage.setItem(REPAIR_THROTTLE_KEY, String(Date.now()))
+          } catch {}
+          try {
+            const repairRes = await fetch('/api/projects/repair', { method: 'POST' })
+            if (repairRes.ok) {
+              const repairData = await repairRes.json()
+              if (repairData?.repairedProjects > 0) {
+                console.info(`[Auto-Repair] Fixed ${repairData.repairedProjects} stuck project(s)`)
+              }
+            }
+          } catch (error) {
+            console.error('[Auto-Repair] Failed:', error)
+          }
         }
       }
 

@@ -59,6 +59,9 @@ CREATE TABLE "tasks" (
     CONSTRAINT "tasks_assignedTo_fkey" FOREIGN KEY ("assignedTo") REFERENCES "users" ("id") ON DELETE CASCADE ON UPDATE CASCADE
 );
 
+CREATE INDEX IF NOT EXISTS "idx_tasks_projectId_status" ON "tasks" ("projectId", "status");
+CREATE INDEX IF NOT EXISTS "idx_tasks_projectId_stage" ON "tasks" ("projectId", "stage");
+
 -- CreateTable
 CREATE TABLE "drive_folders" (
     "id" TEXT NOT NULL PRIMARY KEY,

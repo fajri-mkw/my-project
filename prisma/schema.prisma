@@ -96,6 +96,13 @@ model Task {
   @@index([assignedTo])
   @@index([stage])
   @@index([status])
+  // Composite index for the project-repair query:
+  //   WHERE projectId = ? AND status != 'completed'
+  // Single-column indexes (projectId, status) require scanning all rows
+  // for one predicate then filtering by the other. The composite lets D1
+  // seek directly to the matching rows in one index lookup — critical for
+  // the auto-repair query that runs on every Admin/Manager dashboard load.
+  @@index([projectId, status])
   @@map("tasks")
 }
 

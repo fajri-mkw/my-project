@@ -75,14 +75,15 @@ export const GET = withEdgeCache(async (request: NextRequest) => {
     let result
     if (userRole === 'Admin' || userRole === 'Administrator') {
       // Super Admin / Administrator sees all
+      // LIMIT 500 as a defensive measure against D1 row-read quota.
       result = await client.execute({
-        sql: `SELECT ${PERMOHONAN_COLUMNS} FROM permohonan ORDER BY createdAt DESC`,
+        sql: `SELECT ${PERMOHONAN_COLUMNS} FROM permohonan ORDER BY createdAt DESC LIMIT 500`,
         args: [],
       })
     } else if (userRole === 'Manager' && userId) {
       // Manager sees only permohonan forwarded to them
       result = await client.execute({
-        sql: `SELECT ${PERMOHONAN_COLUMNS} FROM permohonan WHERE managerId = ? ORDER BY createdAt DESC`,
+        sql: `SELECT ${PERMOHONAN_COLUMNS} FROM permohonan WHERE managerId = ? ORDER BY createdAt DESC LIMIT 500`,
         args: [bind(userId)],
       })
     } else {

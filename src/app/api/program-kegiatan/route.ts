@@ -128,8 +128,9 @@ export const GET = withEdgeCache(async (request: NextRequest) => {
     }
 
     const whereSql = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : ''
+    // LIMIT 500 as a defensive measure against D1 row-read quota.
     const result = await client.execute({
-      sql: `SELECT ${KEGIATAN_COLUMNS} FROM program_kegiatan ${whereSql} ORDER BY createdAt DESC`,
+      sql: `SELECT ${KEGIATAN_COLUMNS} FROM program_kegiatan ${whereSql} ORDER BY createdAt DESC LIMIT 500`,
       args,
     })
 
