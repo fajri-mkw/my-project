@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { checkMaintenanceMode } from '@/lib/maintenance-check'
+import { withEdgeCache, invalidateCache, deferToBackground } from '@/lib/edge-cache'
 import {
   getLibsql,
   toDateISO,
@@ -60,7 +61,11 @@ const PERMOHONAN_COLUMNS = `id, title, description, requesterUnit, location, exe
   createdAt, updatedAt`
 
 // GET all permohonan
-export async function GET(request: NextRequest) {
+// Edge-cached for 30s to reduce request volume against the Workers free plan
+// daily 100K-request cap. Cache key includes query params (userId, userRole)
+// so each user's filtered view gets its own cache entry. Writes (POST/PUT/
+// DELETE) invalidate the cache via deferToBackground(invalidateCache()).
+export const GET = withEdgeCache(async (request: NextRequest) => {
   try {
     const client = getLibsql()
     const { searchParams } = new URL(request.url)
@@ -92,7 +97,7 @@ export async function GET(request: NextRequest) {
     console.error('Get permohonan error:', error)
     return NextResponse.json({ error: 'Failed to fetch permohonan', permohonan: [] }, { status: 500 })
   }
-}
+}, { ttl: 30 })
 
 // POST create permohonan
 export async function POST(request: NextRequest) {
@@ -196,6 +201,8 @@ export async function POST(request: NextRequest) {
       updatedAt: toDateISO(now),
     }
 
+    // Invalidate edge cache so the next GET returns the new permohonan.
+    deferToBackground(invalidateCache('/api/permohonan'))
     return NextResponse.json(result)
   } catch (error) {
     console.error('Create permohonan error:', error)
@@ -333,6 +340,7 @@ export async function PUT(request: NextRequest) {
       console.error('Failed to create permohonan status notifications:', notifErr)
     }
 
+    deferToBackground(invalidateCache('/api/permohonan'))
     return NextResponse.json(updated)
   } catch (error) {
     console.error('Update permohonan error:', error)
@@ -391,6 +399,7 @@ export async function DELETE(request: NextRequest) {
         // Project may already be gone; ignore
       }
     }
+    deferToBackground(invalidateCache('/api/permohonan'))
     return NextResponse.json({ success: true, deletedProjectId })
   } catch (error) {
     console.error('Delete permohonan error:', error)

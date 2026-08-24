@@ -15,7 +15,7 @@ import { useEffect } from 'react'
  * duplicate side effects).
  */
 
-const MAX_RETRIES = 2
+const MAX_RETRIES = 1
 const RETRY_DELAY_MS = 500
 
 export function FetchRetryProvider({ children }: { children: React.ReactNode }) {

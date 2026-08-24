@@ -79,7 +79,7 @@ export const GET = withEdgeCache(async (_request: Request) => {
       { headers: { 'Cache-Control': 'private, max-age=5, stale-while-revalidate=15' } },
     )
   }
-}, { ttl: 60 })
+}, { ttl: 120 })
 
 // ============================================================================
 // PUT — admin updates maintenance mode / message.

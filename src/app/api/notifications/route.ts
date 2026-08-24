@@ -58,7 +58,7 @@ export const GET = withEdgeCache(async (request: NextRequest) => {
     console.error('Get notifications error:', error)
     return NextResponse.json({ error: 'Failed to fetch notifications' }, { status: 500 })
   }
-}, { ttl: 30 })
+}, { ttl: 60 })
 
 // PUT mark notification as read
 // Original returned the full Prisma notification object after update — we mirror

@@ -353,9 +353,24 @@ function AppContent() {
     fetchData()
   }, [setUsers, setProjects])
 
-  // Poll maintenance status every 30 seconds (reduced from 5s)
+  // Poll maintenance status every 5 minutes (was 30s).
+  //
+  // REDUCED TO SAVE CLOUDFLARE WORKERS REQUEST QUOTA
+  // ------------------------------------------------
+  // The 30s polling was the #1 request consumer: with 19 active users each
+  // polling every 30s, this alone generated ~55,000 requests/day — over half
+  // of the free plan's 100K daily cap — pushing the app into Error 1027
+  // (rate-limited) by mid-morning.
+  //
+  // Maintenance mode is rarely toggled (only when admin pushes an update), so
+  // a 5-minute polling interval is plenty. When maintenance IS toggled, users
+  // will see it within 5 min — acceptable for an admin-communication channel.
+  // The edge cache (120s TTL on /api/maintenance) means most polls return a
+  // cached response without hitting the Worker origin, but the polling itself
+  // still counts as a Worker subrequest against the daily quota — so the
+  // interval reduction is the primary mitigation.
   useEffect(() => {
-    const pollInterval = setInterval(fetchMaintenanceStatus, 30000)
+    const pollInterval = setInterval(fetchMaintenanceStatus, 300000)
     return () => clearInterval(pollInterval)
   }, [fetchMaintenanceStatus])
 

@@ -91,7 +91,7 @@ export const GET = withEdgeCache(async (_request: NextRequest) => {
     console.error('Get settings error:', error)
     return NextResponse.json({ error: 'Failed to fetch settings' }, { status: 500 })
   }
-}, { ttl: 30 })
+}, { ttl: 120 })
 
 // PUT update settings
 //

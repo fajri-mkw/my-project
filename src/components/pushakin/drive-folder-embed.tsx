@@ -409,8 +409,10 @@ export function DriveFolderEmbed({
     [folderId, folderLink, onFilesDetected],
   )
 
-  // Initial check + auto-poll every 20 seconds (only while modal is closed —
-  // when modal is open we poll faster + on-demand after each upload)
+  // Initial check + auto-poll every 60 seconds (only while modal is closed —
+  // when modal is open we poll at 15s + on-demand after each upload).
+  // Was 20s — increased to 60s to cut Worker request volume against the
+  // free-plan 100K/day cap.
   useEffect(() => {
     mountedRef.current = true
     if (!folderId) {
@@ -426,7 +428,7 @@ export function DriveFolderEmbed({
         if (!mountedRef.current) return
         await checkFiles(true)
         if (mountedRef.current) startPoll()
-      }, 20_000)
+      }, 60_000)
     }
     startPoll()
 
@@ -436,13 +438,17 @@ export function DriveFolderEmbed({
     }
   }, [folderId, checkFiles])
 
-  // Poll faster (every 5s) while the modal is open, so the file list updates
-  // quickly after an upload completes.
+  // Poll while the modal is open so the file list updates after an upload
+  // completes. Was 5s — reduced to 15s to cut Worker request volume (the 5s
+  // polling was a significant contributor to the daily 100K free-plan cap being
+  // hit, since each open modal = 12 requests/minute). 15s still feels live for
+  // a file list refresh — and users typically see new files appear after their
+  // own upload completes (the upload UI updates optimistically).
   useEffect(() => {
     if (!modalOpen || !folderId) return
     const fastPoll = setInterval(() => {
       if (mountedRef.current) checkFiles(true)
-    }, 5_000)
+    }, 15_000)
     return () => clearInterval(fastPoll)
   }, [modalOpen, folderId, checkFiles])
 
