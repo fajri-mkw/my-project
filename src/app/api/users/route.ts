@@ -54,9 +54,13 @@ export const GET = withEdgeCache(async (_request: NextRequest) => {
       }
     })
 
-    return NextResponse.json(transformedUsers, {
-      headers: { 'Cache-Control': 'private, max-age=10, stale-while-revalidate=30' },
-    })
+    // IMPORTANT: do NOT set Cache-Control here. The withEdgeCache wrapper
+    // (ttl=120) sets `Cache-Control: public, max-age=120` automatically, which
+    // lets browsers cache this response for 120 seconds. Previously this
+    // route set `private, max-age=10` — that overrode the wrapper, forcing
+    // browsers to re-fetch every 10 seconds, which generated massive Worker
+    // request volume against the 100K/day free-plan cap.
+    return NextResponse.json(transformedUsers)
   } catch (error) {
     console.error('Get users error:', error)
     return NextResponse.json(

@@ -35,8 +35,14 @@ import { invalidateMaintenanceCache } from '@/lib/maintenance-check'
 // no Prisma module-load CPU, well under Workers free plan limits.
 // ============================================================================
 
-// Edge-cached for 60s to reduce CPU usage on Workers free plan.
+// Edge-cached for 120s to reduce CPU + request volume on Workers free plan.
 // `invalidateCache('/api/maintenance')` is called from PUT after a settings update.
+//
+// IMPORTANT: Do NOT set `Cache-Control: private, max-age=5` on the response
+// directly — that would override the edge-cache wrapper's `public, max-age=120`
+// browser-cache directive. With `max-age=5`, browsers re-fetch every 5 seconds,
+// which (at 19 users × multiple tabs) generates massive Worker request volume
+// against the 100K/day free-plan cap. Let the wrapper set the cache headers.
 export const GET = withEdgeCache(async (_request: Request) => {
   try {
     const client = getLibsql()
@@ -53,10 +59,7 @@ export const GET = withEdgeCache(async (_request: Request) => {
 
     if (result.rows.length === 0) {
       // No 'main' settings row yet — fail to "not in maintenance" default.
-      return NextResponse.json(
-        { maintenance: false, message: null },
-        { headers: { 'Cache-Control': 'private, max-age=5, stale-while-revalidate=15' } },
-      )
+      return NextResponse.json({ maintenance: false, message: null })
     }
 
     const row = result.rows[0] as Record<string, unknown>
@@ -66,18 +69,12 @@ export const GET = withEdgeCache(async (_request: Request) => {
         ? null
         : String(row.maintenanceMessage)
 
-    return NextResponse.json(
-      { maintenance, message },
-      { headers: { 'Cache-Control': 'private, max-age=5, stale-while-revalidate=15' } },
-    )
+    return NextResponse.json({ maintenance, message })
   } catch (error) {
     console.error('Error fetching maintenance status:', error)
     // Fail-open: never block the UI just because the DB is unreachable.
     // Frontend treats maintenance=false as "no banner, proceed normally".
-    return NextResponse.json(
-      { maintenance: false, message: null },
-      { headers: { 'Cache-Control': 'private, max-age=5, stale-while-revalidate=15' } },
-    )
+    return NextResponse.json({ maintenance: false, message: null })
   }
 }, { ttl: 120 })
 
