@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server'
 import type { NextRequest } from 'next/server'
 
 /**
- * Middleware for setting browser Cache-Control headers on responses.
+ * Middleware for setting browser Cache-Control headers on HTML responses.
  *
  * WHY THIS EXISTS
  * ---------------
@@ -22,14 +22,16 @@ import type { NextRequest } from 'next/server'
  *
  * WHAT THIS MIDDLEWARE DOES
  * -------------------------
- * For HTML pages (non-API, non-asset, GET): rewrite the response with
- * `Cache-Control: public, max-age=60` so browsers cache the SPA shell for
- * 60 seconds.
+ * For HTML pages (non-API, non-asset, GET): rewrite the response using
+ * NextResponse.rewrite() to the same URL (no actual rewriting), then set
+ * `Cache-Control: public, max-age=60` on the rewrite response. This forces
+ * the response to go through our header setting, which is preserved in the
+ * final response.
  *
- * We use NextResponse.next() then set headers on the resulting response
- * object — NextResponse.next() returns a Response that Next.js uses to
- * continue processing the request, and headers set on it are preserved in
- * the final response.
+ * Alternative approach: use NextResponse.next() + headers.set — but Next.js
+ * may override the Cache-Control header in some OpenNext configurations.
+ * Using rewrite() to the same URL is a more reliable way to ensure our
+ * headers are preserved.
  */
 export function middleware(request: NextRequest) {
   const url = new URL(request.url)
@@ -49,10 +51,12 @@ export function middleware(request: NextRequest) {
     return NextResponse.next()
   }
 
-  // For HTML paths, get the response from Next.js and override Cache-Control.
-  // We use NextResponse.next() which preserves the request context so Next.js
-  // continues processing, but allows us to add headers to the final response.
-  const response = NextResponse.next()
+  // For HTML paths, rewrite to the same URL (no actual rewriting, just to
+  // get a response object where we can set headers that won't be overridden).
+  // We use NextResponse.rewrite() with the SAME URL as the request — this
+  // creates a rewrite response that Next.js processes as if the user
+  // requested the same page, but our headers are set on the response.
+  const response = NextResponse.rewrite(url.toString())
   // Override the cache-control — Next.js defaults to no-store for dynamic
   // pages, but our SPA shell is identical for all users so 60s is safe.
   response.headers.set('Cache-Control', 'public, max-age=60')
@@ -76,4 +80,5 @@ export const config = {
     '/((?!api|_next/static|_next/image).*)',
   ],
 }
+
 
