@@ -13,23 +13,19 @@
   // the Worker entirely — Cloudflare serves them directly via the ASSETS
   // binding (zero Worker requests).
   //
-  // Without this array, ALL assets would go through the Worker, which would
-  // ADD Worker requests per asset fetch (10+ JS chunks + CSS per page load).
-  // With this config:
-  //   - HTML pages (/, /?view=*) → Worker (1 req per page load, cached 60s by middleware)
-  //   - Static assets (/_next/static/*, *.js, *.css, *.woff2, *.svg) → ASSETS binding (0 Worker reqs)
+  // Cloudflare requires at least 1 non-negative rule. So we use:
+  //   "/*" matches everything (non-negative — goes to Worker)
+  //   "!/_next/static/*" excludes static chunks (negative — bypasses Worker)
   //
-  // The negative pattern "!/_next/static/*" excludes static chunks. HTML paths
-  // (which don't match the negative) fall through to the Worker.
+  // Net effect:
+  //   - HTML pages (/, /?view=*) → Worker (1 req per page load, cached 60s by middleware)
+  //   - Static assets (/_next/static/*) → ASSETS binding (0 Worker reqs, 304s don't count)
   "assets": {
     "directory": ".open-next/assets",
     "binding": "ASSETS",
     "html_handling": "auto-trailing-slash",
     "not_found_handling": "single-page-application",
-    // Routes that should go through the Worker (everything except /_next/static/*).
-    // Static assets bypass the Worker entirely — served by Cloudflare's edge
-    // cache, NOT counted against the 100K/day free-plan request cap.
-    "run_worker_first": ["!/_next/static/*"]
+    "run_worker_first": ["/*", "!/_next/static/*"]
   },
 
   // Environment variables (set via `wrangler secret put` or dashboard)
