@@ -7,25 +7,11 @@
   "compatibility_flags": ["nodejs_compat"],
 
   // Static assets served from OpenNext build output.
-  //
-  // RUN_WORKER_FIRST: only HTML routes go through the Worker (so middleware
-  // can set Cache-Control headers). Static assets (/_next/static/*) bypass
-  // the Worker entirely — Cloudflare serves them directly via the ASSETS
-  // binding (zero Worker requests).
-  //
-  // Cloudflare requires at least 1 non-negative rule. So we use:
-  //   "/*" matches everything (non-negative — goes to Worker)
-  //   "!/_next/static/*" excludes static chunks (negative — bypasses Worker)
-  //
-  // Net effect:
-  //   - HTML pages (/, /?view=*) → Worker (1 req per page load, cached 60s by middleware)
-  //   - Static assets (/_next/static/*) → ASSETS binding (0 Worker reqs, 304s don't count)
+  // Cloudflare's ASSETS binding serves /_next/static/* directly — these requests
+  // don't count against the Workers 100K/day free-plan request cap.
   "assets": {
     "directory": ".open-next/assets",
-    "binding": "ASSETS",
-    "html_handling": "auto-trailing-slash",
-    "not_found_handling": "single-page-application",
-    "run_worker_first": ["/*", "!/_next/static/*"]
+    "binding": "ASSETS"
   },
 
   // Environment variables (set via `wrangler secret put` or dashboard)
