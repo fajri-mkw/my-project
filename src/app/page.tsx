@@ -1,5 +1,29 @@
 'use client'
 
+// ==========================================================================
+// STATIC SHELL OPTIMIZATION — saves Workers requests against free-plan cap
+// ==========================================================================
+// Without this, Next.js marks the page as 'dynamic' (because it uses
+// useSearchParams + cookies via useAppStore), and OpenNext serves it with
+// `Cache-Control: no-store` — every page navigation re-fetches the HTML
+// shell from the Worker. With 19 users × 20 loads/day = ~380 Worker
+// requests/day just for HTML shell fetches.
+//
+// `force-static` tells Next.js to render the HTML shell at build time
+// (not at request time). The shell is identical for all users — just
+// script tags + `<div>Memuat Pushakin Flows...</div>`. After hydration,
+// the client-side JS reads useSearchParams / useAppStore and renders the
+// appropriate view (login, dashboard, etc.).
+//
+// `revalidate = 60` enables ISR — the static shell is re-generated at
+// most once per 60 seconds. Browser sees a stable, cacheable HTML
+// response that it can cache for 60s.
+//
+// This cuts HTML Worker requests from ~380/day to ~5/day (one per 60s
+// per active user, plus initial loads).
+export const dynamic = 'force-static'
+export const revalidate = 60
+
 import { Suspense, useEffect, useState, useCallback, useRef } from 'react'
 import { useSearchParams, useRouter, usePathname } from 'next/navigation'
 import dynamic from 'next/dynamic'
