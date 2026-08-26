@@ -1,14 +1,38 @@
+# robots.txt — block bots from API routes and dynamic endpoints to prevent
+# them from consuming Workers free-plan request quota (100K/day).
+#
+# Without these Disallow rules, Googlebot/Bingbot/Twitterbot can crawl /api/*
+# endpoints and exhaust the daily quota. Each bot crawl of /api/projects
+# returns ~10K row reads worth of data — bots hitting it waste both Workers
+# requests AND D1 row reads.
+#
+# Allow HTML pages (homepage) so the app can be indexed if needed.
+# Block /api/* and all dynamic data endpoints.
+
 User-agent: Googlebot
 Allow: /
+Disallow: /api/
+Disallow: /_next/
 
 User-agent: Bingbot
 Allow: /
+Disallow: /api/
+Disallow: /_next/
 
 User-agent: Twitterbot
 Allow: /
+Disallow: /api/
+Disallow: /_next/
 
 User-agent: facebookexternalhit
 Allow: /
+Disallow: /api/
+Disallow: /_next/
 
 User-agent: *
 Allow: /
+Disallow: /api/
+Disallow: /_next/
+
+# Sitemap (optional — no sitemap for this app since it's a workflow tool, not
+# a content site that benefits from SEO).

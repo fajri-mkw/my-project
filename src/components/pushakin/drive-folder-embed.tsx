@@ -413,6 +413,10 @@ export function DriveFolderEmbed({
   // when modal is open we poll at 15s + on-demand after each upload).
   // Was 20s — increased to 60s to cut Worker request volume against the
   // free-plan 100K/day cap.
+  //
+  // PAUSE WHEN HIDDEN: also pause when the tab is not visible. The project
+  // detail view is the only place this component is mounted — if the user
+  // switches tabs while on the detail page, polling stops until they return.
   useEffect(() => {
     mountedRef.current = true
     if (!folderId) {
@@ -424,17 +428,44 @@ export function DriveFolderEmbed({
     checkFiles()
 
     const startPoll = () => {
-      pollTimerRef.current = setTimeout(async () => {
-        if (!mountedRef.current) return
-        await checkFiles(true)
-        if (mountedRef.current) startPoll()
-      }, 60_000)
+      if (pollTimerRef.current) return // already scheduled
+      const scheduleNext = () => {
+        pollTimerRef.current = setTimeout(async () => {
+          if (!mountedRef.current) return
+          await checkFiles(true)
+          if (mountedRef.current && document.visibilityState === 'visible') {
+            scheduleNext()
+          }
+        }, 60_000)
+      }
+      scheduleNext()
     }
-    startPoll()
+
+    const stopPoll = () => {
+      if (pollTimerRef.current) {
+        clearTimeout(pollTimerRef.current)
+        pollTimerRef.current = null
+      }
+    }
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        startPoll()
+      } else {
+        stopPoll()
+      }
+    }
+
+    // Only start polling if tab is currently visible
+    if (document.visibilityState === 'visible') {
+      startPoll()
+    }
+    document.addEventListener('visibilitychange', handleVisibilityChange)
 
     return () => {
       mountedRef.current = false
-      if (pollTimerRef.current) clearTimeout(pollTimerRef.current)
+      stopPoll()
+      document.removeEventListener('visibilitychange', handleVisibilityChange)
     }
   }, [folderId, checkFiles])
 
@@ -444,12 +475,44 @@ export function DriveFolderEmbed({
   // hit, since each open modal = 12 requests/minute). 15s still feels live for
   // a file list refresh — and users typically see new files appear after their
   // own upload completes (the upload UI updates optimistically).
+  //
+  // PAUSE WHEN HIDDEN: also pause polling when the tab is not visible (user
+  // switched to another tab/app while the modal is open). Prevents wasting
+  // Worker requests for users who left the modal open and walked away.
   useEffect(() => {
     if (!modalOpen || !folderId) return
-    const fastPoll = setInterval(() => {
-      if (mountedRef.current) checkFiles(true)
-    }, 15_000)
-    return () => clearInterval(fastPoll)
+
+    let timer: ReturnType<typeof setInterval> | null = null
+
+    const startPoll = () => {
+      if (timer) return
+      timer = setInterval(() => {
+        if (mountedRef.current) checkFiles(true)
+      }, 15_000)
+    }
+
+    const stopPoll = () => {
+      if (timer) {
+        clearInterval(timer)
+        timer = null
+      }
+    }
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        startPoll()
+      } else {
+        stopPoll()
+      }
+    }
+
+    startPoll()
+    document.addEventListener('visibilitychange', handleVisibilityChange)
+
+    return () => {
+      stopPoll()
+      document.removeEventListener('visibilitychange', handleVisibilityChange)
+    }
   }, [modalOpen, folderId, checkFiles])
 
   // Reset upload state when modal closes

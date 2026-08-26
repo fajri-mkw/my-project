@@ -357,12 +357,49 @@ export function PublicTrackerView({ onBack }: PublicTrackerViewProps) {
     fetchProjects('all')
   }, [fetchProjects])
 
-  // Auto-refresh every 30 minutes
+  // Auto-refresh every 30 minutes — BUT only when the tab is visible.
+  //
+  // PAUSE WHEN HIDDEN: prevents wasting Worker requests when the tracker is
+  // displayed on a TV/monitor that's turned off, or when a user opened the
+  // tracker tab and switched away. Each open tab was generating ~48 req/day
+  // (1 every 30 min). With the visibility pause, tabs only refresh when
+  // actually being viewed — typically ~8 req/day per active viewer.
   useEffect(() => {
-    const timer = setInterval(() => {
-      fetchProjects('all', true)
-    }, AUTO_REFRESH_INTERVAL)
-    return () => clearInterval(timer)
+    let timer: ReturnType<typeof setInterval> | null = null
+
+    const startPolling = () => {
+      if (timer) return // already running
+      timer = setInterval(() => {
+        fetchProjects('all', true)
+      }, AUTO_REFRESH_INTERVAL)
+    }
+
+    const stopPolling = () => {
+      if (timer) {
+        clearInterval(timer)
+        timer = null
+      }
+    }
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        // Refresh immediately on return + start polling again
+        fetchProjects('all', true)
+        startPolling()
+      } else {
+        // Tab hidden — pause polling
+        stopPolling()
+      }
+    }
+
+    // Start polling on initial mount (tab is visible at this point)
+    startPolling()
+    document.addEventListener('visibilitychange', handleVisibilityChange)
+
+    return () => {
+      stopPolling()
+      document.removeEventListener('visibilitychange', handleVisibilityChange)
+    }
   }, [fetchProjects])
 
   // Update time every second
