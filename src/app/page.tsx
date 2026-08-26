@@ -524,9 +524,34 @@ function AppContent() {
 
     fetchRoleData()
 
-    // Single consolidated polling interval (60s instead of 5 separate 30s intervals)
-    const pollInterval = setInterval(fetchRoleData, 60000)
-    return () => clearInterval(pollInterval)
+    // =========================================================================
+    // ON-FOCUS DATA REFRESH (replaces 60s background polling)
+    // -------------------------------------------------------------------------
+    // PREVIOUSLY: setInterval(fetchRoleData, 60000) — fetched 3-6 API endpoints
+    // every 60 seconds per active user. With 19 users (5 admins × 6 endpoints +
+    // 14 regular × 3 endpoints) × 60 minutes × 24 hours = ~100K requests/day
+    // JUST FROM THIS POLLING — the primary cause of recurring rate-limit hits.
+    //
+    // NOW: refresh data ONLY when the user returns to the tab (visibilitychange
+    // or window focus). Background polling is ELIMINATED entirely. Each open
+    // browser tab no longer generates any Worker requests while the user is
+    // away from the app.
+    //
+    // Trade-off: notifications and surat list won't auto-refresh while user is
+    // on another tab. They'll see fresh data immediately when returning to
+    // the app tab — which is what users expect anyway.
+    // =========================================================================
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        fetchRoleData()
+      }
+    }
+    document.addEventListener('visibilitychange', handleVisibilityChange)
+    window.addEventListener('focus', handleVisibilityChange)
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange)
+      window.removeEventListener('focus', handleVisibilityChange)
+    }
   }, [currentUser, isImpersonating, setNotifications, setSuratTugas, setPermohonanList, setSuratList, setKegiatanList, setProjects])
 
   // Handle database seeding
