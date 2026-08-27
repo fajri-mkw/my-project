@@ -36,8 +36,132 @@ import { cn } from '@/lib/utils'
 const OPSI_KEGIATAN = ['Peliputan', 'Pemberitaan', 'Live Streaming', 'Podcast', 'Desain', 'Lainnya']
 const OPSI_OUTPUT = ['Foto', 'Video', 'Audio', 'Text (article)', 'Foto (edited)', 'Streaming', 'Podcast', 'Desain', 'Template Sosial Media', 'Video Panjang', 'Video Pendek', 'Publish Web', 'Publish Sosmed', 'Review', 'Lainnya']
 
+// ============================================================================
+// SCHEDULE CONFLICT DETECTION
+// ----------------------------------------------------------------------------
+// Manager kadang tidak sengaja memilih petugas yang sudah ditugaskan ke project
+// lain di waktu yang sama. Ini menyebabkan petugas harus diganti manual setelah
+// project dibuat. Helper ini memeriksa apakah seorang user (petugas) sudah
+// ditugaskan ke project lain yang Waktu Pelaksanaan-nya berdekatan (±3 jam)
+// dengan project yang sedang dibuat.
+//
+// "Berdekatan" = ±3 jam dari waktu pelaksanaan project baru. Window ini cukup
+// realistis untuk kasus kehumasan: petugas yang di-project 08:00 kemungkinan
+// tidak bisa ambil project lain di 09:30 (perlu waktu tempuh + persiapan).
+// 3 jam memberi margin wajar tanpa false-positive terlalu banyak.
+// ============================================================================
+const SCHEDULE_CONFLICT_WINDOW_HOURS = 3
+
+interface ScheduleConflict {
+  projectId: string
+  projectTitle: string
+  executionTime: string
+  role: string
+  stage: number
+  // Status project: kalau 'completed' atau sudah Selesai (currentStage=5),
+  // bukan konflik nyata — petugas sudah selesai dan bisa ambil project baru.
+  isCompleted: boolean
+}
+
+/**
+ * Parse a datetime-local string (e.g. "2026-08-26T14:30") or ISO string
+ * into a Date. Returns null if invalid.
+ */
+function parseDateTime(s: string | undefined | null): Date | null {
+  if (!s || typeof s !== 'string' || !s.trim()) return null
+  const d = new Date(s)
+  if (isNaN(d.getTime())) return null
+  return d
+}
+
+/**
+ * Format a Date/ISO string untuk display dalam format Indonesia yang ramah
+ * dibaca: "26 Agu 2026, 14:30"
+ */
+function formatDateTimeShort(s: string | undefined | null): string {
+  const d = parseDateTime(s)
+  if (!d) return '-'
+  const months = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des']
+  const day = d.getDate().toString().padStart(2, '0')
+  const month = months[d.getMonth()]
+  const year = d.getFullYear()
+  const hh = d.getHours().toString().padStart(2, '0')
+  const mm = d.getMinutes().toString().padStart(2, '0')
+  return `${day} ${month} ${year}, ${hh}:${mm}`
+}
+
+/**
+ * Cek apakah user dengan ID tertentu sudah ditugaskan ke project lain yang
+ * Waktu Pelaksanaan-nya berdekatan (±3 jam) dengan newExecutionTime.
+ *
+ * @param userId ID user (petugas) yang akan ditugaskan
+ * @param newExecutionTime Waktu pelaksanaan project baru (datetime-local string)
+ * @param projects Daftar semua project dari store
+ * @param excludeProjectId ID project yang sedang di-edit (kalau ada), untuk skip
+ * @returns Array of ScheduleConflict — kosong = tidak ada konflik
+ */
+function findScheduleConflicts(
+  userId: string,
+  newExecutionTime: string | undefined,
+  projects: Array<{
+    id: string
+    title: string
+    executionTime: string
+    currentStage: number
+    tasks: Array<{ assignedTo: string; role: string; stage: number; status: string }>
+  }>,
+  excludeProjectId?: string
+): ScheduleConflict[] {
+  const newDate = parseDateTime(newExecutionTime)
+  if (!newDate) return [] // kalau waktu belum diisi, tidak bisa cek konflik
+
+  const conflicts: ScheduleConflict[] = []
+  const windowMs = SCHEDULE_CONFLICT_WINDOW_HOURS * 60 * 60 * 1000
+  const newStart = newDate.getTime()
+  const newEnd = newStart + 2 * 60 * 60 * 1000 // asumsi durasi project 2 jam
+
+  for (const project of projects) {
+    // Skip project yang sedang di-edit
+    if (excludeProjectId && project.id === excludeProjectId) continue
+
+    // Skip project yang sudah completed (currentStage = 5 = Selesai)
+    // Petugas yang sudah selesai tidak ada konflik
+    const isCompleted = project.currentStage >= 5
+    if (isCompleted) continue
+
+    const existingDate = parseDateTime(project.executionTime)
+    if (!existingDate) continue // project tanpa waktu, skip
+
+    const existingStart = existingDate.getTime()
+    const existingEnd = existingStart + 2 * 60 * 60 * 1000
+
+    // Cek overlap dengan window ±3 jam di sekitar waktu project baru.
+    // Overlap terjadi kalau newStart < existingEnd + window AND existingStart < newEnd + window
+    // (yaitu jarak antar keduanya < window)
+    if (
+      newStart < existingEnd + windowMs &&
+      existingStart < newEnd + windowMs
+    ) {
+      // Cek apakah user ini ditugaskan di project tersebut
+      const userTask = project.tasks.find(t => t.assignedTo === userId)
+      if (userTask) {
+        conflicts.push({
+          projectId: project.id,
+          projectTitle: project.title,
+          executionTime: project.executionTime,
+          role: userTask.role,
+          stage: userTask.stage,
+          isCompleted,
+        })
+      }
+    }
+  }
+
+  return conflicts
+}
+
 export function CreateProjectView() {
-  const { currentUser, users, showAlert, setActiveView, addProject, addNotification, addSuratTugas, isCreatingProject, setIsCreatingProject, preFillFromSurat, setPreFillFromSurat, preFillFromPermohonan, setPreFillFromPermohonan } = useAppStore()
+  const { currentUser, users, projects, showAlert, setActiveView, addProject, addNotification, addSuratTugas, isCreatingProject, setIsCreatingProject, preFillFromSurat, setPreFillFromSurat, preFillFromPermohonan, setPreFillFromPermohonan } = useAppStore()
   
   const [title, setTitle] = useState('')
   const [desc, setDesc] = useState('')
@@ -648,6 +772,64 @@ export function CreateProjectView() {
           })
         })
       })
+
+      // ====================================================================
+      // FINAL SCHEDULE CONFLICT CHECK — ringkasan semua petugas yang konflik
+      // ====================================================================
+      // Sebelum submit, kumpulkan SEMUA konflik dari semua petugas yang dipilih.
+      // Tampilkan dialog konfirmasi ringkasan, biarkan manager tetap bisa proceed
+      // kalau yakin petugas bisa handle (mis. lokasi berdekatan, durasi pendek).
+      //
+      // Override pattern: manager klik "Tetap Lanjutkan" untuk proceed, atau
+      // batal untuk kembali ke form ganti petugas.
+      const allConflicts: Array<{
+        userName: string
+        userRole: string
+        conflicts: ScheduleConflict[]
+      }> = []
+      for (const task of tasks) {
+        const user = users.find(u => u.id === task.assignedTo)
+        if (!user) continue
+        const conflicts = findScheduleConflicts(user.id, waktu, projects)
+        if (conflicts.length > 0) {
+          allConflicts.push({
+            userName: user.name,
+            userRole: task.role,
+            conflicts
+          })
+        }
+      }
+
+      if (allConflicts.length > 0) {
+        // Build a readable summary for the confirmation dialog
+        const summaryLines = allConflicts.map(({ userName, userRole, conflicts }) => {
+          const conflictText = conflicts.map(c =>
+            `"${c.projectTitle}" (${formatDateTimeShort(c.executionTime)})`
+          ).join(', ')
+          return `• ${userName} (${getRoleDisplayName(userRole)}):\n   ${conflictText}`
+        }).join('\n\n')
+
+        // Use confirm() — synchronous modal that blocks submit until user
+        // chooses OK (proceed with conflicts) or Cancel (back to form).
+        const confirmed = window.confirm(
+          `⚠️ PERINGATAN KONFLIK JADWAL\n\n` +
+          `${allConflicts.length} petugas yang Anda pilih sudah ditugaskan ` +
+          `ke project lain pada waktu berdekatan:\n\n` +
+          `${summaryLines}\n\n` +
+          `Jika Anda tetap melanjutkan, petugas ini akan mengerjakan ` +
+          `multiple project di waktu yang sama. Pastikan mereka benar-benar ` +
+          `bisa menghandle-nya (mis. lokasi berdekatan atau durasi pendek).\n\n` +
+          `Klik "OK" untuk tetap lanjutkan, atau "Cancel" untuk kembali ` +
+          `memilih petugas lain.`
+        )
+        if (!confirmed) {
+          // User cancelled — kembali ke form, biarkan manager ganti petugas
+          return
+        }
+        // User confirmed — proceed dengan konflik (override)
+        // Log ke console untuk audit trail
+        console.warn('[Schedule Conflict Override] Manager proceeded with conflicts:', allConflicts)
+      }
 
       // Generate folder data - either real or mock
       let generatedFolders: Array<{
@@ -2085,28 +2267,85 @@ export function CreateProjectView() {
                               <div className="space-y-1.5">
                                 {usersWithRole.map(user => {
                                   const isSelected = selectedForRole.includes(user.id)
+                                  // Cek konflik jadwal: apakah user ini sudah ditugaskan
+                                  // ke project lain di waktu yang berdekatan?
+                                  const conflicts = findScheduleConflicts(
+                                    user.id,
+                                    waktu,
+                                    projects
+                                  )
+                                  const hasConflict = conflicts.length > 0
                                   return (
-                                    <label key={user.id} className="flex items-center gap-2 p-1.5 rounded-lg hover:bg-stone-50 cursor-pointer transition-all">
-                                      <Checkbox
-                                        checked={isSelected}
-                                        onCheckedChange={(checked) => {
-                                          setSelectedUsers(prev => {
-                                            const current = prev[role] || []
-                                            if (checked) {
-                                              return { ...prev, [role]: [...current, user.id] }
-                                            } else {
-                                              return { ...prev, [role]: current.filter(id => id !== user.id) }
+                                    <div key={user.id}>
+                                      <label
+                                        className={cn(
+                                          "flex items-center gap-2 p-1.5 rounded-lg transition-all",
+                                          hasConflict
+                                            ? "bg-amber-50 border border-amber-200 cursor-pointer hover:bg-amber-100"
+                                            : "hover:bg-stone-50 cursor-pointer"
+                                        )}
+                                      >
+                                        <Checkbox
+                                          checked={isSelected}
+                                          onCheckedChange={(checked) => {
+                                            // Kalau ada konflik dan user mencoba centang,
+                                            // tampilkan warning tapi tetap izinkan (manager
+                                            // bisa override kalau memang yakin petugas bisa
+                                            // handle kedua project — misal lokasi berdekatan).
+                                            if (checked && hasConflict) {
+                                              const conflictList = conflicts.map(c =>
+                                                `"${c.projectTitle}" (${formatDateTimeShort(c.executionTime)})`
+                                              ).join(', ')
+                                              showAlert(
+                                                `⚠️ Konflik Jadwal: ${user.name} sudah ditugaskan ke project lain pada waktu berdekatan:\n\n${conflictList}\n\n` +
+                                                `Tetap pilih petugas ini? Hanya lanjutkan jika Anda yakin petugas bisa menghandle kedua project.`
+                                              )
                                             }
-                                          })
-                                        }}
-                                      />
-                                      <div className="flex items-center gap-2 flex-1 min-w-0">
-                                        <div className="w-6 h-6 rounded-full bg-violet-100 text-violet-700 flex items-center justify-center text-[10px] font-bold shrink-0">
-                                          {user.name.charAt(0).toUpperCase()}
+                                            setSelectedUsers(prev => {
+                                              const current = prev[role] || []
+                                              if (checked) {
+                                                return { ...prev, [role]: [...current, user.id] }
+                                              } else {
+                                                return { ...prev, [role]: current.filter(id => id !== user.id) }
+                                              }
+                                            })
+                                          }}
+                                        />
+                                        <div className="flex items-center gap-2 flex-1 min-w-0">
+                                          <div className={cn(
+                                            "w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold shrink-0",
+                                            hasConflict
+                                              ? "bg-amber-100 text-amber-700"
+                                              : "bg-violet-100 text-violet-700"
+                                          )}>
+                                            {user.name.charAt(0).toUpperCase()}
+                                          </div>
+                                          <div className="flex-1 min-w-0">
+                                            <div className="flex items-center gap-1 flex-wrap">
+                                              <span className={cn(
+                                                "text-xs font-medium truncate",
+                                                hasConflict ? "text-amber-900" : "text-stone-700"
+                                              )}>
+                                                {user.name}
+                                              </span>
+                                              {hasConflict && (
+                                                <span className="inline-flex items-center gap-0.5 text-[9px] font-semibold text-amber-700 bg-amber-100 px-1 py-0.5 rounded">
+                                                  <AlertTriangle className="w-2.5 h-2.5" />
+                                                  Konflik
+                                                </span>
+                                              )}
+                                            </div>
+                                            {hasConflict && (
+                                              <p className="text-[10px] text-amber-700 mt-0.5 leading-tight">
+                                                {conflicts.map(c =>
+                                                  `${c.projectTitle} (${formatDateTimeShort(c.executionTime)})`
+                                                ).join(' • ')}
+                                              </p>
+                                            )}
+                                          </div>
                                         </div>
-                                        <span className="text-xs font-medium text-stone-700 truncate">{user.name}</span>
-                                      </div>
-                                    </label>
+                                      </label>
+                                    </div>
                                   )
                                 })}
                               </div>
