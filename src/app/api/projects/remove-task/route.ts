@@ -3,6 +3,7 @@ import { invalidateCache, deferToBackground } from '@/lib/edge-cache'
 import {
   getLibsql,
   nowMs,
+  parseJSON,
   bind,
 } from '@/lib/libsql-client'
 
@@ -200,6 +201,68 @@ export async function POST(request: NextRequest) {
       sql: `DELETE FROM tasks WHERE id = ? AND projectId = ?`,
       args: [bind(taskId), bind(projectId)],
     })
+
+    // 4b. Hapus drive_folders rows milik petugas yang dihapus (subfolder user
+    //     + output subfolders). Parent folder rows tetap dipertahankan
+    //     (kalau petugas lain masih assigned ke parent folder tsb).
+    //
+    //     Pattern yang dihapus: <parentFolderId>-<role>-<userId>%
+    //     (mencakup user subfolder + output subfolders di dalamnya).
+    //
+    //     Kenapa hapus? Kalau tidak dihapus:
+    //       - UI getUploadFolders() mungkin tampilkan subfolder orphaned
+    //         (folder tidak ada lagi di Drive, atau petugas tidak bisa akses)
+    //       - File yang di-upload petugas lama tetap di Drive (sebagai history),
+    //         tapi row drive_folders untuk subfolder-nya jadi misleading
+    //
+    //     File yang sudah di-upload ke subfolder tsb TIDAK dihapus dari Drive
+    //     (cuma row DB yang dihapus). Manager/admin bisa akses langsung via
+    //     parent folder di Drive UI kalau perlu.
+    try {
+      const userSubfolderPattern = `${taskRole.toLowerCase().replace(/\s*&\s*/g, '-')}-${taskAssigneeId}`
+      await client.execute({
+        sql: `DELETE FROM drive_folders
+              WHERE projectId = ? AND folderId LIKE ?`,
+        args: [
+          bind(projectId),
+          bind(`%-${userSubfolderPattern}%`), // matches parent-role-userId or parent-role-userId-output-*
+        ],
+      })
+    } catch (folderCleanupErr) {
+      console.error('[REMOVE-TASK] Failed to cleanup drive_folders rows:', folderCleanupErr)
+      // Non-fatal — task sudah dihapus, folder rows orphaned tidak fatal
+    }
+
+    // 4c. Remove petugas dari assignedUsers di parent folder rows
+    //     (kalau ada) supaya UI filter tidak tampilkan parent untuk petugas yang
+    //     sudah dihapus. assignedUsers adalah JSON array.
+    try {
+      const parentFoldersRes = await client.execute({
+        sql: `SELECT id, assignedUsers FROM drive_folders WHERE projectId = ? AND parentFolderId IS NULL`,
+        args: [bind(projectId)],
+      })
+      for (const row of parentFoldersRes.rows) {
+        const r = row as Record<string, unknown>
+        const rowId = String(r.id)
+        const assignedUsersJson = parseJSON(r.assignedUsers, []) as Array<{
+          userId: string
+          userName: string
+          download: boolean
+          upload: boolean
+        }>
+        if (!Array.isArray(assignedUsersJson)) continue
+        const withoutRemoved = assignedUsersJson.filter(au => au.userId !== taskAssigneeId)
+        if (withoutRemoved.length !== assignedUsersJson.length) {
+          await client.execute({
+            sql: `UPDATE drive_folders SET assignedUsers = ? WHERE id = ?`,
+            args: [bind(JSON.stringify(withoutRemoved)), bind(rowId)],
+          })
+        }
+      }
+    } catch (updateAssignedErr) {
+      console.error('[REMOVE-TASK] Failed to remove petugas from parent assignedUsers:', updateAssignedErr)
+      // Non-fatal
+    }
 
     // 5. Hapus surat_tugas aktif untuk task ini (kalau ada)
     //    surat_tugas aktif = status='active'. Surat tugas 'completed' tetap
