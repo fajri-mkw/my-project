@@ -963,6 +963,93 @@ Pushakin Flows — Sistem Manajemen Produksi`
     }
   }
 
+  // === Hapus Petugas (Remove Task from project) ===
+  // Manager/Admin removes a petugas from the project entirely (deletes the
+  // task row). Used when:
+  //   - Petugas berhalangan dan sudah diganti oleh petugas lain yang ditambah
+  //     via "Tambah Petugas". Petugas lama dihapus agar sistem bisa advance
+  //     ke tahap berikutnya (sistem advance ketika semua task di tahap
+  //     'completed' — task 'pending' menghambat advance).
+  //   - Manager ingin menarik penugasan dari petugas tertentu.
+  //
+  // Backend safety rules (di /api/projects/remove-task):
+  //   - Hanya task status='pending' yang bisa dihapus (completed = history).
+  //   - Tidak bisa hapus satu-satunya task pending di tahap (akan bikin tahap
+  //     kosong, sistem stuck).
+  //   - Self-heal: setelah hapus, sistem auto-advance kalau tahap sekarang
+  //     sudah lengkap completed.
+  const handleRemovePetugas = async (taskId: string): Promise<boolean> => {
+    if (!project) return false
+
+    // Cari task + petugas untuk konfirmasi
+    const task = project.tasks.find(t => t.id === taskId)
+    if (!task) {
+      showAlert('Tugas tidak ditemukan')
+      return false
+    }
+
+    const assigneeName = users.find(u => u.id === task.assignedTo)?.name || 'petugas ini'
+
+    // Konfirmasi via window.confirm — sync dialog yang block sampai user pilih
+    const confirmed = window.confirm(
+      `Hapus petugas "${assigneeName}" dari proyek ini?\n\n` +
+      `Petugas: ${assigneeName}\n` +
+      `Peran: ${getRoleDisplayName(task.role)}\n` +
+      `Tahap: ${task.stage}\n\n` +
+      `Tindakan ini akan:\n` +
+      `• Menghapus tugas petugas ini dari proyek\n` +
+      `• Membatalkan surat tugas aktif untuk petugas ini\n` +
+      `• Sistem akan otomatis lanjut ke tahap berikutnya jika semua tugas di tahap ini sudah selesai\n\n` +
+      `Klik "OK" untuk hapus, atau "Cancel" untuk batal.`
+    )
+    if (!confirmed) return false
+
+    try {
+      const response = await fetch('/api/projects/remove-task', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          projectId: project.id,
+          taskId,
+        }),
+      })
+
+      if (!response.ok) {
+        let errMsg = 'Gagal menghapus petugas'
+        try {
+          const data = await response.json()
+          if (data?.error) errMsg = data.error
+        } catch {}
+        showAlert(errMsg)
+        return false
+      }
+
+      const result = await response.json()
+
+      // Optimistically remove task from project.tasks + update currentStage
+      const updatedProject = {
+        ...project,
+        tasks: project.tasks.filter(t => t.id !== taskId),
+        currentStage: result.newCurrentStage ?? project.currentStage,
+      }
+      updateProject(updatedProject)
+
+      const stageNote = result.newCurrentStage !== project.currentStage
+        ? ` Sistem otomatis lanjut ke Tahap ${result.newCurrentStage}.`
+        : ''
+      showAlert(
+        `Petugas ${assigneeName} berhasil dihapus dari proyek.${stageNote}`
+      )
+      return true
+    } catch (err) {
+      showAlert(
+        'Gagal menghapus petugas: ' +
+        (err instanceof Error ? err.message : 'Koneksi terputus')
+      )
+      return false
+    }
+  }
+
   // === Tambah Petugas (Add Task to a stage mid-project) ===
   // Manager/Admin adds a brand-new Task row for a given role+assignee to a
   // stage of an already-running project. Server: INSERTs the task, creates a
@@ -2391,6 +2478,7 @@ Pushakin Flows — Sistem Manajemen Produksi`
                 }
               }}
               onReassignPetugas={handleReassignPetugas}
+              onRemovePetugas={handleRemovePetugas}
               currentAssigneeName={getUserDetails(task.assignedTo).name}
             />
           )
@@ -2847,6 +2935,7 @@ interface TaskCardProps {
   onUpdatePublishLink: (linkId: string, field: 'platform' | 'url', value: string) => void
   onFileUploaded: (file: { name: string; webViewLink: string }) => void
   onReassignPetugas: (taskId: string, newAssigneeId: string) => Promise<boolean>
+  onRemovePetugas: (taskId: string) => Promise<boolean>
   currentAssigneeName: string
 }
 
@@ -2855,7 +2944,7 @@ function TaskCard({
   isMyActiveTask, isBlockedByDependency, waitingForDisplayName, canManageProject, currentUser, inputValue, setInputValue,
   isVerified, setIsVerified, onComplete, onReject, onRevision, onCancelRevision, isRevising,
   visibleFolders, publishLinks, onAddPublishLink, onRemovePublishLink, onUpdatePublishLink, onFileUploaded,
-  onReassignPetugas, currentAssigneeName
+  onReassignPetugas, onRemovePetugas, currentAssigneeName
 }: TaskCardProps) {
   // Hooks must run before any early return (Rules of Hooks).
   // uploadedFilesCount: tracks how many files the worker has uploaded in this session.
@@ -3161,7 +3250,7 @@ function TaskCard({
                   <span>Mode Override {getRoleDisplayName(currentUser?.role || '')}{!isCurrentStage ? ' (Bypass Tahap)' : ''}</span>
                 </div>
               )}
-              {/* Current assignee name + Ganti Petugas button (Manager/Admin only) */}
+              {/* Current assignee name + Ganti/Hapus Petugas buttons (Manager/Admin only) */}
               <div className="flex items-center gap-2 mt-1.5 flex-wrap">
                 <span className="flex items-center gap-1 text-xs text-stone-600">
                   <User className="w-3 h-3" />
@@ -3180,6 +3269,22 @@ function TaskCard({
                   >
                     <UserCog className="w-3 h-3" />
                     <span>Ganti Petugas</span>
+                  </Button>
+                )}
+                {/* Hapus Petugas: remove petugas from project entirely.
+                    Only show for pending tasks (completed = history, cannot delete).
+                    Manager should add pengganti via "Tambah Petugas" first if needed. */}
+                {canManageProject && task.status === 'pending' && !task.data?.fastTracked && (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => onRemovePetugas(task.id)}
+                    className="h-6 px-2 py-0 text-[11px] gap-1 text-red-700 border-red-300 hover:bg-red-50 hover:border-red-400 font-semibold"
+                    title="Hapus petugas ini dari proyek. Gunakan jika petugas berhalangan dan sudah diganti via Tambah Petugas."
+                  >
+                    <Trash2 className="w-3 h-3" />
+                    <span>Hapus Petugas</span>
                   </Button>
                 )}
               </div>
