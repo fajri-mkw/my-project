@@ -319,3 +319,128 @@ model ExternalLink {
   @@index([order])
   @@map("external_links")
 }
+
+// ============================================================================
+// MANAJEMEN INVENTARIS HUMAS — Super Admin only
+// Sistem manajemen barang humas (merchandise, brosur, hadiah, dll.) dengan
+// peminjaman, pengembalian, pembagian, history, dan rekapitulasi.
+// ============================================================================
+
+model Inventory {
+  id              String   @id @default(cuid())
+  kodeBarang      String   @unique
+  namaBarang      String
+  kategori        String   // e.g. 'Merchandise', 'Brosur', 'Hadiah', 'ATK', 'Lainnya'
+  jumlahTotal     Int      @default(0)
+  jumlahTersedia  Int      @default(0)
+  jumlahDipinjam  Int      @default(0)
+  jumlahDibagikan Int      @default(0)
+  lokasi          String?
+  status          String   @default("baik") // 'baik' | 'rusak' | 'hilang'
+  kondisiCatatan  String?  // catatan kondisi (mis. "handle rusak", "hilang di event X")
+  imageFileId     String?  // Google Drive file ID for inventory photo
+  imageUrl        String?  // Drive webViewLink untuk display
+  catatan         String?
+  createdBy       String?  // user ID yang input
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  loans           InventoryLoan[]
+  distributions   InventoryDistribution[]
+  histories       InventoryHistory[]
+
+  @@index([kategori])
+  @@index([status])
+  @@index([createdAt])
+  @@map("inventory")
+}
+
+model InventoryLoan {
+  id                String   @id @default(cuid())
+  inventoryId       String
+  peminjamId        String?  // user ID (kalau internal) atau null (external)
+  peminjamName      String   // nama peminjam (display)
+  tanggalPinjam     DateTime @default(now())
+  tanggalKembaliRencana DateTime?
+  tanggalKembaliAktual DateTime?
+  jumlahDipinjam    Int      @default(1)
+  status            String   @default("pending")
+                                  // 'pending' (menunggu approval)
+                                  // 'approved' (disetujui, belum diambil)
+                                  // 'rejected' (ditolak)
+                                  // 'active' (sudah diambil, belum kembali)
+                                  // 'returned' (sudah dikembalikan)
+                                  // 'overdue' (lewat dari rencana kembali)
+  keperluan         String?
+  catatan           String?
+  approverId        String?
+  approvedAt        DateTime?
+  rejectedReason    String?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  inventory       Inventory  @relation(fields: [inventoryId], references: [id], onDelete: Cascade)
+  return          InventoryReturn?
+
+  @@index([inventoryId])
+  @@index([peminjamId])
+  @@index([status])
+  @@index([tanggalPinjam])
+  @@map("inventory_loans")
+}
+
+model InventoryReturn {
+  id            String   @id @default(cuid())
+  loanId        String   @unique
+  tanggalKembali DateTime @default(now())
+  kondisi       String   // 'baik' | 'rusak_ringan' | 'rusak_berat' | 'hilang'
+  jumlahDikembalikan Int  @default(1)
+  catatan       String?
+  receivedById  String?  // user ID yang terima pengembalian
+  createdAt     DateTime @default(now())
+
+  loan          InventoryLoan @relation(fields: [loanId], references: [id], onDelete: Cascade)
+
+  @@index([loanId])
+  @@map("inventory_returns")
+}
+
+model InventoryDistribution {
+  id              String   @id @default(cuid())
+  inventoryId     String
+  penerimaName    String   // nama penerima (bisa internal/external)
+  penerimaUnit    String?  // unit/instansi penerima
+  jumlahDibagikan Int      @default(1)
+  tanggalBagi     DateTime @default(now())
+  keperluan       String?
+  catatan         String?
+  distribusiById  String?  // user ID yang melakukan pembagian
+  createdAt       DateTime @default(now())
+
+  inventory       Inventory @relation(fields: [inventoryId], references: [id], onDelete: Cascade)
+
+  @@index([inventoryId])
+  @@index([tanggalBagi])
+  @@map("inventory_distributions")
+}
+
+model InventoryHistory {
+  id              String   @id @default(cuid())
+  inventoryId     String
+  jenisTransaksi  String   // 'masuk' | 'pinjam' | 'kembali' | 'bagi' | 'edit' | 'hapus' | 'approval' | 'reject'
+  tanggalTransaksi DateTime @default(now())
+  pelakuId        String?  // user ID pelaku
+  pelakuName      String?  // nama pelaku (display)
+  keterangan      String?  // detail transaksi
+  jumlah          Int?     // quantity involved (kalau relevan)
+  loanId          String?  // link ke loan (kalau transaksi terkait peminjaman)
+  distributionId  String?  // link ke distribution (kalau transaksi terkait pembagian)
+  returnId        String?  // link ke return (kalau transaksi terkait pengembalian)
+
+  inventory       Inventory @relation(fields: [inventoryId], references: [id], onDelete: Cascade)
+
+  @@index([inventoryId])
+  @@index([jenisTransaksi])
+  @@index([tanggalTransaksi])
+  @@map("inventory_history")
+}

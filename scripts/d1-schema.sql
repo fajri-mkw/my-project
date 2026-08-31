@@ -337,3 +337,100 @@ CREATE INDEX "external_links_isActive_idx" ON "external_links"("isActive");
 -- CreateIndex
 CREATE INDEX "external_links_order_idx" ON "external_links"("order");
 
+
+-- ============================================================================
+-- MANAJEMEN INVENTARIS HUMAS (Super Admin only)
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS "inventory" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "kodeBarang" TEXT NOT NULL UNIQUE,
+    "namaBarang" TEXT NOT NULL,
+    "kategori" TEXT NOT NULL,
+    "jumlahTotal" INTEGER NOT NULL DEFAULT 0,
+    "jumlahTersedia" INTEGER NOT NULL DEFAULT 0,
+    "jumlahDipinjam" INTEGER NOT NULL DEFAULT 0,
+    "jumlahDibagikan" INTEGER NOT NULL DEFAULT 0,
+    "lokasi" TEXT,
+    "status" TEXT NOT NULL DEFAULT 'baik',
+    "kondisiCatatan" TEXT,
+    "imageFileId" TEXT,
+    "imageUrl" TEXT,
+    "catatan" TEXT,
+    "createdBy" TEXT,
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" DATETIME NOT NULL
+);
+CREATE INDEX IF NOT EXISTS "inventory_kategori_idx" ON "inventory"("kategori");
+CREATE INDEX IF NOT EXISTS "inventory_status_idx" ON "inventory"("status");
+CREATE INDEX IF NOT EXISTS "inventory_createdAt_idx" ON "inventory"("createdAt");
+
+CREATE TABLE IF NOT EXISTS "inventory_loans" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "inventoryId" TEXT NOT NULL,
+    "peminjamId" TEXT,
+    "peminjamName" TEXT NOT NULL,
+    "tanggalPinjam" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "tanggalKembaliRencana" DATETIME,
+    "tanggalKembaliAktual" DATETIME,
+    "jumlahDipinjam" INTEGER NOT NULL DEFAULT 1,
+    "status" TEXT NOT NULL DEFAULT 'pending',
+    "keperluan" TEXT,
+    "catatan" TEXT,
+    "approverId" TEXT,
+    "approvedAt" DATETIME,
+    "rejectedReason" TEXT,
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" DATETIME NOT NULL,
+    CONSTRAINT "inventory_loans_inventoryId_fkey" FOREIGN KEY ("inventoryId") REFERENCES "inventory" ("id") ON DELETE CASCADE ON UPDATE CASCADE
+);
+CREATE INDEX IF NOT EXISTS "inventory_loans_inventoryId_idx" ON "inventory_loans"("inventoryId");
+CREATE INDEX IF NOT EXISTS "inventory_loans_peminjamId_idx" ON "inventory_loans"("peminjamId");
+CREATE INDEX IF NOT EXISTS "inventory_loans_status_idx" ON "inventory_loans"("status");
+CREATE INDEX IF NOT EXISTS "inventory_loans_tanggalPinjam_idx" ON "inventory_loans"("tanggalPinjam");
+
+CREATE TABLE IF NOT EXISTS "inventory_returns" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "loanId" TEXT NOT NULL UNIQUE,
+    "tanggalKembali" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "kondisi" TEXT NOT NULL,
+    "jumlahDikembalikan" INTEGER NOT NULL DEFAULT 1,
+    "catatan" TEXT,
+    "receivedById" TEXT,
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT "inventory_returns_loanId_fkey" FOREIGN KEY ("loanId") REFERENCES "inventory_loans" ("id") ON DELETE CASCADE ON UPDATE CASCADE
+);
+CREATE INDEX IF NOT EXISTS "inventory_returns_loanId_idx" ON "inventory_returns"("loanId");
+
+CREATE TABLE IF NOT EXISTS "inventory_distributions" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "inventoryId" TEXT NOT NULL,
+    "penerimaName" TEXT NOT NULL,
+    "penerimaUnit" TEXT,
+    "jumlahDibagikan" INTEGER NOT NULL DEFAULT 1,
+    "tanggalBagi" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "keperluan" TEXT,
+    "catatan" TEXT,
+    "distribusiById" TEXT,
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT "inventory_distributions_inventoryId_fkey" FOREIGN KEY ("inventoryId") REFERENCES "inventory" ("id") ON DELETE CASCADE ON UPDATE CASCADE
+);
+CREATE INDEX IF NOT EXISTS "inventory_distributions_inventoryId_idx" ON "inventory_distributions"("inventoryId");
+CREATE INDEX IF NOT EXISTS "inventory_distributions_tanggalBagi_idx" ON "inventory_distributions"("tanggalBagi");
+
+CREATE TABLE IF NOT EXISTS "inventory_history" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "inventoryId" TEXT NOT NULL,
+    "jenisTransaksi" TEXT NOT NULL,
+    "tanggalTransaksi" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "pelakuId" TEXT,
+    "pelakuName" TEXT,
+    "keterangan" TEXT,
+    "jumlah" INTEGER,
+    "loanId" TEXT,
+    "distributionId" TEXT,
+    "returnId" TEXT,
+    CONSTRAINT "inventory_history_inventoryId_fkey" FOREIGN KEY ("inventoryId") REFERENCES "inventory" ("id") ON DELETE CASCADE ON UPDATE CASCADE
+);
+CREATE INDEX IF NOT EXISTS "inventory_history_inventoryId_idx" ON "inventory_history"("inventoryId");
+CREATE INDEX IF NOT EXISTS "inventory_history_jenisTransaksi_idx" ON "inventory_history"("jenisTransaksi");
+CREATE INDEX IF NOT EXISTS "inventory_history_tanggalTransaksi_idx" ON "inventory_history"("tanggalTransaksi");

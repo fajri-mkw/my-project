@@ -28,7 +28,7 @@ import { db } from './db'
 import { getLibsql, bind } from './libsql-client'
 
 // Increment this when adding new migrations
-const SCHEMA_VERSION = 11
+const SCHEMA_VERSION = 12
 
 let syncPerformed = false
 let syncPromise: Promise<boolean> | null = null
@@ -310,6 +310,90 @@ async function syncSqlite(): Promise<void> {
     addSqliteColumnIfNotExists('settings', 'driveMode', 'TEXT'),
     addSqliteColumnIfNotExists('settings', 'driveFolderId', 'TEXT'),
   ])
+
+  // === Version 12: Manajemen Inventaris Humas (Super Admin only) ===
+  // Sistem manajemen barang humas (merchandise, brosur, hadiah, dll.) dengan
+  // peminjaman, pengembalian, pembagian, history, dan rekapitulasi.
+  // 5 tabel baru: inventory, inventory_loans, inventory_returns,
+  // inventory_distributions, inventory_history.
+  await Promise.all([
+    createSqliteTableIfNotExists('inventory', `(
+      "id" TEXT NOT NULL PRIMARY KEY,
+      "kodeBarang" TEXT NOT NULL UNIQUE,
+      "namaBarang" TEXT NOT NULL,
+      "kategori" TEXT NOT NULL,
+      "jumlahTotal" INTEGER NOT NULL DEFAULT 0,
+      "jumlahTersedia" INTEGER NOT NULL DEFAULT 0,
+      "jumlahDipinjam" INTEGER NOT NULL DEFAULT 0,
+      "jumlahDibagikan" INTEGER NOT NULL DEFAULT 0,
+      "lokasi" TEXT,
+      "status" TEXT NOT NULL DEFAULT 'baik',
+      "kondisiCatatan" TEXT,
+      "imageFileId" TEXT,
+      "imageUrl" TEXT,
+      "catatan" TEXT,
+      "createdBy" TEXT,
+      "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      "updatedAt" DATETIME NOT NULL
+    )`),
+    createSqliteTableIfNotExists('inventory_loans', `(
+      "id" TEXT NOT NULL PRIMARY KEY,
+      "inventoryId" TEXT NOT NULL,
+      "peminjamId" TEXT,
+      "peminjamName" TEXT NOT NULL,
+      "tanggalPinjam" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      "tanggalKembaliRencana" DATETIME,
+      "tanggalKembaliAktual" DATETIME,
+      "jumlahDipinjam" INTEGER NOT NULL DEFAULT 1,
+      "status" TEXT NOT NULL DEFAULT 'pending',
+      "keperluan" TEXT,
+      "catatan" TEXT,
+      "approverId" TEXT,
+      "approvedAt" DATETIME,
+      "rejectedReason" TEXT,
+      "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      "updatedAt" DATETIME NOT NULL,
+      CONSTRAINT "inventory_loans_inventoryId_fkey" FOREIGN KEY ("inventoryId") REFERENCES "inventory" ("id") ON DELETE CASCADE ON UPDATE CASCADE
+    )`),
+    createSqliteTableIfNotExists('inventory_returns', `(
+      "id" TEXT NOT NULL PRIMARY KEY,
+      "loanId" TEXT NOT NULL UNIQUE,
+      "tanggalKembali" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      "kondisi" TEXT NOT NULL,
+      "jumlahDikembalikan" INTEGER NOT NULL DEFAULT 1,
+      "catatan" TEXT,
+      "receivedById" TEXT,
+      "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      CONSTRAINT "inventory_returns_loanId_fkey" FOREIGN KEY ("loanId") REFERENCES "inventory_loans" ("id") ON DELETE CASCADE ON UPDATE CASCADE
+    )`),
+    createSqliteTableIfNotExists('inventory_distributions', `(
+      "id" TEXT NOT NULL PRIMARY KEY,
+      "inventoryId" TEXT NOT NULL,
+      "penerimaName" TEXT NOT NULL,
+      "penerimaUnit" TEXT,
+      "jumlahDibagikan" INTEGER NOT NULL DEFAULT 1,
+      "tanggalBagi" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      "keperluan" TEXT,
+      "catatan" TEXT,
+      "distribusiById" TEXT,
+      "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      CONSTRAINT "inventory_distributions_inventoryId_fkey" FOREIGN KEY ("inventoryId") REFERENCES "inventory" ("id") ON DELETE CASCADE ON UPDATE CASCADE
+    )`),
+    createSqliteTableIfNotExists('inventory_history', `(
+      "id" TEXT NOT NULL PRIMARY KEY,
+      "inventoryId" TEXT NOT NULL,
+      "jenisTransaksi" TEXT NOT NULL,
+      "tanggalTransaksi" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      "pelakuId" TEXT,
+      "pelakuName" TEXT,
+      "keterangan" TEXT,
+      "jumlah" INTEGER,
+      "loanId" TEXT,
+      "distributionId" TEXT,
+      "returnId" TEXT,
+      CONSTRAINT "inventory_history_inventoryId_fkey" FOREIGN KEY ("inventoryId") REFERENCES "inventory" ("id") ON DELETE CASCADE ON UPDATE CASCADE
+    )`),
+  ])
 }
 
 async function addSqliteColumnIfNotExists(
@@ -518,6 +602,87 @@ async function syncPostgres(): Promise<void> {
   await Promise.all([
     addPostgresColumnIfNotExists('settings', 'driveMode', 'TEXT'),
     addPostgresColumnIfNotExists('settings', 'driveFolderId', 'TEXT'),
+  ])
+
+  // === Version 12: Manajemen Inventaris Humas (Super Admin only) ===
+  // (See syncSqlite Version 12 for details.)
+  await Promise.all([
+    createPostgresTableIfNotExists('inventory', `(
+      "id" TEXT NOT NULL PRIMARY KEY,
+      "kodeBarang" TEXT NOT NULL UNIQUE,
+      "namaBarang" TEXT NOT NULL,
+      "kategori" TEXT NOT NULL,
+      "jumlahTotal" INTEGER NOT NULL DEFAULT 0,
+      "jumlahTersedia" INTEGER NOT NULL DEFAULT 0,
+      "jumlahDipinjam" INTEGER NOT NULL DEFAULT 0,
+      "jumlahDibagikan" INTEGER NOT NULL DEFAULT 0,
+      "lokasi" TEXT,
+      "status" TEXT NOT NULL DEFAULT 'baik',
+      "kondisiCatatan" TEXT,
+      "imageFileId" TEXT,
+      "imageUrl" TEXT,
+      "catatan" TEXT,
+      "createdBy" TEXT,
+      "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      "updatedAt" TIMESTAMP(3) NOT NULL
+    )`),
+    createPostgresTableIfNotExists('inventory_loans', `(
+      "id" TEXT NOT NULL PRIMARY KEY,
+      "inventoryId" TEXT NOT NULL,
+      "peminjamId" TEXT,
+      "peminjamName" TEXT NOT NULL,
+      "tanggalPinjam" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      "tanggalKembaliRencana" TIMESTAMP(3),
+      "tanggalKembaliAktual" TIMESTAMP(3),
+      "jumlahDipinjam" INTEGER NOT NULL DEFAULT 1,
+      "status" TEXT NOT NULL DEFAULT 'pending',
+      "keperluan" TEXT,
+      "catatan" TEXT,
+      "approverId" TEXT,
+      "approvedAt" TIMESTAMP(3),
+      "rejectedReason" TEXT,
+      "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      "updatedAt" TIMESTAMP(3) NOT NULL,
+      CONSTRAINT "inventory_loans_inventoryId_fkey" FOREIGN KEY ("inventoryId") REFERENCES "inventory" ("id") ON DELETE CASCADE ON UPDATE CASCADE
+    )`),
+    createPostgresTableIfNotExists('inventory_returns', `(
+      "id" TEXT NOT NULL PRIMARY KEY,
+      "loanId" TEXT NOT NULL UNIQUE,
+      "tanggalKembali" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      "kondisi" TEXT NOT NULL,
+      "jumlahDikembalikan" INTEGER NOT NULL DEFAULT 1,
+      "catatan" TEXT,
+      "receivedById" TEXT,
+      "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      CONSTRAINT "inventory_returns_loanId_fkey" FOREIGN KEY ("loanId") REFERENCES "inventory_loans" ("id") ON DELETE CASCADE ON UPDATE CASCADE
+    )`),
+    createPostgresTableIfNotExists('inventory_distributions', `(
+      "id" TEXT NOT NULL PRIMARY KEY,
+      "inventoryId" TEXT NOT NULL,
+      "penerimaName" TEXT NOT NULL,
+      "penerimaUnit" TEXT,
+      "jumlahDibagikan" INTEGER NOT NULL DEFAULT 1,
+      "tanggalBagi" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      "keperluan" TEXT,
+      "catatan" TEXT,
+      "distribusiById" TEXT,
+      "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      CONSTRAINT "inventory_distributions_inventoryId_fkey" FOREIGN KEY ("inventoryId") REFERENCES "inventory" ("id") ON DELETE CASCADE ON UPDATE CASCADE
+    )`),
+    createPostgresTableIfNotExists('inventory_history', `(
+      "id" TEXT NOT NULL PRIMARY KEY,
+      "inventoryId" TEXT NOT NULL,
+      "jenisTransaksi" TEXT NOT NULL,
+      "tanggalTransaksi" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      "pelakuId" TEXT,
+      "pelakuName" TEXT,
+      "keterangan" TEXT,
+      "jumlah" INTEGER,
+      "loanId" TEXT,
+      "distributionId" TEXT,
+      "returnId" TEXT,
+      CONSTRAINT "inventory_history_inventoryId_fkey" FOREIGN KEY ("inventoryId") REFERENCES "inventory" ("id") ON DELETE CASCADE ON UPDATE CASCADE
+    )`),
   ])
 }
 

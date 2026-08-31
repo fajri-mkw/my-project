@@ -20,6 +20,7 @@ const UserReportsView = dynamic(() => import('@/components/pushakin/user-reports
 const UserManagementView = dynamic(() => import('@/components/pushakin/user-management-view').then(m => ({ default: m.UserManagementView })), { ssr: false })
 const ProfileView = dynamic(() => import('@/components/pushakin/profile-view').then(m => ({ default: m.ProfileView })), { ssr: false })
 const SettingsView = dynamic(() => import('@/components/pushakin/settings-view').then(m => ({ default: m.SettingsView })), { ssr: false })
+const InventoryManagementView = dynamic(() => import('@/components/pushakin/inventory-management-view').then(m => ({ default: m.InventoryManagementView })), { ssr: false })
 const InboxView = dynamic(() => import('@/components/pushakin/inbox-view').then(m => ({ default: m.InboxView })), { ssr: false })
 const AnnouncementView = dynamic(() => import('@/components/pushakin/announcement-view').then(m => ({ default: m.AnnouncementView })), { ssr: false })
 const PermohonanView = dynamic(() => import('@/components/pushakin/permohonan-view').then(m => ({ default: m.PermohonanView })), { ssr: false })
@@ -653,6 +654,7 @@ function AppContent() {
           : <UserReportsView />
       case 'profile': return <ProfileView />
       case 'settings': return <SettingsView />
+      case 'inventory': return <InventoryManagementView />
       case 'announcements': return <AnnouncementView />
       case 'permohonan': return <PermohonanView />
       case 'surat': return <SuratManagementView />
