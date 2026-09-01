@@ -46,6 +46,23 @@ function getHistoryBadge(type: string) { const o = HISTORY_TYPES[type] || { labe
 function formatDate(s: string | null) { if (!s) return '—'; const d = new Date(s); if (isNaN(d.getTime())) return s; return d.toLocaleDateString('id-ID', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }) }
 function formatShortDate(s: string | null) { if (!s) return '—'; const d = new Date(s); if (isNaN(d.getTime())) return s; return d.toLocaleDateString('id-ID', { day: '2-digit', month: 'short', year: 'numeric' }) }
 
+// Convert Google Drive URLs ke format yang bisa display di <img>.
+// Format input: https://drive.google.com/open?id=XXX
+// Format output: https://drive.google.com/thumbnail?id=XXX&sz=w400
+// (thumbnail endpoint merender gambar langsung, bukan halaman Drive)
+function driveImageUrl(url: string | null): string | null {
+  if (!url) return null
+  // Already a thumbnail or direct image URL — return as-is
+  if (url.includes('thumbnail') || url.includes('lh3.googleusercontent.com')) return url
+  // Convert open?id= → thumbnail?id=
+  const idMatch = url.match(/[?&]id=([^&]+)/)
+  if (idMatch) return `https://drive.google.com/thumbnail?id=${idMatch[1]}&sz=w400`
+  // Convert /file/d/XXX/view → thumbnail
+  const fileMatch = url.match(/\/file\/d\/([^/]+)/)
+  if (fileMatch) return `https://drive.google.com/thumbnail?id=${fileMatch[1]}&sz=w400`
+  return url
+}
+
 export function InventoryManagementView() {
   const { currentUser, showAlert } = useAppStore()
   const [activeTab, setActiveTab] = useState('barang')
@@ -239,7 +256,6 @@ export function InventoryManagementView() {
   const totalTersedia = items.reduce((s, i) => s + i.jumlahTersedia, 0)
   const totalDipinjam = items.reduce((s, i) => s + i.jumlahDipinjam, 0)
   const totalDibagikan = items.reduce((s, i) => s + i.jumlahDibagikan, 0)
-  const stokMenipis = items.filter(i => i.jumlahTersedia <= 2 && i.jumlahTersedia > 0)
   const stokHabis = items.filter(i => i.jumlahTersedia === 0)
   const pendingLoans = loans.filter(l => l.status === 'pending')
   const activeLoans = loans.filter(l => l.status === 'active')
@@ -268,12 +284,11 @@ export function InventoryManagementView() {
       </div>
 
       {/* Stok warnings */}
-      {(stokMenipis.length > 0 || stokHabis.length > 0) && (
-        <div className="p-4 bg-amber-50 border border-amber-200 rounded-xl text-amber-800 text-sm">
+      {(stokHabis.length > 0) && (
+        <div className="p-4 bg-red-50 border border-red-200 rounded-xl text-red-800 text-sm">
           <div className="flex items-start gap-3"><Package className="w-5 h-5 flex-shrink-0 mt-0.5" /><div>
-            <p className="font-semibold">⚠️ Notifikasi Stok</p>
-            {stokHabis.length > 0 && <p className="mt-1">Stok habis ({stokHabis.length}): {stokHabis.map(i => i.namaBarang).join(', ')}</p>}
-            {stokMenipis.length > 0 && <p className="mt-1">Stok menipis ({stokMenipis.length}): {stokMenipis.map(i => `${i.namaBarang} (${i.jumlahTersedia})`).join(', ')}</p>}
+            <p className="font-semibold">⚠️ Stok Habis</p>
+            {stokHabis.length > 0 && <p className="mt-1">Barang stok habis ({stokHabis.length}): {stokHabis.map(i => i.namaBarang).join(', ')}</p>}
           </div></div>
         </div>
       )}
@@ -314,7 +329,7 @@ export function InventoryManagementView() {
                   <tbody>
                     {items.map(item => (
                       <tr key={item.id} className="border-b border-stone-100 hover:bg-stone-50">
-                        <td className="p-3">{item.imageUrl ? <img src={item.imageUrl} alt={item.namaBarang} className="w-10 h-10 rounded-lg object-cover border border-stone-200" /> : <div className="w-10 h-10 rounded-lg bg-stone-100 flex items-center justify-center"><Package className="w-5 h-5 text-stone-300" /></div>}</td>
+                        <td className="p-3">{item.imageUrl ? <img src={driveImageUrl(item.imageUrl) || undefined} alt={item.namaBarang} className="w-10 h-10 rounded-lg object-cover border border-stone-200" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }} /> : <div className="w-10 h-10 rounded-lg bg-stone-100 flex items-center justify-center"><Package className="w-5 h-5 text-stone-300" /></div>}</td>
                         <td className="p-3 font-mono text-xs">{item.kodeBarang}</td><td className="p-3 font-medium">{item.namaBarang}</td>
                         <td className="p-3 hidden md:table-cell"><Badge variant="outline" className="text-xs">{item.kategori}</Badge></td>
                         <td className="p-3 text-center font-semibold">{item.jumlahTotal}</td>
