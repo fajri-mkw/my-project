@@ -64,7 +64,7 @@ export function InventoryManagementView() {
   const [isUploadingImage, setIsUploadingImage] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
-  const [formData, setFormData] = useState({ kodeBarang: '', namaBarang: '', kategori: 'Merchandise', jumlahTotal: 1, lokasi: '', status: 'baik', kondisiCatatan: '', catatan: '', imageUrl: '', imageFileId: '' })
+  const [formData, setFormData] = useState({ kodeBarang: '', namaBarang: '', kategori: 'Merchandise', jumlahTotal: 1, lokasi: '', status: 'baik', catatan: '', imageUrl: '', imageFileId: '' })
 
   // Loan dialog
   const [isLoanDialogOpen, setIsLoanDialogOpen] = useState(false)
@@ -149,12 +149,12 @@ export function InventoryManagementView() {
     setFormData({
       kodeBarang: generateKodeBarang(defaultKategori),
       namaBarang: '', kategori: defaultKategori, jumlahTotal: 1,
-      lokasi: '', status: 'baik', kondisiCatatan: '', catatan: '',
+      lokasi: '', status: 'baik', catatan: '',
       imageUrl: '', imageFileId: '',
     })
     setIsItemDialogOpen(true)
   }
-  const openEditDialog = (item: InventoryItem) => { setEditingItem(item); setFormData({ kodeBarang: item.kodeBarang, namaBarang: item.namaBarang, kategori: item.kategori, jumlahTotal: item.jumlahTotal, lokasi: item.lokasi || '', status: item.status, kondisiCatatan: item.kondisiCatatan || '', catatan: item.catatan || '', imageUrl: item.imageUrl || '', imageFileId: item.imageFileId || '' }); setIsItemDialogOpen(true) }
+  const openEditDialog = (item: InventoryItem) => { setEditingItem(item); setFormData({ kodeBarang: item.kodeBarang, namaBarang: item.namaBarang, kategori: item.kategori, jumlahTotal: item.jumlahTotal, lokasi: item.lokasi || '', status: item.status, catatan: item.catatan || '', imageUrl: item.imageUrl || '', imageFileId: item.imageFileId || '' }); setIsItemDialogOpen(true) }
 
   const handleSubmit = async () => {
     if (!formData.kodeBarang || !formData.namaBarang || !formData.kategori) { showAlert('Kode, Nama, dan Kategori wajib diisi'); return }
@@ -298,7 +298,7 @@ export function InventoryManagementView() {
         {/* ===== TAB: BARANG ===== */}
         <TabsContent value="barang" className="space-y-4">
           <div className="flex flex-wrap gap-2">
-            <div className="relative flex-1 min-w-[200px]"><Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-stone-400" /><Input placeholder="Cari nama atau kode..." value={search} onChange={e => setSearch(e.target.value)} className="pl-10" /></div>
+            <div className="relative flex-1 min-w-[200px]"><Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-stone-400" /><Input value={search} onChange={e => setSearch(e.target.value)} className="pl-10" /></div>
             <Select value={filterKategori} onValueChange={setFilterKategori}><SelectTrigger className="w-[160px]"><SelectValue placeholder="Kategori" /></SelectTrigger><SelectContent><SelectItem value="all">Semua</SelectItem>{KATEGORI_OPTIONS.map(k => <SelectItem key={k} value={k}>{k}</SelectItem>)}</SelectContent></Select>
             <Select value={filterStatus} onValueChange={setFilterStatus}><SelectTrigger className="w-[140px]"><SelectValue placeholder="Status" /></SelectTrigger><SelectContent><SelectItem value="all">Semua</SelectItem>{STATUS_OPTIONS.map(s => <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>)}</SelectContent></Select>
           </div>
@@ -494,22 +494,15 @@ export function InventoryManagementView() {
                   required
                   value={formData.kodeBarang}
                   onChange={e => setFormData(p => ({ ...p, kodeBarang: e.target.value }))}
-                  placeholder="Auto-generated"
                   className="font-mono"
                 />
-                {!editingItem && (
-                  <p className="text-[10px] text-stone-400 mt-1">
-                    Kode di-generate otomatis dari kategori. Bisa edit manual jika perlu.
-                  </p>
-                )}
               </div>
-              <div><Label htmlFor="namaBarang">Nama Barang *</Label><Input id="namaBarang" required value={formData.namaBarang} onChange={e => setFormData(p => ({ ...p, namaBarang: e.target.value }))} placeholder="Tumbler Pushakin" /></div>
+              <div><Label htmlFor="namaBarang">Nama Barang *</Label><Input id="namaBarang" required value={formData.namaBarang} onChange={e => setFormData(p => ({ ...p, namaBarang: e.target.value }))} /></div>
               <div><Label htmlFor="kategori">Kategori *</Label><Select value={formData.kategori} onValueChange={handleKategoriChange}><SelectTrigger id="kategori"><SelectValue /></SelectTrigger><SelectContent>{KATEGORI_OPTIONS.map(k => <SelectItem key={k} value={k}>{k}</SelectItem>)}</SelectContent></Select></div>
               <div><Label htmlFor="jumlahTotal">Jumlah Total</Label><Input id="jumlahTotal" type="number" min={0} value={formData.jumlahTotal} onChange={e => setFormData(p => ({ ...p, jumlahTotal: Number(e.target.value) }))} /></div>
-              <div><Label htmlFor="lokasi">Lokasi</Label><Input id="lokasi" value={formData.lokasi} onChange={e => setFormData(p => ({ ...p, lokasi: e.target.value }))} placeholder="Gudang Humas Lt. 2" /></div>
+              <div><Label htmlFor="lokasi">Lokasi</Label><Input id="lokasi" value={formData.lokasi} onChange={e => setFormData(p => ({ ...p, lokasi: e.target.value }))} /></div>
               <div><Label htmlFor="status">Status</Label><Select value={formData.status} onValueChange={v => setFormData(p => ({ ...p, status: v }))}><SelectTrigger id="status"><SelectValue /></SelectTrigger><SelectContent>{STATUS_OPTIONS.map(s => <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>)}</SelectContent></Select></div>
             </div>
-            <div><Label htmlFor="kondisiCatatan">Catatan Kondisi</Label><Input id="kondisiCatatan" value={formData.kondisiCatatan} onChange={e => setFormData(p => ({ ...p, kondisiCatatan: e.target.value }))} placeholder="Handle ada retak" /></div>
             <div><Label htmlFor="catatan">Catatan</Label><Textarea id="catatan" rows={2} value={formData.catatan} onChange={e => setFormData(p => ({ ...p, catatan: e.target.value }))} /></div>
           </div>
           <DialogFooter className="gap-2"><Button variant="outline" onClick={() => setIsItemDialogOpen(false)} disabled={isSaving}>Batal</Button><Button onClick={handleSubmit} disabled={isSaving}>{isSaving ? <><Loader2 className="w-4 h-4 animate-spin mr-2" />Menyimpan...</> : editingItem ? 'Update' : 'Tambah'}</Button></DialogFooter>
@@ -521,12 +514,12 @@ export function InventoryManagementView() {
         <DialogContent className="max-w-md"><DialogHeader><DialogTitle>Pinjam Barang</DialogTitle></DialogHeader>
           <div className="space-y-4 py-2">
             <div><Label>Barang *</Label><Select value={loanForm.inventoryId} onValueChange={v => setLoanForm(p => ({ ...p, inventoryId: v }))}><SelectTrigger><SelectValue placeholder="Pilih barang" /></SelectTrigger><SelectContent>{items.filter(i => i.jumlahTersedia > 0).map(i => <SelectItem key={i.id} value={i.id}>{i.namaBarang} ({i.kodeBarang}) — Tersedia: {i.jumlahTersedia}</SelectItem>)}</SelectContent></Select></div>
-            <div><Label htmlFor="peminjamName">Nama Peminjam *</Label><Input id="peminjamName" value={loanForm.peminjamName} onChange={e => setLoanForm(p => ({ ...p, peminjamName: e.target.value }))} placeholder="Nama peminjam" /></div>
+            <div><Label htmlFor="peminjamName">Nama Peminjam *</Label><Input id="peminjamName" value={loanForm.peminjamName} onChange={e => setLoanForm(p => ({ ...p, peminjamName: e.target.value }))} /></div>
             <div className="grid grid-cols-2 gap-3">
               <div><Label htmlFor="jumlahDipinjam">Jumlah</Label><Input id="jumlahDipinjam" type="number" min={1} value={loanForm.jumlahDipinjam} onChange={e => setLoanForm(p => ({ ...p, jumlahDipinjam: Number(e.target.value) }))} /></div>
               <div><Label htmlFor="tanggalKembaliRencana">Tgl Kembali Rencana</Label><Input id="tanggalKembaliRencana" type="date" value={loanForm.tanggalKembaliRencana} onChange={e => setLoanForm(p => ({ ...p, tanggalKembaliRencana: e.target.value }))} /></div>
             </div>
-            <div><Label htmlFor="keperluan">Keperluan</Label><Input id="keperluan" value={loanForm.keperluan} onChange={e => setLoanForm(p => ({ ...p, keperluan: e.target.value }))} placeholder="Acara / keperluan" /></div>
+            <div><Label htmlFor="keperluan">Keperluan</Label><Input id="keperluan" value={loanForm.keperluan} onChange={e => setLoanForm(p => ({ ...p, keperluan: e.target.value }))} /></div>
             <div><Label htmlFor="loanCatatan">Catatan</Label><Textarea id="loanCatatan" rows={2} value={loanForm.catatan} onChange={e => setLoanForm(p => ({ ...p, catatan: e.target.value }))} /></div>
           </div>
           <DialogFooter className="gap-2"><Button variant="outline" onClick={() => setIsLoanDialogOpen(false)} disabled={isLoanSaving}>Batal</Button><Button onClick={handleLoanSubmit} disabled={isLoanSaving}>{isLoanSaving ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : null}Buat Permintaan</Button></DialogFooter>
@@ -538,7 +531,7 @@ export function InventoryManagementView() {
         <DialogContent className="max-w-md"><DialogHeader><DialogTitle>Pengembalian Barang</DialogTitle></DialogHeader>
           <div className="space-y-4 py-2">
             <div><Label>Kondisi Barang</Label><Select value={returnForm.kondisi} onValueChange={v => setReturnForm(p => ({ ...p, kondisi: v }))}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{KONDISI_OPTIONS.map(k => <SelectItem key={k.value} value={k.value}>{k.label}</SelectItem>)}</SelectContent></Select></div>
-            <div><Label htmlFor="returnCatatan">Catatan</Label><Textarea id="returnCatatan" rows={3} value={returnForm.catatan} onChange={e => setReturnForm(p => ({ ...p, catatan: e.target.value }))} placeholder="Catatan kondisi / kerusakan..." /></div>
+            <div><Label htmlFor="returnCatatan">Catatan</Label><Textarea id="returnCatatan" rows={3} value={returnForm.catatan} onChange={e => setReturnForm(p => ({ ...p, catatan: e.target.value }))} /></div>
             <div className="p-3 bg-stone-50 rounded-lg text-xs text-stone-600"><p>• <b>Baik</b>: stok kembali normal</p><p>• <b>Rusak Ringan</b>: stok kembali, status tetap baik</p><p>• <b>Rusak Berat</b>: stok tidak kembali, status → rusak</p><p>• <b>Hilang</b>: total dikurangi, status → hilang</p></div>
           </div>
           <DialogFooter className="gap-2"><Button variant="outline" onClick={() => setReturnLoanId(null)}>Batal</Button><Button onClick={() => { handleLoanAction(returnLoanId!, 'return', returnForm); setReturnLoanId(null) }}>Kembalikan</Button></DialogFooter>
@@ -548,7 +541,7 @@ export function InventoryManagementView() {
       {/* ===== REJECT DIALOG ===== */}
       <Dialog open={rejectLoanId !== null} onOpenChange={v => !v && setRejectLoanId(null)}>
         <DialogContent className="max-w-md"><DialogHeader><DialogTitle>Tolak Peminjaman</DialogTitle></DialogHeader>
-          <div className="space-y-4 py-2"><div><Label htmlFor="rejectReason">Alasan Penolakan</Label><Textarea id="rejectReason" rows={3} value={rejectReason} onChange={e => setRejectReason(e.target.value)} placeholder="Alasan menolak permintaan..." /></div></div>
+          <div className="space-y-4 py-2"><div><Label htmlFor="rejectReason">Alasan Penolakan</Label><Textarea id="rejectReason" rows={3} value={rejectReason} onChange={e => setRejectReason(e.target.value)} /></div></div>
           <DialogFooter className="gap-2"><Button variant="outline" onClick={() => setRejectLoanId(null)}>Batal</Button><Button variant="destructive" onClick={() => { handleLoanAction(rejectLoanId!, 'reject', { rejectedReason }); setRejectLoanId(null) }}>Tolak</Button></DialogFooter>
         </DialogContent>
       </Dialog>
@@ -558,10 +551,10 @@ export function InventoryManagementView() {
         <DialogContent className="max-w-md"><DialogHeader><DialogTitle>Bagikan Barang</DialogTitle></DialogHeader>
           <div className="space-y-4 py-2">
             <div><Label>Barang *</Label><Select value={distForm.inventoryId} onValueChange={v => setDistForm(p => ({ ...p, inventoryId: v }))}><SelectTrigger><SelectValue placeholder="Pilih barang" /></SelectTrigger><SelectContent>{items.filter(i => i.jumlahTersedia > 0).map(i => <SelectItem key={i.id} value={i.id}>{i.namaBarang} ({i.kodeBarang}) — Tersedia: {i.jumlahTersedia}</SelectItem>)}</SelectContent></Select></div>
-            <div><Label htmlFor="penerimaName">Nama Penerima *</Label><Input id="penerimaName" value={distForm.penerimaName} onChange={e => setDistForm(p => ({ ...p, penerimaName: e.target.value }))} placeholder="Nama penerima" /></div>
-            <div><Label htmlFor="penerimaUnit">Unit / Instansi</Label><Input id="penerimaUnit" value={distForm.penerimaUnit} onChange={e => setDistForm(p => ({ ...p, penerimaUnit: e.target.value }))} placeholder="Unit/instansi penerima" /></div>
+            <div><Label htmlFor="penerimaName">Nama Penerima *</Label><Input id="penerimaName" value={distForm.penerimaName} onChange={e => setDistForm(p => ({ ...p, penerimaName: e.target.value }))} /></div>
+            <div><Label htmlFor="penerimaUnit">Unit / Instansi</Label><Input id="penerimaUnit" value={distForm.penerimaUnit} onChange={e => setDistForm(p => ({ ...p, penerimaUnit: e.target.value }))} /></div>
             <div><Label htmlFor="jumlahDibagikan">Jumlah</Label><Input id="jumlahDibagikan" type="number" min={1} value={distForm.jumlahDibagikan} onChange={e => setDistForm(p => ({ ...p, jumlahDibagikan: Number(e.target.value) }))} /></div>
-            <div><Label htmlFor="distKeperluan">Keperluan</Label><Input id="distKeperluan" value={distForm.keperluan} onChange={e => setDistForm(p => ({ ...p, keperluan: e.target.value }))} placeholder="Keperluan pembagian" /></div>
+            <div><Label htmlFor="distKeperluan">Keperluan</Label><Input id="distKeperluan" value={distForm.keperluan} onChange={e => setDistForm(p => ({ ...p, keperluan: e.target.value }))} /></div>
             <div><Label htmlFor="distCatatan">Catatan</Label><Textarea id="distCatatan" rows={2} value={distForm.catatan} onChange={e => setDistForm(p => ({ ...p, catatan: e.target.value }))} /></div>
           </div>
           <DialogFooter className="gap-2"><Button variant="outline" onClick={() => setIsDistDialogOpen(false)} disabled={isDistSaving}>Batal</Button><Button onClick={handleDistSubmit} disabled={isDistSaving}>{isDistSaving ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : null}Bagikan</Button></DialogFooter>
