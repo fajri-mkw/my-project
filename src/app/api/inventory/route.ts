@@ -13,7 +13,8 @@ import {
 // ============================================================================
 
 const INVENTORY_COLUMNS = `id, kodeBarang, namaBarang, kategori, jumlahTotal,
-  jumlahTersedia, jumlahDipinjam, jumlahDibagikan, lokasi, status,
+  jumlahTersedia, jumlahDipinjam, jumlahDibagikan, lokasi, pengguna, penanggungJawab,
+  sumberPengadaan, tahunPengadaan, status,
   kondisiCatatan, imageFileId, imageUrl, catatan, createdBy, createdAt, updatedAt`
 
 function strOrNull(v: unknown): string | null {
@@ -32,6 +33,10 @@ function mapInventory(row: Record<string, unknown>) {
     jumlahDipinjam: Number(row.jumlahDipinjam ?? 0),
     jumlahDibagikan: Number(row.jumlahDibagikan ?? 0),
     lokasi: strOrNull(row.lokasi),
+    pengguna: strOrNull(row.pengguna),
+    penanggungJawab: strOrNull(row.penanggungJawab),
+    sumberPengadaan: strOrNull(row.sumberPengadaan),
+    tahunPengadaan: row.tahunPengadaan != null ? Number(row.tahunPengadaan) : null,
     status: String(row.status ?? 'baik'),
     kondisiCatatan: strOrNull(row.kondisiCatatan),
     imageFileId: strOrNull(row.imageFileId),
@@ -107,7 +112,8 @@ export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
     const {
-      kodeBarang, namaBarang, kategori, jumlahTotal, lokasi, status,
+      kodeBarang, namaBarang, kategori, jumlahTotal, lokasi, pengguna,
+      penanggungJawab, sumberPengadaan, tahunPengadaan, status,
       kondisiCatatan, imageFileId, imageUrl, catatan, createdBy,
     } = body as Record<string, string | undefined>
 
@@ -145,13 +151,16 @@ export async function POST(request: NextRequest) {
     await client.execute({
       sql: `INSERT INTO inventory
             (id, kodeBarang, namaBarang, kategori, jumlahTotal, jumlahTersedia,
-             jumlahDipinjam, jumlahDibagikan, lokasi, status, kondisiCatatan,
+             jumlahDipinjam, jumlahDibagikan, lokasi, pengguna, penanggungJawab,
+             sumberPengadaan, tahunPengadaan, status, kondisiCatatan,
              imageFileId, imageUrl, catatan, createdBy, createdAt, updatedAt)
-            VALUES (?, ?, ?, ?, ?, ?, 0, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            VALUES (?, ?, ?, ?, ?, ?, 0, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       args: [
         bind(itemId), bind(kodeBarang), bind(namaBarang), bind(kategori),
         bind(total), bind(total),
-        bind(lokasi || null), bind(itemStatus), bind(kondisiCatatan || null),
+        bind(lokasi || null), bind(pengguna || null), bind(penanggungJawab || null),
+        bind(sumberPengadaan || null), bind(tahunPengadaan != null ? Number(tahunPengadaan) : null),
+        bind(itemStatus), bind(kondisiCatatan || null),
         bind(imageFileId || null), bind(imageUrl || null), bind(catatan || null),
         bind(createdBy || null), bind(ts), bind(ts),
       ],
@@ -182,7 +191,10 @@ export async function POST(request: NextRequest) {
         id: itemId, kodeBarang, namaBarang, kategori,
         jumlahTotal: total, jumlahTersedia: total,
         jumlahDipinjam: 0, jumlahDibagikan: 0,
-        lokasi: lokasi || null, status: itemStatus,
+        lokasi: lokasi || null, pengguna: pengguna || null,
+        penanggungJawab: penanggungJawab || null, sumberPengadaan: sumberPengadaan || null,
+        tahunPengadaan: tahunPengadaan != null ? Number(tahunPengadaan) : null,
+        status: itemStatus,
         kondisiCatatan: kondisiCatatan || null,
         imageFileId: imageFileId || null, imageUrl: imageUrl || null,
         catatan: catatan || null, createdBy: createdBy || null,
@@ -212,7 +224,8 @@ export async function PUT(request: NextRequest) {
   try {
     const body = await request.json()
     const {
-      id, kodeBarang, namaBarang, kategori, jumlahTotal, lokasi, status,
+      id, kodeBarang, namaBarang, kategori, jumlahTotal, lokasi, pengguna,
+      penanggungJawab, sumberPengadaan, tahunPengadaan, status,
       kondisiCatatan, imageFileId, imageUrl, catatan,
     } = body as Record<string, string | undefined>
 
@@ -256,6 +269,10 @@ export async function PUT(request: NextRequest) {
     if (namaBarang !== undefined) { sets.push('namaBarang = ?'); args.push(bind(namaBarang)) }
     if (kategori !== undefined) { sets.push('kategori = ?'); args.push(bind(kategori)) }
     if (lokasi !== undefined) { sets.push('lokasi = ?'); args.push(bind(lokasi || null)) }
+    if (pengguna !== undefined) { sets.push('pengguna = ?'); args.push(bind(pengguna || null)) }
+    if (penanggungJawab !== undefined) { sets.push('penanggungJawab = ?'); args.push(bind(penanggungJawab || null)) }
+    if (sumberPengadaan !== undefined) { sets.push('sumberPengadaan = ?'); args.push(bind(sumberPengadaan || null)) }
+    if (tahunPengadaan !== undefined) { sets.push('tahunPengadaan = ?'); args.push(bind(tahunPengadaan ? Number(tahunPengadaan) : null)) }
     if (status !== undefined) { sets.push('status = ?'); args.push(bind(status)) }
     if (kondisiCatatan !== undefined) { sets.push('kondisiCatatan = ?'); args.push(bind(kondisiCatatan || null)) }
     if (imageFileId !== undefined) { sets.push('imageFileId = ?'); args.push(bind(imageFileId || null)) }

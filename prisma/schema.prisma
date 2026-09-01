@@ -336,6 +336,10 @@ model Inventory {
   jumlahDipinjam  Int      @default(0)
   jumlahDibagikan Int      @default(0)
   lokasi          String?
+  pengguna        String?
+  penanggungJawab String?
+  sumberPengadaan String?  // 'Umum' | 'Mandiri'
+  tahunPengadaan  Int?
   status          String   @default("baik") // 'baik' | 'rusak' | 'hilang'
   kondisiCatatan  String?  // catatan kondisi (mis. "handle rusak", "hilang di event X")
   imageFileId     String?  // Google Drive file ID for inventory photo

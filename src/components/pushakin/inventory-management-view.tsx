@@ -14,7 +14,7 @@ import { useAppStore } from '@/lib/store'
 import { cn } from '@/lib/utils'
 import { Package, Plus, Search, Camera, Trash2, Pencil, Loader2, PackageCheck, PackageOpen, ClipboardList, History, CheckCircle2, XCircle, ArrowLeftRight } from 'lucide-react'
 
-interface InventoryItem { id: string; kodeBarang: string; namaBarang: string; kategori: string; jumlahTotal: number; jumlahTersedia: number; jumlahDipinjam: number; jumlahDibagikan: number; lokasi: string | null; status: string; kondisiCatatan: string | null; imageFileId: string | null; imageUrl: string | null; catatan: string | null; createdAt: string; updatedAt: string }
+interface InventoryItem { id: string; kodeBarang: string; namaBarang: string; kategori: string; jumlahTotal: number; jumlahTersedia: number; jumlahDipinjam: number; jumlahDibagikan: number; lokasi: string | null; pengguna: string | null; penanggungJawab: string | null; sumberPengadaan: string | null; tahunPengadaan: number | null; status: string; kondisiCatatan: string | null; imageFileId: string | null; imageUrl: string | null; catatan: string | null; createdAt: string; updatedAt: string }
 interface Loan { id: string; inventoryId: string; peminjamName: string; peminjamId: string | null; tanggalPinjam: string; tanggalKembaliRencana: string | null; tanggalKembaliAktual: string | null; jumlahDipinjam: number; status: string; keperluan: string | null; catatan: string | null; rejectedReason: string | null; kodeBarang: string; namaBarang: string; kategori: string }
 interface Distribution { id: string; inventoryId: string; penerimaName: string; penerimaUnit: string | null; jumlahDibagikan: number; tanggalBagi: string; keperluan: string | null; catatan: string | null; kodeBarang: string; namaBarang: string; kategori: string }
 interface HistoryEntry { id: string; inventoryId: string; jenisTransaksi: string; tanggalTransaksi: string; pelakuName: string | null; keterangan: string | null; jumlah: number | null; kodeBarang: string; namaBarang: string }
@@ -64,7 +64,7 @@ export function InventoryManagementView() {
   const [isUploadingImage, setIsUploadingImage] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
-  const [formData, setFormData] = useState({ kodeBarang: '', namaBarang: '', kategori: 'Merchandise', jumlahTotal: 1, lokasi: '', status: 'baik', catatan: '', imageUrl: '', imageFileId: '' })
+  const [formData, setFormData] = useState({ kodeBarang: '', namaBarang: '', kategori: 'Merchandise', jumlahTotal: 1, lokasi: '', pengguna: '', penanggungJawab: '', sumberPengadaan: '', tahunPengadaan: '', status: 'baik', catatan: '', imageUrl: '', imageFileId: '' })
 
   // Loan dialog
   const [isLoanDialogOpen, setIsLoanDialogOpen] = useState(false)
@@ -149,12 +149,12 @@ export function InventoryManagementView() {
     setFormData({
       kodeBarang: generateKodeBarang(defaultKategori),
       namaBarang: '', kategori: defaultKategori, jumlahTotal: 1,
-      lokasi: '', status: 'baik', catatan: '',
+      lokasi: '', pengguna: '', penanggungJawab: '', sumberPengadaan: '', tahunPengadaan: '', status: 'baik', catatan: '',
       imageUrl: '', imageFileId: '',
     })
     setIsItemDialogOpen(true)
   }
-  const openEditDialog = (item: InventoryItem) => { setEditingItem(item); setFormData({ kodeBarang: item.kodeBarang, namaBarang: item.namaBarang, kategori: item.kategori, jumlahTotal: item.jumlahTotal, lokasi: item.lokasi || '', status: item.status, catatan: item.catatan || '', imageUrl: item.imageUrl || '', imageFileId: item.imageFileId || '' }); setIsItemDialogOpen(true) }
+  const openEditDialog = (item: InventoryItem) => { setEditingItem(item); setFormData({ kodeBarang: item.kodeBarang, namaBarang: item.namaBarang, kategori: item.kategori, jumlahTotal: item.jumlahTotal, lokasi: item.lokasi || '', pengguna: item.pengguna || '', penanggungJawab: item.penanggungJawab || '', sumberPengadaan: item.sumberPengadaan || '', tahunPengadaan: item.tahunPengadaan != null ? String(item.tahunPengadaan) : '', status: item.status, catatan: item.catatan || '', imageUrl: item.imageUrl || '', imageFileId: item.imageFileId || '' }); setIsItemDialogOpen(true) }
 
   const handleSubmit = async () => {
     if (!formData.kodeBarang || !formData.namaBarang || !formData.kategori) { showAlert('Kode, Nama, dan Kategori wajib diisi'); return }
@@ -501,6 +501,10 @@ export function InventoryManagementView() {
               <div><Label htmlFor="kategori">Kategori *</Label><Select value={formData.kategori} onValueChange={handleKategoriChange}><SelectTrigger id="kategori"><SelectValue /></SelectTrigger><SelectContent>{KATEGORI_OPTIONS.map(k => <SelectItem key={k} value={k}>{k}</SelectItem>)}</SelectContent></Select></div>
               <div><Label htmlFor="jumlahTotal">Jumlah Total</Label><Input id="jumlahTotal" type="number" min={0} value={formData.jumlahTotal} onChange={e => setFormData(p => ({ ...p, jumlahTotal: Number(e.target.value) }))} /></div>
               <div><Label htmlFor="lokasi">Lokasi</Label><Input id="lokasi" value={formData.lokasi} onChange={e => setFormData(p => ({ ...p, lokasi: e.target.value }))} /></div>
+              <div><Label htmlFor="pengguna">Pengguna</Label><Input id="pengguna" value={formData.pengguna} onChange={e => setFormData(p => ({ ...p, pengguna: e.target.value }))} /></div>
+              <div><Label htmlFor="penanggungJawab">Penanggung Jawab</Label><Input id="penanggungJawab" value={formData.penanggungJawab} onChange={e => setFormData(p => ({ ...p, penanggungJawab: e.target.value }))} /></div>
+              <div><Label htmlFor="sumberPengadaan">Sumber Pengadaan</Label><Select value={formData.sumberPengadaan} onValueChange={v => setFormData(p => ({ ...p, sumberPengadaan: v }))}><SelectTrigger id="sumberPengadaan"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="Umum">Umum</SelectItem><SelectItem value="Mandiri">Mandiri</SelectItem></SelectContent></Select></div>
+              <div><Label htmlFor="tahunPengadaan">Tahun Pengadaan</Label><Input id="tahunPengadaan" type="number" min={1900} max={2100} value={formData.tahunPengadaan} onChange={e => setFormData(p => ({ ...p, tahunPengadaan: e.target.value }))} /></div>
               <div><Label htmlFor="status">Status</Label><Select value={formData.status} onValueChange={v => setFormData(p => ({ ...p, status: v }))}><SelectTrigger id="status"><SelectValue /></SelectTrigger><SelectContent>{STATUS_OPTIONS.map(s => <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>)}</SelectContent></Select></div>
             </div>
             <div><Label htmlFor="catatan">Catatan</Label><Textarea id="catatan" rows={2} value={formData.catatan} onChange={e => setFormData(p => ({ ...p, catatan: e.target.value }))} /></div>
