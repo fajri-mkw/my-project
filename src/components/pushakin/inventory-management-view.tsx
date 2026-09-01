@@ -43,8 +43,8 @@ const HISTORY_TYPES: Record<string, { label: string; color: string }> = { masuk:
 function getStatusBadge(status: string) { const o = STATUS_OPTIONS.find(s => s.value === status) || STATUS_OPTIONS[0]; return <Badge className={cn('text-xs', o.color)}>{o.label}</Badge> }
 function getLoanStatusBadge(status: string) { const o = LOAN_STATUS_OPTIONS[status] || { label: status, color: 'bg-stone-100 text-stone-700' }; return <Badge className={cn('text-xs', o.color)}>{o.label}</Badge> }
 function getHistoryBadge(type: string) { const o = HISTORY_TYPES[type] || { label: type, color: 'bg-stone-100 text-stone-700' }; return <Badge className={cn('text-xs', o.color)}>{o.label}</Badge> }
-function formatDate(s: string | null) { if (!s) return '—'; const d = new Date(s); if (isNaN(d.getTime())) return s; return d.toLocaleDateString('id-ID', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }) }
-function formatShortDate(s: string | null) { if (!s) return '—'; const d = new Date(s); if (isNaN(d.getTime())) return s; return d.toLocaleDateString('id-ID', { day: '2-digit', month: 'short', year: 'numeric' }) }
+function formatDate(s: string | null) { if (!s) return '—'; const n = Number(s); const d = !isNaN(n) && n > 100000000000 ? new Date(n) : new Date(s); if (isNaN(d.getTime())) return s; return d.toLocaleDateString('id-ID', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }) }
+function formatShortDate(s: string | null) { if (!s) return '—'; const n = Number(s); const d = !isNaN(n) && n > 100000000000 ? new Date(n) : new Date(s); if (isNaN(d.getTime())) return s; return d.toLocaleDateString('id-ID', { day: '2-digit', month: 'short', year: 'numeric' }) }
 
 // Convert Google Drive URLs ke format yang bisa display di <img>.
 // Format input: https://drive.google.com/open?id=XXX

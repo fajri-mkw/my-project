@@ -151,22 +151,31 @@
 
 /* Print Styles */
 @media print {
-  .print\:hidden {
+  /* Hide EVERYTHING by default */
+  body * {
+    visibility: hidden;
+  }
+  /* Show only the print-area and its children */
+  .print-area, .print-area * {
+    visibility: visible;
+  }
+  /* Position print-area at top of page */
+  .print-area {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+    padding: 20px;
+  }
+  /* Hide dialog overlay/chrome */
+  .no-print {
     display: none !important;
   }
-  
-  .print\:block {
-    display: block !important;
-  }
-  
+
   body {
     background: white !important;
     print-color-adjust: exact;
     -webkit-print-color-adjust: exact;
-  }
-  
-  .no-print {
-    display: none !important;
   }
 }
 
