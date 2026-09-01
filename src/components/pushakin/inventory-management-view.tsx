@@ -581,7 +581,7 @@ export function InventoryManagementView() {
         return (
           <Dialog open={true} onOpenChange={() => setPrintLoanGroupId(null)}>
             <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
-              <DialogHeader><DialogTitle>Form Peminjaman Barang</DialogTitle></DialogHeader>
+              <DialogHeader className="no-print"><DialogTitle>Form Peminjaman Barang</DialogTitle></DialogHeader>
               <div className="py-2 print-area">
                 {/* Printable form */}
                 <div className="border-2 border-stone-800 p-6 rounded-lg">
@@ -627,7 +627,7 @@ export function InventoryManagementView() {
                   </div>
                 </div>
               </div>
-              <DialogFooter className="gap-2">
+              <DialogFooter className="gap-2 no-print">
                 <Button variant="outline" onClick={() => setPrintLoanGroupId(null)}>Tutup</Button>
                 <Button onClick={() => window.print()} className="gap-2"><PackageCheck className="w-4 h-4" />Download / Print PDF</Button>
               </DialogFooter>

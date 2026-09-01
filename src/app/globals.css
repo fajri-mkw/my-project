@@ -159,23 +159,44 @@
   .print-area, .print-area * {
     visibility: visible;
   }
-  /* Position print-area at top of page */
+  /* Position print-area at top of page, full width, no constraints */
   .print-area {
-    position: absolute;
-    left: 0;
-    top: 0;
-    width: 100%;
-    padding: 20px;
+    position: absolute !important;
+    left: 0 !important;
+    top: 0 !important;
+    width: 100% !important;
+    max-height: none !important;
+    overflow: visible !important;
+    padding: 20px !important;
   }
-  /* Hide dialog overlay/chrome */
+  /* Override Dialog constraints that clip content in print */
+  [data-radix-dialog-content], [role="dialog"] {
+    position: static !important;
+    max-height: none !important;
+    overflow: visible !important;
+    transform: none !important;
+    width: 100% !important;
+    max-width: none !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    border: none !important;
+    box-shadow: none !important;
+  }
+  [data-radix-dialog-overlay], [data-radix-overlay] {
+    background: white !important;
+    position: static !important;
+  }
+  /* Hide dialog header/footer buttons (no-print) */
   .no-print {
     display: none !important;
   }
-
   body {
     background: white !important;
     print-color-adjust: exact;
     -webkit-print-color-adjust: exact;
+  }
+  @page {
+    margin: 1.5cm;
   }
 }
 
