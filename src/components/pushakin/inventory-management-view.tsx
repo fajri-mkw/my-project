@@ -13,6 +13,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '
 import { useAppStore } from '@/lib/store'
 import { cn } from '@/lib/utils'
 import { Package, Plus, Search, Camera, Trash2, Pencil, Loader2, PackageCheck, PackageOpen, ClipboardList, History, CheckCircle2, XCircle, ArrowLeftRight, FileText } from 'lucide-react'
+import { jsPDF } from 'jspdf'
 
 interface InventoryItem { id: string; kodeBarang: string; namaBarang: string; kategori: string; jumlahTotal: number; jumlahTersedia: number; jumlahDipinjam: number; jumlahDibagikan: number; lokasi: string | null; pengguna: string | null; penanggungJawab: string | null; sumberPengadaan: string | null; tahunPengadaan: number | null; status: string; kondisiCatatan: string | null; imageFileId: string | null; imageUrl: string | null; catatan: string | null; createdAt: string; updatedAt: string }
 interface Loan { id: string; inventoryId: string; peminjamName: string; peminjamId: string | null; peminjamUnit: string | null; peminjamPhone: string | null; loanGroupId: string | null; tanggalPinjam: string; tanggalKembaliRencana: string | null; tanggalKembaliAktual: string | null; jumlahDipinjam: number; status: string; keperluan: string | null; catatan: string | null; rejectedReason: string | null; kodeBarang: string; namaBarang: string; kategori: string }
@@ -630,77 +631,100 @@ export function InventoryManagementView() {
               <DialogFooter className="gap-2 no-print">
                 <Button variant="outline" onClick={() => setPrintLoanGroupId(null)}>Tutup</Button>
                 <Button onClick={() => {
-                  // Generate standalone HTML file and download directly.
-                  // Tidak pakai window.print() — langsung download file .html
-                  // yang berisi form lengkap. User bisa buka file di browser
-                  // dan print ke PDF dari sana kalau perlu.
-                  const loanRows = groupLoans.map((l, i) => `
-                    <tr>
-                      <td style="padding:6px;border:1px solid #555;">${i + 1}</td>
-                      <td style="padding:6px;border:1px solid #555;font-family:monospace;">${l.kodeBarang}</td>
-                      <td style="padding:6px;border:1px solid #555;">${l.namaBarang}</td>
-                      <td style="padding:6px;border:1px solid #555;text-align:center;">${l.jumlahDipinjam}</td>
-                      <td style="padding:6px;border:1px solid #555;">${l.status === 'active' ? 'Dipinjam' : l.status === 'returned' ? 'Dikembalikan' : l.status}</td>
-                    </tr>`).join('')
+                  // Generate PDF langsung pakai jsPDF — download file .pdf
+                  const doc = new jsPDF({ unit: 'mm', format: 'a4' })
+                  const pageW = 210
+                  const margin = 15
+                  let y = 20
 
-                  const html = `<!DOCTYPE html>
-<html lang="id">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Form Peminjaman - ${first.peminjamName}</title>
-<style>
-  body { font-family: Arial, sans-serif; max-width: 800px; margin: 0 auto; padding: 40px; color: #1c1917; }
-  h2 { text-align: center; margin-bottom: 5px; }
-  .subtitle { text-align: center; font-size: 14px; margin-bottom: 5px; }
-  .form-id { text-align: center; font-size: 12px; color: #666; margin-bottom: 20px; }
-  table { width: 100%; border-collapse: collapse; margin-bottom: 15px; }
-  .info-table td { padding: 4px 0; font-size: 14px; }
-  .info-table td:first-child { font-weight: bold; width: 33%; }
-  .items-table th { background: #f5f5f4; padding: 6px; border: 1px solid #555; text-align: left; font-size: 13px; }
-  .items-table td { padding: 6px; border: 1px solid #555; font-size: 13px; }
-  .signatures { display: flex; justify-content: space-between; margin-top: 50px; }
-  .sig-box { text-align: center; width: 200px; }
-  .sig-line { border-top: 1px solid #444; margin-top: 60px; padding-top: 5px; }
-  .note { font-size: 14px; margin: 10px 0; }
-  @media print { body { padding: 20px; } @page { margin: 1.5cm; } }
-</style>
-</head>
-<body>
-<h2>FORM PEMINJAMAN BARANG</h2>
-<p class="subtitle">Pusat Hubungan Masyarakat dan Keterbukaan Informasi</p>
-<p class="form-id">ID: ${printLoanGroupId}</p>
-<table class="info-table">
-<tr><td>Nama Peminjam</td><td>: ${first.peminjamName}</td></tr>
-<tr><td>Unit / Instansi</td><td>: ${first.peminjamUnit || '—'}</td></tr>
-<tr><td>No. HP / WhatsApp</td><td>: ${first.peminjamPhone || '—'}</td></tr>
-<tr><td>Tanggal Pinjam</td><td>: ${formatShortDate(first.tanggalPinjam)}</td></tr>
-<tr><td>Rencana Kembali</td><td>: ${formatShortDate(first.tanggalKembaliRencana)}</td></tr>
-<tr><td>Keperluan</td><td>: ${first.keperluan || '—'}</td></tr>
-</table>
-<table class="items-table">
-<thead><tr><th>No</th><th>Kode</th><th>Nama Barang</th><th style="text-align:center;">Jumlah</th><th>Keterangan</th></tr></thead>
-<tbody>${loanRows}</tbody>
-</table>
-${first.catatan ? `<p class="note"><b>Catatan:</b> ${first.catatan}</p>` : ''}
-<div class="signatures">
-<div class="sig-box"><p>Peminjam</p><div class="sig-line">(_____________________)</div></div>
-<div class="sig-box"><p>Petugas Humas</p><div class="sig-line">(_____________________)</div></div>
-</div>
-</body>
-</html>`
+                  // Header
+                  doc.setFontSize(16); doc.setFont('helvetica', 'bold')
+                  doc.text('FORM PEMINJAMAN BARANG', pageW / 2, y, { align: 'center' })
+                  y += 6
+                  doc.setFontSize(11); doc.setFont('helvetica', 'normal')
+                  doc.text('Pusat Hubungan Masyarakat dan Keterbukaan Informasi', pageW / 2, y, { align: 'center' })
+                  y += 5
+                  doc.setFontSize(8); doc.setTextColor(120)
+                  doc.text(`ID: ${printLoanGroupId}`, pageW / 2, y, { align: 'center' })
+                  doc.setTextColor(0)
+                  y += 10
 
-                  const blob = new Blob([html], { type: 'text/html;charset=utf-8' })
-                  const url = URL.createObjectURL(blob)
-                  const a = document.createElement('a')
-                  a.href = url
-                  a.download = `Form-Peminjaman-${first.peminjamName.replace(/\s+/g, '_')}-${printLoanGroupId}.html`
-                  document.body.appendChild(a)
-                  a.click()
-                  document.body.removeChild(a)
-                  URL.revokeObjectURL(url)
-                  showAlert('Form berhasil di-download. Buka file HTML di browser, lalu klik Ctrl+P untuk simpan sebagai PDF.')
-                }} className="gap-2"><PackageCheck className="w-4 h-4" />Download Form</Button>
+                  // Info peminjam
+                  doc.setFontSize(10); doc.setFont('helvetica', 'normal')
+                  const info = [
+                    ['Nama Peminjam', first.peminjamName],
+                    ['Unit / Instansi', first.peminjamUnit || '—'],
+                    ['No. HP / WhatsApp', first.peminjamPhone || '—'],
+                    ['Tanggal Pinjam', formatShortDate(first.tanggalPinjam)],
+                    ['Rencana Kembali', formatShortDate(first.tanggalKembaliRencana)],
+                    ['Keperluan', first.keperluan || '—'],
+                  ]
+                  for (const [label, value] of info) {
+                    doc.setFont('helvetica', 'bold')
+                    doc.text(label, margin, y)
+                    doc.setFont('helvetica', 'normal')
+                    doc.text(`: ${value}`, margin + 50, y)
+                    y += 6
+                  }
+                  y += 4
+
+                  // Tabel barang
+                  const colW = [12, 35, 75, 20, 38]
+                  const tableX = margin
+                  // Header row
+                  doc.setFillColor(245, 245, 244)
+                  doc.rect(tableX, y - 4, colW.reduce((a, b) => a + b, 0), 7, 'F')
+                  doc.setFontSize(9); doc.setFont('helvetica', 'bold')
+                  const headers = ['No', 'Kode', 'Nama Barang', 'Jumlah', 'Keterangan']
+                  let cx = tableX
+                  for (let i = 0; i < headers.length; i++) {
+                    doc.text(headers[i], cx + 2, y, { maxWidth: colW[i] - 2 })
+                    cx += colW[i]
+                  }
+                  y += 8
+                  // Data rows
+                  doc.setFont('helvetica', 'normal')
+                  doc.setDrawColor(200)
+                  groupLoans.forEach((l, i) => {
+                    if (y > 270) { doc.addPage(); y = 20 }
+                    cx = tableX
+                    const rowData = [String(i + 1), l.kodeBarang, l.namaBarang, String(l.jumlahDipinjam), l.status === 'active' ? 'Dipinjam' : l.status === 'returned' ? 'Dikembalikan' : l.status]
+                    for (let j = 0; j < rowData.length; j++) {
+                      doc.text(rowData[j], cx + 2, y, { maxWidth: colW[j] - 2 })
+                      cx += colW[j]
+                    }
+                    doc.line(tableX, y + 2, tableX + colW.reduce((a, b) => a + b, 0), y + 2)
+                    y += 7
+                  })
+
+                  // Catatan
+                  y += 4
+                  if (first.catatan) {
+                    doc.setFont('helvetica', 'bold')
+                    doc.text('Catatan:', margin, y)
+                    doc.setFont('helvetica', 'normal')
+                    doc.text(first.catatan, margin + 20, y, { maxWidth: pageW - margin * 2 - 20 })
+                    y += 8
+                  }
+
+                  // Tanda tangan
+                  y += 15
+                  if (y > 250) { doc.addPage(); y = 20 }
+                  doc.setFontSize(10)
+                  doc.text('Peminjam', margin + 30, y, { align: 'center' })
+                  doc.text('Petugas Humas', pageW - margin - 35, y, { align: 'center' })
+                  y += 25
+                  doc.line(margin + 10, y, margin + 55, y)
+                  doc.line(pageW - margin - 55, y, pageW - margin - 10, y)
+                  y += 5
+                  doc.setFontSize(8)
+                  doc.text('(____________________)', margin + 32, y, { align: 'center' })
+                  doc.text('(____________________)', pageW - margin - 33, y, { align: 'center' })
+
+                  // Download
+                  doc.save(`Form-Peminjaman-${first.peminjamName.replace(/\s+/g, '_')}.pdf`)
+                  showAlert('Form PDF berhasil di-download.')
+                }} className="gap-2"><PackageCheck className="w-4 h-4" />Download PDF</Button>
               </DialogFooter>
             </DialogContent>
           </Dialog>
