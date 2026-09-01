@@ -2,12 +2,12 @@ import { NextRequest, NextResponse } from 'next/server'
 import { withEdgeCache, invalidateCache, deferToBackground } from '@/lib/edge-cache'
 import { getLibsql, bind, nowMs, genId, type InValue } from '@/lib/libsql-client'
 
-// GET /api/inventory/loans — list all loans (edge-cached 30s)
+function strOrNull(v: unknown): string | null { if (v === null || v === undefined) return null; return String(v) }
+
+// GET /api/inventory/loans — list all loans, grouped by loanGroupId
 export const GET = withEdgeCache(async (request: NextRequest) => {
   const userRole = request.headers.get('X-User-Role')
-  if (userRole !== 'Admin') {
-    return NextResponse.json({ error: 'Hanya Super Admin' }, { status: 403 })
-  }
+  if (userRole !== 'Admin') return NextResponse.json({ error: 'Hanya Super Admin' }, { status: 403 })
   try {
     const url = new URL(request.url)
     const status = url.searchParams.get('status')
@@ -18,22 +18,25 @@ export const GET = withEdgeCache(async (request: NextRequest) => {
 
     const client = getLibsql()
     const result = await client.execute({
-      sql: `SELECT l.id, l.inventoryId, l.peminjamName, l.peminjamId,
-              l.tanggalPinjam, l.tanggalKembaliRencana, l.tanggalKembaliAktual,
+      sql: `SELECT l.id, l.inventoryId, l.peminjamName, l.peminjamId, l.peminjamUnit, l.peminjamPhone,
+              l.loanGroupId, l.tanggalPinjam, l.tanggalKembaliRencana, l.tanggalKembaliAktual,
               l.jumlahDipinjam, l.status, l.keperluan, l.catatan,
               l.approverId, l.approvedAt, l.rejectedReason, l.createdAt,
               i.kodeBarang, i.namaBarang, i.kategori
             FROM inventory_loans l
             JOIN inventory i ON l.inventoryId = i.id
             ${whereSql}
-            ORDER BY l.createdAt DESC LIMIT 200`,
+            ORDER BY l.createdAt DESC LIMIT 300`,
       args,
     })
+    // Group by loanGroupId (or individual loan if no group)
     const loans = result.rows.map(r => {
       const row = r as Record<string, unknown>
       return {
         id: String(row.id), inventoryId: String(row.inventoryId),
         peminjamName: String(row.peminjamName), peminjamId: strOrNull(row.peminjamId),
+        peminjamUnit: strOrNull(row.peminjamUnit), peminjamPhone: strOrNull(row.peminjamPhone),
+        loanGroupId: strOrNull(row.loanGroupId),
         tanggalPinjam: String(row.tanggalPinjam ?? ''),
         tanggalKembaliRencana: strOrNull(row.tanggalKembaliRencana),
         tanggalKembaliAktual: strOrNull(row.tanggalKembaliAktual),
@@ -52,64 +55,88 @@ export const GET = withEdgeCache(async (request: NextRequest) => {
   }
 }, { ttl: 30 })
 
-// POST /api/inventory/loans — create new loan request (status='pending')
+// POST /api/inventory/loans — create loan request (supports multi-item)
+// Body: { items: [{inventoryId, jumlahDipinjam}], peminjamName, peminjamUnit, peminjamPhone, tanggalKembaliRencana, keperluan, catatan }
 export async function POST(request: NextRequest) {
   const userRole = request.headers.get('X-User-Role')
-  if (userRole !== 'Admin') {
-    return NextResponse.json({ error: 'Hanya Super Admin' }, { status: 403 })
-  }
+  if (userRole !== 'Admin') return NextResponse.json({ error: 'Hanya Super Admin' }, { status: 403 })
   try {
     const body = await request.json()
-    const { inventoryId, peminjamName, peminjamId, jumlahDipinjam,
-            tanggalKembaliRencana, keperluan, catatan } = body as Record<string, string | undefined>
+    const { items, peminjamName, peminjamUnit, peminjamPhone, peminjamId,
+            tanggalKembaliRencana, keperluan, catatan } = body as {
+      items?: Array<{ inventoryId: string; jumlahDipinjam: number }>
+      peminjamName?: string; peminjamUnit?: string; peminjamPhone?: string
+      peminjamId?: string; tanggalKembaliRencana?: string; keperluan?: string; catatan?: string
+    }
 
-    if (!inventoryId || !peminjamName) {
-      return NextResponse.json({ error: 'inventoryId dan peminjamName wajib diisi' }, { status: 400 })
+    // Support both multi-item (items[]) and single-item (inventoryId + jumlahDipinjam) for backward compat
+    let loanItems: Array<{ inventoryId: string; jumlahDipinjam: number }>
+    if (items && Array.isArray(items) && items.length > 0) {
+      loanItems = items
+    } else {
+      // Legacy single-item mode
+      const { inventoryId, jumlahDipinjam } = body as Record<string, string | undefined>
+      if (!inventoryId) return NextResponse.json({ error: 'items atau inventoryId wajib diisi' }, { status: 400 })
+      loanItems = [{ inventoryId, jumlahDipinjam: Number(jumlahDipinjam ?? 1) }]
     }
-    const jumlah = Number(jumlahDipinjam ?? 1)
-    if (isNaN(jumlah) || jumlah < 1) {
-      return NextResponse.json({ error: 'jumlahDipinjam harus >= 1' }, { status: 400 })
-    }
+
+    if (!peminjamName) return NextResponse.json({ error: 'peminjamName wajib diisi' }, { status: 400 })
+    if (loanItems.length === 0) return NextResponse.json({ error: 'Minimal 1 barang dipinjam' }, { status: 400 })
 
     const client = getLibsql()
-    const itemRes = await client.execute({
-      sql: `SELECT id, namaBarang, kodeBarang, jumlahTersedia FROM inventory WHERE id = ?`,
-      args: [bind(inventoryId)],
-    })
-    if (itemRes.rows.length === 0) {
-      return NextResponse.json({ error: 'Barang tidak ditemukan' }, { status: 404 })
-    }
-    const item = itemRes.rows[0] as Record<string, unknown>
-    const tersedia = Number(item.jumlahTersedia ?? 0)
-    if (tersedia < jumlah) {
-      return NextResponse.json({ error: `Stok tidak cukup. Tersedia: ${tersedia}, diminta: ${jumlah}` }, { status: 400 })
-    }
-
-    const loanId = genId()
     const ts = nowMs()
     const tanggalRencana = tanggalKembaliRencana ? new Date(tanggalKembaliRencana).getTime() : null
+    // Generate shared loanGroupId for all items in this loan request
+    const loanGroupId = `LG-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+    const loanIds: string[] = []
 
-    await client.execute({
-      sql: `INSERT INTO inventory_loans
-            (id, inventoryId, peminjamId, peminjamName, tanggalPinjam,
-             tanggalKembaliRencana, jumlahDipinjam, status, keperluan, catatan, createdAt, updatedAt)
-            VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?)`,
-      args: [bind(loanId), bind(inventoryId), bind(peminjamId || null),
-            bind(peminjamName), bind(ts), bind(tanggalRencana),
-            bind(jumlah), bind(keperluan || null), bind(catatan || null),
-            bind(ts), bind(ts)],
-    })
+    // Validate stock for all items first (before any insert)
+    const validations = []
+    for (const item of loanItems) {
+      const jml = Number(item.jumlahDipinjam) || 1
+      if (jml < 1) return NextResponse.json({ error: 'Jumlah pinjam harus >= 1' }, { status: 400 })
+      const itemRes = await client.execute({
+        sql: `SELECT id, namaBarang, kodeBarang, jumlahTersedia FROM inventory WHERE id = ?`,
+        args: [bind(item.inventoryId)],
+      })
+      if (itemRes.rows.length === 0) return NextResponse.json({ error: `Barang tidak ditemukan: ${item.inventoryId}` }, { status: 404 })
+      const inv = itemRes.rows[0] as Record<string, unknown>
+      const tersedia = Number(inv.jumlahTersedia ?? 0)
+      if (tersedia < jml) return NextResponse.json({ error: `Stok "${inv.namaBarang}" tidak cukup. Tersedia: ${tersedia}, diminta: ${jml}` }, { status: 400 })
+      validations.push({ item, jml, inv })
+    }
 
-    try { await client.execute({
-      sql: `INSERT INTO inventory_history (id, inventoryId, jenisTransaksi, tanggalTransaksi, pelakuName, keterangan, jumlah, loanId)
-            VALUES (?, ?, 'pinjam', ?, ?, ?, ?, ?)`,
-      args: [bind(genId()), bind(inventoryId), bind(ts), bind(peminjamName),
-             bind(`Permintaan pinjam: ${item.namaBarang} (${item.kodeBarang}), ${jumlah} unit — menunggu approval`),
-             bind(jumlah), bind(loanId)],
-    }) } catch {}
+    // All validations passed — create loan records
+    for (const { item, jml, inv } of validations) {
+      const loanId = genId()
+      loanIds.push(loanId)
+      await client.execute({
+        sql: `INSERT INTO inventory_loans
+              (id, inventoryId, peminjamId, peminjamName, peminjamUnit, peminjamPhone,
+               loanGroupId, tanggalPinjam, tanggalKembaliRencana, jumlahDipinjam,
+               status, keperluan, catatan, createdAt, updatedAt)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?)`,
+        args: [
+          bind(loanId), bind(item.inventoryId), bind(peminjamId || null),
+          bind(peminjamName), bind(peminjamUnit || null), bind(peminjamPhone || null),
+          bind(loanGroupId), bind(ts), bind(tanggalRencana), bind(jml),
+          bind(keperluan || null), bind(catatan || null), bind(ts), bind(ts),
+        ],
+      })
+      // History per item
+      try { await client.execute({
+        sql: `INSERT INTO inventory_history (id, inventoryId, jenisTransaksi, tanggalTransaksi, pelakuName, keterangan, jumlah, loanId)
+              VALUES (?, ?, 'pinjam', ?, ?, ?, ?, ?)`,
+        args: [bind(genId()), bind(item.inventoryId), bind(ts), bind(peminjamName),
+               bind(`Pinjam: ${inv.namaBarang} (${inv.kodeBarang}), ${jml} unit — menunggu approval`), bind(jml), bind(loanId)],
+      }) } catch {}
+    }
 
     deferToBackground(invalidateCache('/api/inventory/loans'))
-    return NextResponse.json({ success: true, loanId, message: 'Permintaan peminjaman dibuat. Menunggu persetujuan.' })
+    return NextResponse.json({
+      success: true, loanGroupId, loanIds,
+      message: `Permintaan peminjaman ${loanItems.length} barang dibuat. Menunggu persetujuan.`,
+    })
   } catch (error) {
     console.error('[LOANS POST] Error:', error)
     return NextResponse.json({ error: 'Gagal membuat permintaan pinjam' }, { status: 500 })
@@ -117,48 +144,68 @@ export async function POST(request: NextRequest) {
 }
 
 // PUT /api/inventory/loans — approve / reject / return
+// When action=approve/reject, apply to ALL loans in the same loanGroupId
+// When action=return, apply to single loan (per-item return)
 export async function PUT(request: NextRequest) {
   const userRole = request.headers.get('X-User-Role')
-  if (userRole !== 'Admin') {
-    return NextResponse.json({ error: 'Hanya Super Admin' }, { status: 403 })
-  }
+  if (userRole !== 'Admin') return NextResponse.json({ error: 'Hanya Super Admin' }, { status: 403 })
   try {
     const body = await request.json()
     const { loanId, action, rejectedReason, kondisi, catatanReturn, approverId } = body as Record<string, string | undefined>
-
-    if (!loanId || !action) {
-      return NextResponse.json({ error: 'loanId dan action wajib diisi' }, { status: 400 })
-    }
+    if (!loanId || !action) return NextResponse.json({ error: 'loanId dan action wajib diisi' }, { status: 400 })
 
     const client = getLibsql()
+    // Fetch the loan
     const loanRes = await client.execute({
       sql: `SELECT l.*, i.namaBarang, i.kodeBarang FROM inventory_loans l JOIN inventory i ON l.inventoryId = i.id WHERE l.id = ?`,
       args: [bind(loanId)],
     })
-    if (loanRes.rows.length === 0) {
-      return NextResponse.json({ error: 'Peminjaman tidak ditemukan' }, { status: 404 })
-    }
+    if (loanRes.rows.length === 0) return NextResponse.json({ error: 'Peminjaman tidak ditemukan' }, { status: 404 })
     const loan = loanRes.rows[0] as Record<string, unknown>
-    const loanStatus = String(loan.status)
-    const invId = String(loan.inventoryId)
-    const jml = Number(loan.jumlahDipinjam ?? 1)
+    const loanGroupId = strOrNull(loan.loanGroupId)
     const ts = nowMs()
 
-    if (action === 'approve') {
-      if (loanStatus !== 'pending') return NextResponse.json({ error: 'Hanya pending yang bisa di-approve' }, { status: 400 })
-      const itemRes = await client.execute({ sql: `SELECT jumlahTersedia FROM inventory WHERE id = ?`, args: [bind(invId)] })
-      const tersedia = Number((itemRes.rows[0] as Record<string, unknown>).jumlahTersedia ?? 0)
-      if (tersedia < jml) return NextResponse.json({ error: `Stok tidak cukup. Tersedia: ${tersedia}` }, { status: 400 })
-      await client.execute({ sql: `UPDATE inventory SET jumlahTersedia = jumlahTersedia - ?, jumlahDipinjam = jumlahDipinjam + ?, updatedAt = ? WHERE id = ?`, args: [bind(jml), bind(jml), bind(ts), bind(invId)] })
-      await client.execute({ sql: `UPDATE inventory_loans SET status = 'active', approverId = ?, approvedAt = ?, updatedAt = ? WHERE id = ?`, args: [bind(approverId || null), bind(ts), bind(ts), bind(loanId)] })
-      try { await client.execute({ sql: `INSERT INTO inventory_history (id, inventoryId, jenisTransaksi, tanggalTransaksi, pelakuName, keterangan, jumlah, loanId) VALUES (?, ?, 'approval', ?, ?, ?, ?, ?)`, args: [bind(genId()), bind(invId), bind(ts), bind('Super Admin'), bind(`Disetujui: ${loan.namaBarang}, ${jml} unit`), bind(jml), bind(loanId)] }) } catch {}
+    if (action === 'approve' || action === 'reject') {
+      // Apply to ALL loans in the same group
+      let groupLoansRes
+      if (loanGroupId) {
+        groupLoansRes = await client.execute({
+          sql: `SELECT l.id, l.inventoryId, l.jumlahDipinjam, l.status, i.namaBarang, i.kodeBarang
+                FROM inventory_loans l JOIN inventory i ON l.inventoryId = i.id
+                WHERE l.loanGroupId = ?`,
+          args: [bind(loanGroupId)],
+        })
+      } else {
+        groupLoansRes = loanRes
+      }
 
-    } else if (action === 'reject') {
-      if (loanStatus !== 'pending') return NextResponse.json({ error: 'Hanya pending yang bisa di-reject' }, { status: 400 })
-      await client.execute({ sql: `UPDATE inventory_loans SET status = 'rejected', rejectedReason = ?, updatedAt = ? WHERE id = ?`, args: [bind(rejectedReason || null), bind(ts), bind(loanId)] })
-      try { await client.execute({ sql: `INSERT INTO inventory_history (id, inventoryId, jenisTransaksi, tanggalTransaksi, pelakuName, keterangan, jumlah, loanId) VALUES (?, ?, 'reject', ?, ?, ?, ?, ?)`, args: [bind(genId()), bind(invId), bind(ts), bind('Super Admin'), bind(`Ditolak: ${loan.namaBarang} — ${rejectedReason || 'tanpa alasan'}`), bind(jml), bind(loanId)] }) } catch {}
+      for (const row of groupLoansRes.rows) {
+        const r = row as Record<string, unknown>
+        const lId = String(r.id)
+        const invId = String(r.inventoryId)
+        const jml = Number(r.jumlahDipinjam ?? 1)
+        const lStatus = String(r.status)
 
+        if (action === 'approve') {
+          if (lStatus !== 'pending') continue
+          // Check + deduct stock
+          const itemRes = await client.execute({ sql: `SELECT jumlahTersedia FROM inventory WHERE id = ?`, args: [bind(invId)] })
+          const tersedia = Number((itemRes.rows[0] as Record<string, unknown>).jumlahTersedia ?? 0)
+          if (tersedia < jml) { console.warn(`[LOANS PUT] Skip approve ${lId}: stok ${tersedia} < ${jml}`); continue }
+          await client.execute({ sql: `UPDATE inventory SET jumlahTersedia = jumlahTersedia - ?, jumlahDipinjam = jumlahDipinjam + ?, updatedAt = ? WHERE id = ?`, args: [bind(jml), bind(jml), bind(ts), bind(invId)] })
+          await client.execute({ sql: `UPDATE inventory_loans SET status = 'active', approverId = ?, approvedAt = ?, updatedAt = ? WHERE id = ?`, args: [bind(approverId || null), bind(ts), bind(ts), bind(lId)] })
+          try { await client.execute({ sql: `INSERT INTO inventory_history (id, inventoryId, jenisTransaksi, tanggalTransaksi, pelakuName, keterangan, jumlah, loanId) VALUES (?, ?, 'approval', ?, ?, ?, ?, ?)`, args: [bind(genId()), bind(invId), bind(ts), bind('Super Admin'), bind(`Disetujui: ${r.namaBarang}, ${jml} unit`), bind(jml), bind(lId)] }) } catch {}
+        } else if (action === 'reject') {
+          if (lStatus !== 'pending') continue
+          await client.execute({ sql: `UPDATE inventory_loans SET status = 'rejected', rejectedReason = ?, updatedAt = ? WHERE id = ?`, args: [bind(rejectedReason || null), bind(ts), bind(lId)] })
+          try { await client.execute({ sql: `INSERT INTO inventory_history (id, inventoryId, jenisTransaksi, tanggalTransaksi, pelakuName, keterangan, jumlah, loanId) VALUES (?, ?, 'reject', ?, ?, ?, ?, ?)`, args: [bind(genId()), bind(invId), bind(ts), bind('Super Admin'), bind(`Ditolak: ${r.namaBarang} — ${rejectedReason || ''}`), bind(jml), bind(lId)] }) } catch {}
+        }
+      }
     } else if (action === 'return') {
+      // Single item return
+      const loanStatus = String(loan.status)
+      const invId = String(loan.inventoryId)
+      const jml = Number(loan.jumlahDipinjam ?? 1)
       if (loanStatus !== 'active' && loanStatus !== 'overdue') return NextResponse.json({ error: 'Hanya active/overdue yang bisa dikembalikan' }, { status: 400 })
       const returnId = genId()
       const kondisiStr = kondisi || 'baik'
@@ -172,7 +219,6 @@ export async function PUT(request: NextRequest) {
         await client.execute({ sql: `UPDATE inventory SET jumlahTersedia = jumlahTersedia + ?, jumlahDipinjam = jumlahDipinjam - ?, updatedAt = ? WHERE id = ?`, args: [bind(jml), bind(jml), bind(ts), bind(invId)] })
       }
       try { await client.execute({ sql: `INSERT INTO inventory_history (id, inventoryId, jenisTransaksi, tanggalTransaksi, pelakuName, keterangan, jumlah, loanId, returnId) VALUES (?, ?, 'kembali', ?, ?, ?, ?, ?, ?)`, args: [bind(genId()), bind(invId), bind(ts), bind('Super Admin'), bind(`Dikembalikan: ${loan.namaBarang}, kondisi: ${kondisiStr}${catatanReturn ? ' — ' + catatanReturn : ''}`), bind(jml), bind(loanId), bind(returnId)] }) } catch {}
-
     } else {
       return NextResponse.json({ error: 'action harus: approve | reject | return' }, { status: 400 })
     }
@@ -186,5 +232,3 @@ export async function PUT(request: NextRequest) {
     return NextResponse.json({ error: 'Gagal memproses peminjaman' }, { status: 500 })
   }
 }
-
-function strOrNull(v: unknown): string | null { if (v === null || v === undefined) return null; return String(v) }

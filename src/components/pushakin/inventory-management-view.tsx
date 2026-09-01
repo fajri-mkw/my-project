@@ -12,10 +12,10 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
 import { useAppStore } from '@/lib/store'
 import { cn } from '@/lib/utils'
-import { Package, Plus, Search, Camera, Trash2, Pencil, Loader2, PackageCheck, PackageOpen, ClipboardList, History, CheckCircle2, XCircle, ArrowLeftRight } from 'lucide-react'
+import { Package, Plus, Search, Camera, Trash2, Pencil, Loader2, PackageCheck, PackageOpen, ClipboardList, History, CheckCircle2, XCircle, ArrowLeftRight, FileText } from 'lucide-react'
 
 interface InventoryItem { id: string; kodeBarang: string; namaBarang: string; kategori: string; jumlahTotal: number; jumlahTersedia: number; jumlahDipinjam: number; jumlahDibagikan: number; lokasi: string | null; pengguna: string | null; penanggungJawab: string | null; sumberPengadaan: string | null; tahunPengadaan: number | null; status: string; kondisiCatatan: string | null; imageFileId: string | null; imageUrl: string | null; catatan: string | null; createdAt: string; updatedAt: string }
-interface Loan { id: string; inventoryId: string; peminjamName: string; peminjamId: string | null; tanggalPinjam: string; tanggalKembaliRencana: string | null; tanggalKembaliAktual: string | null; jumlahDipinjam: number; status: string; keperluan: string | null; catatan: string | null; rejectedReason: string | null; kodeBarang: string; namaBarang: string; kategori: string }
+interface Loan { id: string; inventoryId: string; peminjamName: string; peminjamId: string | null; peminjamUnit: string | null; peminjamPhone: string | null; loanGroupId: string | null; tanggalPinjam: string; tanggalKembaliRencana: string | null; tanggalKembaliAktual: string | null; jumlahDipinjam: number; status: string; keperluan: string | null; catatan: string | null; rejectedReason: string | null; kodeBarang: string; namaBarang: string; kategori: string }
 interface Distribution { id: string; inventoryId: string; penerimaName: string; penerimaUnit: string | null; jumlahDibagikan: number; tanggalBagi: string; keperluan: string | null; catatan: string | null; kodeBarang: string; namaBarang: string; kategori: string }
 interface HistoryEntry { id: string; inventoryId: string; jenisTransaksi: string; tanggalTransaksi: string; pelakuName: string | null; keterangan: string | null; jumlah: number | null; kodeBarang: string; namaBarang: string }
 
@@ -85,8 +85,10 @@ export function InventoryManagementView() {
 
   // Loan dialog
   const [isLoanDialogOpen, setIsLoanDialogOpen] = useState(false)
-  const [loanForm, setLoanForm] = useState({ inventoryId: '', peminjamName: '', jumlahDipinjam: 1, tanggalKembaliRencana: '', keperluan: '', catatan: '' })
+  const [loanForm, setLoanForm] = useState({ peminjamName: '', peminjamUnit: '', peminjamPhone: '', tanggalKembaliRencana: '', keperluan: '', catatan: '' })
+  const [loanItems, setLoanItems] = useState<Array<{ inventoryId: string; jumlahDipinjam: number }>>([])
   const [isLoanSaving, setIsLoanSaving] = useState(false)
+  const [printLoanGroupId, setPrintLoanGroupId] = useState<string | null>(null)
 
   // Return dialog
   const [returnLoanId, setReturnLoanId] = useState<string | null>(null)
@@ -215,18 +217,23 @@ export function InventoryManagementView() {
 
   // Loan handlers
   const openLoanDialog = (item?: InventoryItem) => {
-    setLoanForm({ inventoryId: item?.id || '', peminjamName: '', jumlahDipinjam: 1, tanggalKembaliRencana: '', keperluan: '', catatan: '' })
+    setLoanForm({ peminjamName: '', peminjamUnit: '', peminjamPhone: '', tanggalKembaliRencana: '', keperluan: '', catatan: '' })
+    setLoanItems(item ? [{ inventoryId: item.id, jumlahDipinjam: 1 }] : [])
     setIsLoanDialogOpen(true)
   }
   const handleLoanSubmit = async () => {
-    if (!loanForm.inventoryId || !loanForm.peminjamName) { showAlert('Barang dan peminjam wajib diisi'); return }
+    if (loanItems.length === 0) { showAlert('Pilih minimal 1 barang'); return }
+    if (!loanForm.peminjamName) { showAlert('Nama peminjam wajib diisi'); return }
     setIsLoanSaving(true)
     try {
-      const r = await fetch('/api/inventory/loans', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(loanForm) })
-      if (r.ok) { showAlert('Permintaan pinjam dibuat. Menunggu approval.'); setIsLoanDialogOpen(false); fetchLoans(); fetchHistories() }
+      const r = await fetch('/api/inventory/loans', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ items: loanItems, ...loanForm }) })
+      if (r.ok) { const d = await r.json(); showAlert(d.message || 'Permintaan dibuat'); setIsLoanDialogOpen(false); fetchLoans(); fetchHistories() }
       else { const e = await r.json().catch(() => ({})); showAlert(e?.error || 'Gagal') }
     } catch { showAlert('Gagal') } finally { setIsLoanSaving(false) }
   }
+  const addLoanItem = () => { setLoanItems(prev => [...prev, { inventoryId: '', jumlahDipinjam: 1 }]) }
+  const removeLoanItem = (idx: number) => { setLoanItems(prev => prev.filter((_, i) => i !== idx)) }
+  const updateLoanItem = (idx: number, field: 'inventoryId' | 'jumlahDipinjam', value: string | number) => { setLoanItems(prev => prev.map((it, i) => i === idx ? { ...it, [field]: field === 'jumlahDipinjam' ? Number(value) : value } : it)) }
   const handleLoanAction = async (loanId: string, action: string, extra?: Record<string, string>) => {
     try {
       const body: Record<string, string> = { loanId, action, approverId: currentUser?.id || '', ...extra }
@@ -369,7 +376,8 @@ export function InventoryManagementView() {
                         <td className="p-3 hidden md:table-cell text-xs">{formatShortDate(loan.tanggalKembaliRencana)}</td>
                         <td className="p-3 text-center font-semibold">{loan.jumlahDipinjam}</td>
                         <td className="p-3 text-center">{getLoanStatusBadge(loan.status)}{loan.rejectedReason && <p className="text-[10px] text-red-600 mt-1">{loan.rejectedReason}</p>}</td>
-                        <td className="p-3"><div className="flex items-center justify-center gap-1">
+                        <td className="p-3"><div className="flex items-center justify-center gap-1 flex-wrap">
+                          {loan.loanGroupId && <Button variant="ghost" size="sm" className="h-7 px-2 text-stone-600" onClick={() => setPrintLoanGroupId(loan.loanGroupId!)} title="Lihat / Print Form"><FileText className="w-3.5 h-3.5 mr-1" />Form</Button>}
                           {loan.status === 'pending' && <>
                             <Button variant="ghost" size="sm" className="h-7 px-2 text-green-600" onClick={() => handleLoanAction(loan.id, 'approve')}><CheckCircle2 className="w-3.5 h-3.5 mr-1" />Approve</Button>
                             <Button variant="ghost" size="sm" className="h-7 px-2 text-red-600" onClick={() => { setRejectLoanId(loan.id); setRejectReason('') }}><XCircle className="w-3.5 h-3.5 mr-1" />Reject</Button>
@@ -526,22 +534,107 @@ export function InventoryManagementView() {
         </DialogContent>
       </Dialog>
 
-      {/* ===== LOAN DIALOG ===== */}
+      {/* ===== LOAN DIALOG (Multi-item) ===== */}
       <Dialog open={isLoanDialogOpen} onOpenChange={setIsLoanDialogOpen}>
-        <DialogContent className="max-w-md"><DialogHeader><DialogTitle>Pinjam Barang</DialogTitle></DialogHeader>
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto"><DialogHeader><DialogTitle>Form Peminjaman Barang</DialogTitle></DialogHeader>
           <div className="space-y-4 py-2">
-            <div><Label>Barang *</Label><Select value={loanForm.inventoryId} onValueChange={v => setLoanForm(p => ({ ...p, inventoryId: v }))}><SelectTrigger><SelectValue placeholder="Pilih barang" /></SelectTrigger><SelectContent>{items.filter(i => i.jumlahTersedia > 0).map(i => <SelectItem key={i.id} value={i.id}>{i.namaBarang} ({i.kodeBarang}) — Tersedia: {i.jumlahTersedia}</SelectItem>)}</SelectContent></Select></div>
-            <div><Label htmlFor="peminjamName">Nama Peminjam *</Label><Input id="peminjamName" value={loanForm.peminjamName} onChange={e => setLoanForm(p => ({ ...p, peminjamName: e.target.value }))} /></div>
-            <div className="grid grid-cols-2 gap-3">
-              <div><Label htmlFor="jumlahDipinjam">Jumlah</Label><Input id="jumlahDipinjam" type="number" min={1} value={loanForm.jumlahDipinjam} onChange={e => setLoanForm(p => ({ ...p, jumlahDipinjam: Number(e.target.value) }))} /></div>
+            {/* Borrower info */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div><Label htmlFor="peminjamName">Nama Peminjam *</Label><Input id="peminjamName" value={loanForm.peminjamName} onChange={e => setLoanForm(p => ({ ...p, peminjamName: e.target.value }))} /></div>
+              <div><Label htmlFor="peminjamUnit">Unit / Instansi</Label><Input id="peminjamUnit" value={loanForm.peminjamUnit} onChange={e => setLoanForm(p => ({ ...p, peminjamUnit: e.target.value }))} /></div>
+              <div><Label htmlFor="peminjamPhone">No. HP / WhatsApp</Label><Input id="peminjamPhone" value={loanForm.peminjamPhone} onChange={e => setLoanForm(p => ({ ...p, peminjamPhone: e.target.value }))} /></div>
               <div><Label htmlFor="tanggalKembaliRencana">Tgl Kembali Rencana</Label><Input id="tanggalKembaliRencana" type="date" value={loanForm.tanggalKembaliRencana} onChange={e => setLoanForm(p => ({ ...p, tanggalKembaliRencana: e.target.value }))} /></div>
             </div>
             <div><Label htmlFor="keperluan">Keperluan</Label><Input id="keperluan" value={loanForm.keperluan} onChange={e => setLoanForm(p => ({ ...p, keperluan: e.target.value }))} /></div>
+
+            {/* Multi-item selector */}
+            <div>
+              <div className="flex items-center justify-between mb-2">
+                <Label>Barang Dipinjam *</Label>
+                <Button type="button" variant="outline" size="sm" className="gap-1 h-7" onClick={addLoanItem}><Plus className="w-3.5 h-3.5" />Tambah Barang</Button>
+              </div>
+              <div className="space-y-2">
+                {loanItems.map((li, idx) => (
+                  <div key={idx} className="flex items-center gap-2">
+                    <Select value={li.inventoryId} onValueChange={v => updateLoanItem(idx, 'inventoryId', v)}>
+                      <SelectTrigger className="flex-1"><SelectValue placeholder="Pilih barang" /></SelectTrigger>
+                      <SelectContent>{items.filter(i => i.jumlahTersedia > 0 && (!li.inventoryId || i.id === li.inventoryId)).map(i => <SelectItem key={i.id} value={i.id}>{i.namaBarang} ({i.kodeBarang}) — Tersedia: {i.jumlahTersedia}</SelectItem>)}</SelectContent>
+                    </Select>
+                    <Input type="number" min={1} className="w-20" value={li.jumlahDipinjam} onChange={e => updateLoanItem(idx, 'jumlahDipinjam', e.target.value)} />
+                    <Button type="button" variant="ghost" size="sm" className="h-9 w-9 p-0 text-red-600" onClick={() => removeLoanItem(idx)} disabled={loanItems.length === 1}><Trash2 className="w-4 h-4" /></Button>
+                  </div>
+                ))}
+              </div>
+            </div>
+
             <div><Label htmlFor="loanCatatan">Catatan</Label><Textarea id="loanCatatan" rows={2} value={loanForm.catatan} onChange={e => setLoanForm(p => ({ ...p, catatan: e.target.value }))} /></div>
           </div>
           <DialogFooter className="gap-2"><Button variant="outline" onClick={() => setIsLoanDialogOpen(false)} disabled={isLoanSaving}>Batal</Button><Button onClick={handleLoanSubmit} disabled={isLoanSaving}>{isLoanSaving ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : null}Buat Permintaan</Button></DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* ===== PRINT FORM DIALOG ===== */}
+      {printLoanGroupId && (() => {
+        const groupLoans = loans.filter(l => l.loanGroupId === printLoanGroupId)
+        const first = groupLoans[0]
+        if (!first) return null
+        return (
+          <Dialog open={true} onOpenChange={() => setPrintLoanGroupId(null)}>
+            <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+              <DialogHeader><DialogTitle>Form Peminjaman Barang</DialogTitle></DialogHeader>
+              <div className="py-2 print-area">
+                {/* Printable form */}
+                <div className="border-2 border-stone-800 p-6 rounded-lg">
+                  <div className="text-center mb-4">
+                    <h2 className="text-lg font-bold">FORM PEMINJAMAN BARANG</h2>
+                    <p className="text-sm">Pusat Hubungan Masyarakat dan Keterbukaan Informasi</p>
+                    <p className="text-xs text-stone-500 mt-1">ID: {printLoanGroupId}</p>
+                  </div>
+                  <table className="w-full text-sm mb-4">
+                    <tbody>
+                      <tr><td className="py-1 font-semibold w-1/3">Nama Peminjam</td><td className="py-1">: {first.peminjamName}</td></tr>
+                      <tr><td className="py-1 font-semibold">Unit / Instansi</td><td className="py-1">: {first.peminjamUnit || '—'}</td></tr>
+                      <tr><td className="py-1 font-semibold">No. HP / WhatsApp</td><td className="py-1">: {first.peminjamPhone || '—'}</td></tr>
+                      <tr><td className="py-1 font-semibold">Tanggal Pinjam</td><td className="py-1">: {formatShortDate(first.tanggalPinjam)}</td></tr>
+                      <tr><td className="py-1 font-semibold">Rencana Kembali</td><td className="py-1">: {formatShortDate(first.tanggalKembaliRencana)}</td></tr>
+                      <tr><td className="py-1 font-semibold">Keperluan</td><td className="py-1">: {first.keperluan || '—'}</td></tr>
+                    </tbody>
+                  </table>
+                  <table className="w-full text-sm border border-stone-400 mb-4">
+                    <thead><tr className="bg-stone-100 border-b border-stone-400">
+                      <th className="text-left p-2 border-r border-stone-400">No</th>
+                      <th className="text-left p-2 border-r border-stone-400">Kode</th>
+                      <th className="text-left p-2 border-r border-stone-400">Nama Barang</th>
+                      <th className="text-center p-2 border-r border-stone-400">Jumlah</th>
+                      <th className="text-left p-2">Keterangan</th>
+                    </tr></thead>
+                    <tbody>
+                      {groupLoans.map((l, i) => (
+                        <tr key={l.id} className="border-b border-stone-300">
+                          <td className="p-2 border-r border-stone-300">{i + 1}</td>
+                          <td className="p-2 border-r border-stone-300 font-mono">{l.kodeBarang}</td>
+                          <td className="p-2 border-r border-stone-300">{l.namaBarang}</td>
+                          <td className="p-2 border-r border-stone-300 text-center">{l.jumlahDipinjam}</td>
+                          <td className="p-2">{l.status === 'active' ? 'Dipinjam' : l.status === 'returned' ? 'Dikembalikan' : l.status}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                  {first.catatan && <p className="text-sm mb-4"><span className="font-semibold">Catatan:</span> {first.catatan}</p>}
+                  <div className="flex justify-between mt-8 text-sm">
+                    <div className="text-center"><p>Peminjam</p><div className="h-16" /><p className="border-t border-stone-400 pt-1 w-32">(_________________)</p></div>
+                    <div className="text-center"><p>Petugas Humas</p><div className="h-16" /><p className="border-t border-stone-400 pt-1 w-32">(_________________)</p></div>
+                  </div>
+                </div>
+              </div>
+              <DialogFooter className="gap-2">
+                <Button variant="outline" onClick={() => setPrintLoanGroupId(null)}>Tutup</Button>
+                <Button onClick={() => window.print()} className="gap-2"><PackageCheck className="w-4 h-4" />Download / Print PDF</Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+        )
+      })()}
 
       {/* ===== RETURN DIALOG ===== */}
       <Dialog open={returnLoanId !== null} onOpenChange={v => !v && setReturnLoanId(null)}>
