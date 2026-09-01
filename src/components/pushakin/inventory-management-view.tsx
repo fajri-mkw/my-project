@@ -629,7 +629,78 @@ export function InventoryManagementView() {
               </div>
               <DialogFooter className="gap-2 no-print">
                 <Button variant="outline" onClick={() => setPrintLoanGroupId(null)}>Tutup</Button>
-                <Button onClick={() => window.print()} className="gap-2"><PackageCheck className="w-4 h-4" />Download / Print PDF</Button>
+                <Button onClick={() => {
+                  // Generate standalone HTML file and download directly.
+                  // Tidak pakai window.print() — langsung download file .html
+                  // yang berisi form lengkap. User bisa buka file di browser
+                  // dan print ke PDF dari sana kalau perlu.
+                  const loanRows = groupLoans.map((l, i) => `
+                    <tr>
+                      <td style="padding:6px;border:1px solid #555;">${i + 1}</td>
+                      <td style="padding:6px;border:1px solid #555;font-family:monospace;">${l.kodeBarang}</td>
+                      <td style="padding:6px;border:1px solid #555;">${l.namaBarang}</td>
+                      <td style="padding:6px;border:1px solid #555;text-align:center;">${l.jumlahDipinjam}</td>
+                      <td style="padding:6px;border:1px solid #555;">${l.status === 'active' ? 'Dipinjam' : l.status === 'returned' ? 'Dikembalikan' : l.status}</td>
+                    </tr>`).join('')
+
+                  const html = `<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Form Peminjaman - ${first.peminjamName}</title>
+<style>
+  body { font-family: Arial, sans-serif; max-width: 800px; margin: 0 auto; padding: 40px; color: #1c1917; }
+  h2 { text-align: center; margin-bottom: 5px; }
+  .subtitle { text-align: center; font-size: 14px; margin-bottom: 5px; }
+  .form-id { text-align: center; font-size: 12px; color: #666; margin-bottom: 20px; }
+  table { width: 100%; border-collapse: collapse; margin-bottom: 15px; }
+  .info-table td { padding: 4px 0; font-size: 14px; }
+  .info-table td:first-child { font-weight: bold; width: 33%; }
+  .items-table th { background: #f5f5f4; padding: 6px; border: 1px solid #555; text-align: left; font-size: 13px; }
+  .items-table td { padding: 6px; border: 1px solid #555; font-size: 13px; }
+  .signatures { display: flex; justify-content: space-between; margin-top: 50px; }
+  .sig-box { text-align: center; width: 200px; }
+  .sig-line { border-top: 1px solid #444; margin-top: 60px; padding-top: 5px; }
+  .note { font-size: 14px; margin: 10px 0; }
+  @media print { body { padding: 20px; } @page { margin: 1.5cm; } }
+</style>
+</head>
+<body>
+<h2>FORM PEMINJAMAN BARANG</h2>
+<p class="subtitle">Pusat Hubungan Masyarakat dan Keterbukaan Informasi</p>
+<p class="form-id">ID: ${printLoanGroupId}</p>
+<table class="info-table">
+<tr><td>Nama Peminjam</td><td>: ${first.peminjamName}</td></tr>
+<tr><td>Unit / Instansi</td><td>: ${first.peminjamUnit || '—'}</td></tr>
+<tr><td>No. HP / WhatsApp</td><td>: ${first.peminjamPhone || '—'}</td></tr>
+<tr><td>Tanggal Pinjam</td><td>: ${formatShortDate(first.tanggalPinjam)}</td></tr>
+<tr><td>Rencana Kembali</td><td>: ${formatShortDate(first.tanggalKembaliRencana)}</td></tr>
+<tr><td>Keperluan</td><td>: ${first.keperluan || '—'}</td></tr>
+</table>
+<table class="items-table">
+<thead><tr><th>No</th><th>Kode</th><th>Nama Barang</th><th style="text-align:center;">Jumlah</th><th>Keterangan</th></tr></thead>
+<tbody>${loanRows}</tbody>
+</table>
+${first.catatan ? `<p class="note"><b>Catatan:</b> ${first.catatan}</p>` : ''}
+<div class="signatures">
+<div class="sig-box"><p>Peminjam</p><div class="sig-line">(_____________________)</div></div>
+<div class="sig-box"><p>Petugas Humas</p><div class="sig-line">(_____________________)</div></div>
+</div>
+</body>
+</html>`
+
+                  const blob = new Blob([html], { type: 'text/html;charset=utf-8' })
+                  const url = URL.createObjectURL(blob)
+                  const a = document.createElement('a')
+                  a.href = url
+                  a.download = `Form-Peminjaman-${first.peminjamName.replace(/\s+/g, '_')}-${printLoanGroupId}.html`
+                  document.body.appendChild(a)
+                  a.click()
+                  document.body.removeChild(a)
+                  URL.revokeObjectURL(url)
+                  showAlert('Form berhasil di-download. Buka file HTML di browser, lalu klik Ctrl+P untuk simpan sebagai PDF.')
+                }} className="gap-2"><PackageCheck className="w-4 h-4" />Download Form</Button>
               </DialogFooter>
             </DialogContent>
           </Dialog>
