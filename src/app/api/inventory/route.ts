@@ -223,11 +223,15 @@ export async function PUT(request: NextRequest) {
 
   try {
     const body = await request.json()
+    // id bisa dikirim via query string (?id=xxx) atau body JSON.
+    // UI mengirim via query string, jadi baca dari URL dulu, fallback ke body.
+    const urlId = new URL(request.url).searchParams.get('id')
     const {
-      id, kodeBarang, namaBarang, kategori, jumlahTotal, lokasi, pengguna,
+      id: bodyId, kodeBarang, namaBarang, kategori, jumlahTotal, lokasi, pengguna,
       penanggungJawab, sumberPengadaan, tahunPengadaan, status,
       kondisiCatatan, imageFileId, imageUrl, catatan,
     } = body as Record<string, string | undefined>
+    const id = urlId || bodyId
 
     if (!id) {
       return NextResponse.json(
