@@ -20,6 +20,21 @@ interface Distribution { id: string; inventoryId: string; penerimaName: string; 
 interface HistoryEntry { id: string; inventoryId: string; jenisTransaksi: string; tanggalTransaksi: string; pelakuName: string | null; keterangan: string | null; jumlah: number | null; kodeBarang: string; namaBarang: string }
 
 const KATEGORI_OPTIONS = ['Elektronik', 'Kalender', 'Plakat', 'Furniture', 'ATK', 'Merchandise', 'Lainnya']
+
+// Mapping kategori → prefix kode barang (3 huruf).
+// Saat user pilih kategori di form "Tambah Barang", kode auto-generate dengan
+// format [PREFIX]-[NOMOR URUT 3 digit]. Nomor urut didapat dari API dengan
+// menghitung berapa barang yang sudah ada di kategori tersebut + 1.
+// Contoh: Elektronik → ELE-001, Kalender → KAL-001, Plakat → PLK-001
+const KATEGORI_PREFIX: Record<string, string> = {
+  'Elektronik': 'ELE',
+  'Kalender': 'KAL',
+  'Plakat': 'PLK',
+  'Furniture': 'FUR',
+  'ATK': 'ATK',
+  'Merchandise': 'MCH',
+  'Lainnya': 'LAI',
+}
 const STATUS_OPTIONS = [{ value: 'baik', label: 'Baik', color: 'bg-green-100 text-green-700 border-green-200' }, { value: 'rusak', label: 'Rusak', color: 'bg-orange-100 text-orange-700 border-orange-200' }, { value: 'hilang', label: 'Hilang', color: 'bg-red-100 text-red-700 border-red-200' }]
 const LOAN_STATUS_OPTIONS: Record<string, { label: string; color: string }> = { pending: { label: 'Menunggu', color: 'bg-amber-100 text-amber-700 border-amber-200' }, approved: { label: 'Disetujui', color: 'bg-blue-100 text-blue-700 border-blue-200' }, active: { label: 'Aktif', color: 'bg-orange-100 text-orange-700 border-orange-200' }, returned: { label: 'Dikembalikan', color: 'bg-green-100 text-green-700 border-green-200' }, rejected: { label: 'Ditolak', color: 'bg-red-100 text-red-700 border-red-200' }, overdue: { label: 'Terlambat', color: 'bg-red-100 text-red-700 border-red-200' } }
 const KONDISI_OPTIONS = [{ value: 'baik', label: 'Baik' }, { value: 'rusak_ringan', label: 'Rusak Ringan' }, { value: 'rusak_berat', label: 'Rusak Berat' }, { value: 'hilang', label: 'Hilang' }]
@@ -104,7 +119,41 @@ export function InventoryManagementView() {
   useEffect(() => { const t = setTimeout(fetchItems, 300); return () => clearTimeout(t) }, [search, filterKategori, filterStatus])
 
   // Item CRUD handlers
-  const openAddDialog = () => { setEditingItem(null); setFormData({ kodeBarang: '', namaBarang: '', kategori: 'Merchandise', jumlahTotal: 1, lokasi: '', status: 'baik', kondisiCatatan: '', catatan: '', imageUrl: '', imageFileId: '' }); setIsItemDialogOpen(true) }
+  // Auto-generate kode barang berdasarkan kategori.
+  // Format: [PREFIX]-[NOMOR URUT 3 digit], mis. ELE-001, KAL-003.
+  // Nomor urut = count barang di kategori tsb + 1 (dihitung dari items yang
+  // sudah di-load di state — tidak butuh API call tambahan).
+  const generateKodeBarang = (kategori: string): string => {
+    const prefix = KATEGORI_PREFIX[kategori] || 'INV'
+    const existingInKategori = items.filter(i => i.kategori === kategori)
+    const nextNum = existingInKategori.length + 1
+    return `${prefix}-${String(nextNum).padStart(3, '0')}`
+  }
+
+  // Handler saat user ganti kategori di form tambah — auto-update kodeBarang
+  // Hanya untuk ADD (bukan edit — edit pakai kode yang sudah ada).
+  const handleKategoriChange = (kategori: string) => {
+    setFormData(prev => ({
+      ...prev,
+      kategori,
+      // Hanya auto-generate kalau ini add baru (bukan edit) atau kalau kode
+      // masih kosong / masih auto-generated (mulai dengan prefix yang dikenal).
+      // Saat edit, jangan override kode yang user sudah mungkin ubah manual.
+      ...(editingItem ? {} : { kodeBarang: generateKodeBarang(kategori) }),
+    }))
+  }
+
+  const openAddDialog = () => {
+    setEditingItem(null)
+    const defaultKategori = 'Elektronik'
+    setFormData({
+      kodeBarang: generateKodeBarang(defaultKategori),
+      namaBarang: '', kategori: defaultKategori, jumlahTotal: 1,
+      lokasi: '', status: 'baik', kondisiCatatan: '', catatan: '',
+      imageUrl: '', imageFileId: '',
+    })
+    setIsItemDialogOpen(true)
+  }
   const openEditDialog = (item: InventoryItem) => { setEditingItem(item); setFormData({ kodeBarang: item.kodeBarang, namaBarang: item.namaBarang, kategori: item.kategori, jumlahTotal: item.jumlahTotal, lokasi: item.lokasi || '', status: item.status, kondisiCatatan: item.kondisiCatatan || '', catatan: item.catatan || '', imageUrl: item.imageUrl || '', imageFileId: item.imageFileId || '' }); setIsItemDialogOpen(true) }
 
   const handleSubmit = async () => {
@@ -438,9 +487,24 @@ export function InventoryManagementView() {
               </div>
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div><Label htmlFor="kodeBarang">Kode Barang *</Label><Input id="kodeBarang" required value={formData.kodeBarang} onChange={e => setFormData(p => ({ ...p, kodeBarang: e.target.value }))} placeholder="MCH-001" /></div>
+              <div>
+                <Label htmlFor="kodeBarang">Kode Barang *</Label>
+                <Input
+                  id="kodeBarang"
+                  required
+                  value={formData.kodeBarang}
+                  onChange={e => setFormData(p => ({ ...p, kodeBarang: e.target.value }))}
+                  placeholder="Auto-generated"
+                  className="font-mono"
+                />
+                {!editingItem && (
+                  <p className="text-[10px] text-stone-400 mt-1">
+                    Kode di-generate otomatis dari kategori. Bisa edit manual jika perlu.
+                  </p>
+                )}
+              </div>
               <div><Label htmlFor="namaBarang">Nama Barang *</Label><Input id="namaBarang" required value={formData.namaBarang} onChange={e => setFormData(p => ({ ...p, namaBarang: e.target.value }))} placeholder="Tumbler Pushakin" /></div>
-              <div><Label htmlFor="kategori">Kategori *</Label><Select value={formData.kategori} onValueChange={v => setFormData(p => ({ ...p, kategori: v }))}><SelectTrigger id="kategori"><SelectValue /></SelectTrigger><SelectContent>{KATEGORI_OPTIONS.map(k => <SelectItem key={k} value={k}>{k}</SelectItem>)}</SelectContent></Select></div>
+              <div><Label htmlFor="kategori">Kategori *</Label><Select value={formData.kategori} onValueChange={handleKategoriChange}><SelectTrigger id="kategori"><SelectValue /></SelectTrigger><SelectContent>{KATEGORI_OPTIONS.map(k => <SelectItem key={k} value={k}>{k}</SelectItem>)}</SelectContent></Select></div>
               <div><Label htmlFor="jumlahTotal">Jumlah Total</Label><Input id="jumlahTotal" type="number" min={0} value={formData.jumlahTotal} onChange={e => setFormData(p => ({ ...p, jumlahTotal: Number(e.target.value) }))} /></div>
               <div><Label htmlFor="lokasi">Lokasi</Label><Input id="lokasi" value={formData.lokasi} onChange={e => setFormData(p => ({ ...p, lokasi: e.target.value }))} placeholder="Gudang Humas Lt. 2" /></div>
               <div><Label htmlFor="status">Status</Label><Select value={formData.status} onValueChange={v => setFormData(p => ({ ...p, status: v }))}><SelectTrigger id="status"><SelectValue /></SelectTrigger><SelectContent>{STATUS_OPTIONS.map(s => <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>)}</SelectContent></Select></div>
