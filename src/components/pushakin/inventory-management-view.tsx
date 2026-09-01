@@ -12,8 +12,9 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
 import { useAppStore } from '@/lib/store'
 import { cn } from '@/lib/utils'
-import { Package, Plus, Search, Camera, Trash2, Pencil, Loader2, PackageCheck, PackageOpen, ClipboardList, History, CheckCircle2, XCircle, ArrowLeftRight, FileText } from 'lucide-react'
+import { Package, Plus, Search, Camera, Trash2, Pencil, Loader2, PackageCheck, PackageOpen, ClipboardList, History, CheckCircle2, XCircle, ArrowLeftRight, FileText, Download, ArrowUpDown } from 'lucide-react'
 import { jsPDF } from 'jspdf'
+import { loadXLSX } from '@/lib/export-utils'
 
 interface InventoryItem { id: string; kodeBarang: string; namaBarang: string; kategori: string; jumlahTotal: number; jumlahTersedia: number; jumlahDipinjam: number; jumlahDibagikan: number; lokasi: string | null; pengguna: string | null; penanggungJawab: string | null; sumberPengadaan: string | null; tahunPengadaan: number | null; status: string; kondisiCatatan: string | null; imageFileId: string | null; imageUrl: string | null; catatan: string | null; createdAt: string; updatedAt: string }
 interface Loan { id: string; inventoryId: string; peminjamName: string; peminjamId: string | null; peminjamUnit: string | null; peminjamPhone: string | null; loanGroupId: string | null; tanggalPinjam: string; tanggalKembaliRencana: string | null; tanggalKembaliAktual: string | null; jumlahDipinjam: number; status: string; keperluan: string | null; catatan: string | null; rejectedReason: string | null; kodeBarang: string; namaBarang: string; kategori: string }
@@ -90,6 +91,107 @@ export function InventoryManagementView() {
   const [loanItems, setLoanItems] = useState<Array<{ inventoryId: string; jumlahDipinjam: number }>>([])
   const [isLoanSaving, setIsLoanSaving] = useState(false)
   const [printLoanGroupId, setPrintLoanGroupId] = useState<string | null>(null)
+
+  // Rekapitulasi filter + sort state
+  const [rekapFilterKategori, setRekapFilterKategori] = useState('all')
+  const [rekapFilterStatus, setRekapFilterStatus] = useState('all')
+  const [rekapSortBy, setRekapSortBy] = useState<'namaBarang' | 'kodeBarang' | 'kategori' | 'jumlahTersedia' | 'jumlahTotal' | 'status' | 'tahunPengadaan'>('namaBarang')
+  const [rekapSortAsc, setRekapSortAsc] = useState(true)
+  const [isExporting, setIsExporting] = useState(false)
+
+  // Filtered + sorted items for rekapitulasi
+  const rekapFiltered = (() => {
+    let result = [...items]
+    if (rekapFilterKategori !== 'all') result = result.filter(i => i.kategori === rekapFilterKategori)
+    if (rekapFilterStatus !== 'all') result = result.filter(i => i.status === rekapFilterStatus)
+    result.sort((a, b) => {
+      let cmp = 0
+      const av = a[rekapSortBy]; const bv = b[rekapSortBy]
+      if (typeof av === 'number' && typeof bv === 'number') cmp = av - bv
+      else cmp = String(av ?? '').localeCompare(String(bv ?? ''))
+      return rekapSortAsc ? cmp : -cmp
+    })
+    return result
+  })()
+
+  // Export Excel (lazy load xlsx library)
+  const exportExcel = async () => {
+    setIsExporting(true)
+    try {
+      const XLSX = await loadXLSX()
+      const data = rekapFiltered.map(i => ({
+        'Kode': i.kodeBarang,
+        'Nama Barang': i.namaBarang,
+        'Kategori': i.kategori,
+        'Jumlah Total': i.jumlahTotal,
+        'Tersedia': i.jumlahTersedia,
+        'Dipinjam': i.jumlahDipinjam,
+        'Dibagikan': i.jumlahDibagikan,
+        'Status': i.status === 'baik' ? 'Baik' : i.status === 'rusak' ? 'Rusak' : 'Hilang',
+        'Lokasi/Pengguna/PIC': i.lokasi || '',
+        'Sumber Pengadaan': i.sumberPengadaan || '',
+        'Tahun Pengadaan': i.tahunPengadaan || '',
+        'Catatan': i.catatan || '',
+      }))
+      const ws = XLSX.utils.json_to_sheet(data)
+      const wb = XLSX.utils.book_new()
+      XLSX.utils.book_append_sheet(wb, ws, 'Rekap Inventaris')
+      XLSX.writeFile(wb, `Rekap-Inventaris-${new Date().toISOString().slice(0,10)}.xlsx`)
+      showAlert('Excel berhasil di-download.')
+    } catch (err) {
+      showAlert('Gagal export Excel: ' + (err instanceof Error ? err.message : 'Unknown'))
+    } finally {
+      setIsExporting(false)
+    }
+  }
+
+  // Export PDF (jsPDF with table)
+  const exportPDF = () => {
+    setIsExporting(true)
+    try {
+      const doc = new jsPDF({ unit: 'mm', format: 'a4', orientation: 'landscape' })
+      const pageW = 297; const margin = 10
+      let y = 15
+
+      // Header
+      doc.setFontSize(14); doc.setFont('helvetica', 'bold')
+      doc.text('REKAPITULASI INVENTARIS', pageW / 2, y, { align: 'center' })
+      y += 6
+      doc.setFontSize(9); doc.setFont('helvetica', 'normal')
+      doc.text(`Pusat Hubungan Masyarakat dan Keterbukaan Informasi`, pageW / 2, y, { align: 'center' })
+      y += 4
+      doc.text(`Filter: Kategori=${rekapFilterKategori === 'all' ? 'Semua' : rekapFilterKategori}, Status=${rekapFilterStatus === 'all' ? 'Semua' : rekapFilterStatus} | ${rekapFiltered.length} barang | ${new Date().toLocaleDateString('id-ID')}`, pageW / 2, y, { align: 'center' })
+      y += 8
+
+      // Table header
+      const cols = ['Kode', 'Nama Barang', 'Kategori', 'Total', 'Tersedia', 'Dipinjam', 'Dibagikan', 'Status', 'Tahun']
+      const colW = [22, 60, 30, 15, 18, 18, 20, 20, 18]
+      let cx = margin
+      doc.setFillColor(240, 240, 238)
+      doc.rect(margin, y - 4, colW.reduce((a, b) => a + b, 0), 6, 'F')
+      doc.setFontSize(8); doc.setFont('helvetica', 'bold')
+      cols.forEach((c, i) => { doc.text(c, cx + 1, y); cx += colW[i] })
+      y += 6
+
+      // Data rows
+      doc.setFont('helvetica', 'normal')
+      rekapFiltered.forEach((item, idx) => {
+        if (y > 200) { doc.addPage(); y = 15 }
+        cx = margin
+        const rowData = [item.kodeBarang, item.namaBarang, item.kategori, String(item.jumlahTotal), String(item.jumlahTersedia), String(item.jumlahDipinjam), String(item.jumlahDibagikan), item.status, String(item.tahunPengadaan || '—')]
+        rowData.forEach((v, i) => { doc.text(String(v).substring(0, 25), cx + 1, y, { maxWidth: colW[i] - 1 }); cx += colW[i] })
+        doc.setDrawColor(220); doc.line(margin, y + 1.5, margin + colW.reduce((a, b) => a + b, 0), y + 1.5)
+        y += 5
+      })
+
+      doc.save(`Rekap-Inventaris-${new Date().toISOString().slice(0,10)}.pdf`)
+      showAlert('PDF berhasil di-download.')
+    } catch (err) {
+      showAlert('Gagal export PDF: ' + (err instanceof Error ? err.message : 'Unknown'))
+    } finally {
+      setIsExporting(false)
+    }
+  }
 
   // Return dialog
   const [returnLoanId, setReturnLoanId] = useState<string | null>(null)
@@ -468,14 +570,91 @@ export function InventoryManagementView() {
           </CardContent></Card>
         </TabsContent>
 
-        {/* ===== TAB: REKAPITULASI ===== */}
+        {/* ===== TAB: REKAPITULASI (with filter + sort + export) ===== */}
         <TabsContent value="rekapitulasi" className="space-y-4">
+          {/* Stats Cards */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
             <Card><CardContent className="p-4"><div className="flex items-center gap-2"><Package className="w-5 h-5 text-violet-500" /><div><p className="text-xs text-stone-500">Total Jenis Barang</p><p className="text-2xl font-bold">{totalItems}</p></div></div></CardContent></Card>
             <Card><CardContent className="p-4"><div className="flex items-center gap-2"><PackageCheck className="w-5 h-5 text-green-500" /><div><p className="text-xs text-stone-500">Total Unit Tersedia</p><p className="text-2xl font-bold text-green-700">{totalTersedia}</p></div></div></CardContent></Card>
             <Card><CardContent className="p-4"><div className="flex items-center gap-2"><PackageOpen className="w-5 h-5 text-orange-500" /><div><p className="text-xs text-stone-500">Sedang Dipinjam</p><p className="text-2xl font-bold text-orange-700">{activeLoans.length + overdueLoans.length}</p></div></div></CardContent></Card>
             <Card><CardContent className="p-4"><div className="flex items-center gap-2"><ClipboardList className="w-5 h-5 text-blue-500" /><div><p className="text-xs text-stone-500">Total Pembagian</p><p className="text-2xl font-bold text-blue-700">{distributions.length}</p></div></div></CardContent></Card>
           </div>
+
+          {/* Filter + Export bar */}
+          <Card><CardContent className="p-4">
+            <div className="flex flex-wrap items-center gap-2 mb-3">
+              <Select value={rekapFilterKategori} onValueChange={setRekapFilterKategori}>
+                <SelectTrigger className="w-[150px]"><SelectValue /></SelectTrigger>
+                <SelectContent><SelectItem value="all">Semua Kategori</SelectItem>{KATEGORI_OPTIONS.map(k => <SelectItem key={k} value={k}>{k}</SelectItem>)}</SelectContent>
+              </Select>
+              <Select value={rekapFilterStatus} onValueChange={setRekapFilterStatus}>
+                <SelectTrigger className="w-[130px]"><SelectValue /></SelectTrigger>
+                <SelectContent><SelectItem value="all">Semua Status</SelectItem>{STATUS_OPTIONS.map(s => <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>)}</SelectContent>
+              </Select>
+              <Select value={rekapSortBy} onValueChange={v => setRekapSortBy(v as typeof rekapSortBy)}>
+                <SelectTrigger className="w-[160px]"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="namaBarang">Urut: Nama Barang</SelectItem>
+                  <SelectItem value="kodeBarang">Urut: Kode</SelectItem>
+                  <SelectItem value="kategori">Urut: Kategori</SelectItem>
+                  <SelectItem value="jumlahTersedia">Urut: Stok Tersedia</SelectItem>
+                  <SelectItem value="jumlahTotal">Urut: Jumlah Total</SelectItem>
+                  <SelectItem value="status">Urut: Status</SelectItem>
+                  <SelectItem value="tahunPengadaan">Urut: Tahun</SelectItem>
+                </SelectContent>
+              </Select>
+              <Button variant="outline" size="sm" className="gap-1.5" onClick={() => setRekapSortAsc(!rekapSortAsc)}>
+                <ArrowUpDown className="w-3.5 h-3.5" />{rekapSortAsc ? 'A→Z' : 'Z→A'}
+              </Button>
+              <div className="flex-1" />
+              <Button variant="outline" size="sm" className="gap-1.5 text-green-700 border-green-300 hover:bg-green-50" onClick={exportExcel} disabled={isExporting}>
+                {isExporting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Download className="w-3.5 h-3.5" />}Export Excel
+              </Button>
+              <Button variant="outline" size="sm" className="gap-1.5 text-red-700 border-red-300 hover:bg-red-50" onClick={exportPDF} disabled={isExporting}>
+                {isExporting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Download className="w-3.5 h-3.5" />}Export PDF
+              </Button>
+            </div>
+
+            {/* Tabel data rekapitulasi */}
+            <div className="overflow-x-auto max-h-[500px] overflow-y-auto">
+              <table className="w-full text-sm">
+                <thead className="bg-stone-50 sticky top-0 z-10"><tr className="border-b border-stone-200">
+                  <th className="text-left p-2 font-semibold">Kode</th>
+                  <th className="text-left p-2 font-semibold">Nama Barang</th>
+                  <th className="text-left p-2 font-semibold hidden md:table-cell">Kategori</th>
+                  <th className="text-center p-2 font-semibold">Total</th>
+                  <th className="text-center p-2 font-semibold">Tersedia</th>
+                  <th className="text-center p-2 font-semibold hidden sm:table-cell">Dipinjam</th>
+                  <th className="text-center p-2 font-semibold hidden sm:table-cell">Dibagikan</th>
+                  <th className="text-center p-2 font-semibold">Status</th>
+                  <th className="text-left p-2 font-semibold hidden lg:table-cell">Lokasi/Pengguna/PIC</th>
+                  <th className="text-center p-2 font-semibold hidden lg:table-cell">Tahun</th>
+                  <th className="text-left p-2 font-semibold hidden xl:table-cell">Sumber</th>
+                </tr></thead>
+                <tbody>
+                  {rekapFiltered.map(item => (
+                    <tr key={item.id} className="border-b border-stone-100 hover:bg-stone-50">
+                      <td className="p-2 font-mono text-xs">{item.kodeBarang}</td>
+                      <td className="p-2 font-medium">{item.namaBarang}</td>
+                      <td className="p-2 hidden md:table-cell"><Badge variant="outline" className="text-xs">{item.kategori}</Badge></td>
+                      <td className="p-2 text-center font-semibold">{item.jumlahTotal}</td>
+                      <td className="p-2 text-center"><span className={cn('font-bold', item.jumlahTersedia === 0 ? 'text-red-600' : 'text-green-600')}>{item.jumlahTersedia}</span></td>
+                      <td className="p-2 text-center hidden sm:table-cell text-orange-600">{item.jumlahDipinjam}</td>
+                      <td className="p-2 text-center hidden sm:table-cell text-blue-600">{item.jumlahDibagikan}</td>
+                      <td className="p-2 text-center">{getStatusBadge(item.status)}</td>
+                      <td className="p-2 hidden lg:table-cell text-xs text-stone-500">{item.lokasi || '—'}</td>
+                      <td className="p-2 text-center hidden lg:table-cell text-xs">{item.tahunPengadaan || '—'}</td>
+                      <td className="p-2 hidden xl:table-cell text-xs">{item.sumberPengadaan || '—'}</td>
+                    </tr>
+                  ))}
+                  {rekapFiltered.length === 0 && <tr><td colSpan={11} className="p-4 text-center text-stone-400">Tidak ada data</td></tr>}
+                </tbody>
+              </table>
+            </div>
+            <p className="text-xs text-stone-400 mt-2">Menampilkan {rekapFiltered.length} dari {items.length} barang</p>
+          </CardContent></Card>
+
+          {/* Rekap per Kategori */}
           <Card><CardContent className="p-4">
             <h3 className="text-sm font-semibold mb-3">Rekap per Kategori</h3>
             <div className="space-y-2">
@@ -489,15 +668,15 @@ export function InventoryManagementView() {
                 return (
                   <div key={kat} className="flex items-center justify-between p-3 bg-stone-50 rounded-lg">
                     <div className="flex items-center gap-2"><Badge variant="outline" className="text-xs">{kat}</Badge><span className="text-xs text-stone-500">{katItems.length} jenis</span></div>
-                    <div className="flex gap-4 text-xs">
-                      <span>Total: <b>{total}</b></span><span className="text-green-600">Tersedia: <b>{tersedia}</b></span><span className="text-orange-600">Dipinjam: <b>{dipinjam}</b></span><span className="text-blue-600">Dibagikan: <b>{dibagikan}</b></span>
-                    </div>
+                    <div className="flex gap-4 text-xs"><span>Total: <b>{total}</b></span><span className="text-green-600">Tersedia: <b>{tersedia}</b></span><span className="text-orange-600">Dipinjam: <b>{dipinjam}</b></span><span className="text-blue-600">Dibagikan: <b>{dibagikan}</b></span></div>
                   </div>
                 )
               })}
               {items.length === 0 && <p className="text-sm text-stone-400 text-center py-4">Belum ada data</p>}
             </div>
           </CardContent></Card>
+
+          {/* Rekap History Transaksi */}
           <Card><CardContent className="p-4">
             <h3 className="text-sm font-semibold mb-3">Rekap History Transaksi</h3>
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
