@@ -184,14 +184,14 @@ export function InventoryManagementView() {
       const url = editingItem ? `/api/inventory?id=${editingItem.id}` : '/api/inventory'
       const method = editingItem ? 'PUT' : 'POST'
       const r = await fetch(url, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
-      if (r.ok) { const d = await r.json(); showAlert(d.message || 'Berhasil'); setIsItemDialogOpen(false); fetchItems(); fetchHistories() }
+      if (r.ok) { const d = await r.json(); showAlert(d.message || 'Berhasil'); setIsItemDialogOpen(false); fetchItemsFresh(); fetchHistories() }
       else { const e = await r.json().catch(() => ({})); showAlert(e?.error || 'Gagal') }
     } catch { showAlert('Gagal menyimpan') } finally { setIsSaving(false) }
   }
 
   const handleDelete = async (item: InventoryItem) => {
     if (!confirm(`Hapus barang "${item.namaBarang}"?`)) return
-    try { const r = await fetch(`/api/inventory?id=${item.id}`, { method: 'DELETE' }); if (r.ok) { showAlert('Barang dihapus'); fetchItems() } else showAlert('Gagal hapus') } catch { showAlert('Gagal') }
+    try { const r = await fetch(`/api/inventory?id=${item.id}`, { method: 'DELETE' }); if (r.ok) { showAlert("Barang dihapus"); fetchItemsFresh() } else showAlert('Gagal hapus') } catch { showAlert('Gagal') }
   }
 
   const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -239,10 +239,30 @@ export function InventoryManagementView() {
     try {
       const body: Record<string, string> = { loanId, action, approverId: currentUser?.id || '', ...extra }
       const r = await fetch('/api/inventory/loans', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
-      if (r.ok) { const d = await r.json(); showAlert(d.message || 'Berhasil'); fetchLoans(); fetchItems(); fetchHistories() }
+      if (r.ok) { const d = await r.json(); showAlert(d.message || 'Berhasil'); fetchLoans(); fetchItemsFresh(); fetchHistories() }
       else { const e = await r.json().catch(() => ({})); showAlert(e?.error || 'Gagal') }
     } catch { showAlert('Gagal') }
   }
+
+  // Fetch items dengan cache-buster untuk bypass browser cache setelah
+  // perubahan (return/approve/distribution). Tambah _t=timestamp supaya
+  // browser tidak pakai cached response yang mungkin stale.
+  const fetchItemsFresh = useCallback(async () => {
+    try {
+      const params = new URLSearchParams()
+      if (search) params.set('search', search)
+      if (filterKategori !== 'all') params.set('kategori', filterKategori)
+      if (filterStatus !== 'all') params.set('status', filterStatus)
+      params.set('_t', String(Date.now())) // cache-buster
+      const response = await fetch(`/api/inventory?${params.toString()}`)
+      if (response.ok) {
+        const data = await response.json()
+        setItems(Array.isArray(data) ? data : [])
+      }
+    } catch (error) {
+      console.error('Failed to fetch inventory:', error)
+    }
+  }, [search, filterKategori, filterStatus])
 
   // Distribution handlers
   const openDistDialog = (item?: InventoryItem) => {
@@ -254,7 +274,7 @@ export function InventoryManagementView() {
     setIsDistSaving(true)
     try {
       const r = await fetch('/api/inventory/distributions', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...distForm, distribusiById: currentUser?.id }) })
-      if (r.ok) { showAlert('Pembagian berhasil'); setIsDistDialogOpen(false); fetchDistributions(); fetchItems(); fetchHistories() }
+      if (r.ok) { showAlert('Pembagian berhasil'); setIsDistDialogOpen(false); fetchDistributions(); fetchItemsFresh(); fetchHistories() }
       else { const e = await r.json().catch(() => ({})); showAlert(e?.error || 'Gagal') }
     } catch { showAlert('Gagal') } finally { setIsDistSaving(false) }
   }
