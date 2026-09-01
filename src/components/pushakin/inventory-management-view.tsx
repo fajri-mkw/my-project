@@ -366,7 +366,7 @@ export function InventoryManagementView() {
               <div className="overflow-x-auto max-h-[600px] overflow-y-auto">
                 <table className="w-full text-sm">
                   <thead className="bg-stone-50 sticky top-0 z-10"><tr className="border-b border-stone-200">
-                    <th className="text-left p-3 font-semibold">Barang</th><th className="text-left p-3 font-semibold">Peminjam</th><th className="text-left p-3 font-semibold hidden md:table-cell">Tgl Pinjam</th><th className="text-left p-3 font-semibold hidden md:table-cell">Tgl Kembali Rencana</th><th className="text-center p-3 font-semibold">Jml</th><th className="text-center p-3 font-semibold">Status</th><th className="text-center p-3 font-semibold">Aksi</th>
+                    <th className="text-left p-3 font-semibold">Barang</th><th className="text-left p-3 font-semibold">Peminjam</th><th className="text-left p-3 font-semibold hidden md:table-cell">Tgl Pinjam</th><th className="text-left p-3 font-semibold hidden md:table-cell">Tanggal Pengembalian</th><th className="text-center p-3 font-semibold">Jml</th><th className="text-center p-3 font-semibold">Status</th><th className="text-center p-3 font-semibold">Aksi</th>
                   </tr></thead>
                   <tbody>
                     {loans.map(loan => (
@@ -544,7 +544,7 @@ export function InventoryManagementView() {
               <div><Label htmlFor="peminjamName">Nama Peminjam *</Label><Input id="peminjamName" value={loanForm.peminjamName} onChange={e => setLoanForm(p => ({ ...p, peminjamName: e.target.value }))} /></div>
               <div><Label htmlFor="peminjamUnit">Unit / Instansi</Label><Input id="peminjamUnit" value={loanForm.peminjamUnit} onChange={e => setLoanForm(p => ({ ...p, peminjamUnit: e.target.value }))} /></div>
               <div><Label htmlFor="peminjamPhone">No. HP / WhatsApp</Label><Input id="peminjamPhone" value={loanForm.peminjamPhone} onChange={e => setLoanForm(p => ({ ...p, peminjamPhone: e.target.value }))} /></div>
-              <div><Label htmlFor="tanggalKembaliRencana">Tgl Kembali Rencana</Label><Input id="tanggalKembaliRencana" type="date" value={loanForm.tanggalKembaliRencana} onChange={e => setLoanForm(p => ({ ...p, tanggalKembaliRencana: e.target.value }))} /></div>
+              <div><Label htmlFor="tanggalKembaliRencana">Tanggal Pengembalian</Label><Input id="tanggalKembaliRencana" type="date" value={loanForm.tanggalKembaliRencana} onChange={e => setLoanForm(p => ({ ...p, tanggalKembaliRencana: e.target.value }))} /></div>
             </div>
             <div><Label htmlFor="keperluan">Keperluan</Label><Input id="keperluan" value={loanForm.keperluan} onChange={e => setLoanForm(p => ({ ...p, keperluan: e.target.value }))} /></div>
 
@@ -597,7 +597,7 @@ export function InventoryManagementView() {
                       <tr><td className="py-1 font-semibold">Unit / Instansi</td><td className="py-1">: {first.peminjamUnit || '—'}</td></tr>
                       <tr><td className="py-1 font-semibold">No. HP / WhatsApp</td><td className="py-1">: {first.peminjamPhone || '—'}</td></tr>
                       <tr><td className="py-1 font-semibold">Tanggal Pinjam</td><td className="py-1">: {formatShortDate(first.tanggalPinjam)}</td></tr>
-                      <tr><td className="py-1 font-semibold">Rencana Kembali</td><td className="py-1">: {formatShortDate(first.tanggalKembaliRencana)}</td></tr>
+                      <tr><td className="py-1 font-semibold">Tanggal Pengembalian</td><td className="py-1">: {formatShortDate(first.tanggalKembaliRencana)}</td></tr>
                       <tr><td className="py-1 font-semibold">Keperluan</td><td className="py-1">: {first.keperluan || '—'}</td></tr>
                     </tbody>
                   </table>
@@ -656,7 +656,7 @@ export function InventoryManagementView() {
                     ['Unit / Instansi', first.peminjamUnit || '—'],
                     ['No. HP / WhatsApp', first.peminjamPhone || '—'],
                     ['Tanggal Pinjam', formatShortDate(first.tanggalPinjam)],
-                    ['Rencana Kembali', formatShortDate(first.tanggalKembaliRencana)],
+                    ['Tanggal Pengembalian', formatShortDate(first.tanggalKembaliRencana)],
                     ['Keperluan', first.keperluan || '—'],
                   ]
                   for (const [label, value] of info) {
