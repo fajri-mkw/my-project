@@ -5,7 +5,7 @@ import { readDriveSettings, findOrCreateYearMonthCategoryFolder } from '@/lib/dr
 // POST /api/inventory/upload-image — upload inventory photo to Drive
 export async function POST(request: NextRequest) {
   const userRole = request.headers.get('X-User-Role')
-  if (userRole !== 'Admin') return NextResponse.json({ error: 'Hanya Super Admin' }, { status: 403 })
+  if (!['Admin', 'Administrator'].includes(userRole || '')) return NextResponse.json({ error: 'Hanya Super Admin' }, { status: 403 })
 
   try {
     const formData = await request.formData()

@@ -51,7 +51,7 @@ function mapInventory(row: Record<string, unknown>) {
 // GET /api/inventory — list all inventory items. Edge-cached 60s.
 export const GET = withEdgeCache(async (request: NextRequest) => {
   const userRole = request.headers.get('X-User-Role')
-  if (userRole !== 'Admin') {
+  if (!['Admin', 'Administrator'].includes(userRole || '')) {
     return NextResponse.json(
       { error: 'Hanya Super Admin yang dapat mengakses inventaris' },
       { status: 403 },
@@ -102,7 +102,7 @@ export const GET = withEdgeCache(async (request: NextRequest) => {
 // POST /api/inventory — create new inventory item.
 export async function POST(request: NextRequest) {
   const userRole = request.headers.get('X-User-Role')
-  if (userRole !== 'Admin') {
+  if (!['Admin', 'Administrator'].includes(userRole || '')) {
     return NextResponse.json(
       { error: 'Hanya Super Admin yang dapat menambah inventaris' },
       { status: 403 },
@@ -214,7 +214,7 @@ export async function POST(request: NextRequest) {
 // PUT /api/inventory — update item.
 export async function PUT(request: NextRequest) {
   const userRole = request.headers.get('X-User-Role')
-  if (userRole !== 'Admin') {
+  if (!['Admin', 'Administrator'].includes(userRole || '')) {
     return NextResponse.json(
       { error: 'Hanya Super Admin yang dapat mengubah inventaris' },
       { status: 403 },
@@ -349,7 +349,7 @@ export async function PUT(request: NextRequest) {
 // DELETE /api/inventory?id=...
 export async function DELETE(request: NextRequest) {
   const userRole = request.headers.get('X-User-Role')
-  if (userRole !== 'Admin') {
+  if (!['Admin', 'Administrator'].includes(userRole || '')) {
     return NextResponse.json(
       { error: 'Hanya Super Admin yang dapat menghapus inventaris' },
       { status: 403 },

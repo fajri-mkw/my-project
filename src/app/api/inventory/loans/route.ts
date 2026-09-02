@@ -7,7 +7,7 @@ function strOrNull(v: unknown): string | null { if (v === null || v === undefine
 // GET /api/inventory/loans — list all loans, grouped by loanGroupId
 export const GET = withEdgeCache(async (request: NextRequest) => {
   const userRole = request.headers.get('X-User-Role')
-  if (userRole !== 'Admin') return NextResponse.json({ error: 'Hanya Super Admin' }, { status: 403 })
+  if (!['Admin', 'Administrator'].includes(userRole || '')) return NextResponse.json({ error: 'Hanya Super Admin' }, { status: 403 })
   try {
     const url = new URL(request.url)
     const status = url.searchParams.get('status')
@@ -59,7 +59,7 @@ export const GET = withEdgeCache(async (request: NextRequest) => {
 // Body: { items: [{inventoryId, jumlahDipinjam}], peminjamName, peminjamUnit, peminjamPhone, tanggalKembaliRencana, keperluan, catatan }
 export async function POST(request: NextRequest) {
   const userRole = request.headers.get('X-User-Role')
-  if (userRole !== 'Admin') return NextResponse.json({ error: 'Hanya Super Admin' }, { status: 403 })
+  if (!['Admin', 'Administrator'].includes(userRole || '')) return NextResponse.json({ error: 'Hanya Super Admin' }, { status: 403 })
   try {
     const body = await request.json()
     const { items, peminjamName, peminjamUnit, peminjamPhone, peminjamId,
@@ -148,7 +148,7 @@ export async function POST(request: NextRequest) {
 // When action=return, apply to single loan (per-item return)
 export async function PUT(request: NextRequest) {
   const userRole = request.headers.get('X-User-Role')
-  if (userRole !== 'Admin') return NextResponse.json({ error: 'Hanya Super Admin' }, { status: 403 })
+  if (!['Admin', 'Administrator'].includes(userRole || '')) return NextResponse.json({ error: 'Hanya Super Admin' }, { status: 403 })
   try {
     const body = await request.json()
     const { loanId, action, rejectedReason, kondisi, catatanReturn, approverId } = body as Record<string, string | undefined>

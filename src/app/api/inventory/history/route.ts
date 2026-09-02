@@ -5,7 +5,7 @@ import { getLibsql, bind, type InValue } from '@/lib/libsql-client'
 // GET /api/inventory/history — list all history with filters (edge-cached 30s)
 export const GET = withEdgeCache(async (request: NextRequest) => {
   const userRole = request.headers.get('X-User-Role')
-  if (userRole !== 'Admin') return NextResponse.json({ error: 'Hanya Super Admin' }, { status: 403 })
+  if (!['Admin', 'Administrator'].includes(userRole || '')) return NextResponse.json({ error: 'Hanya Super Admin' }, { status: 403 })
   try {
     const url = new URL(request.url)
     const jenisTransaksi = url.searchParams.get('jenisTransaksi')
