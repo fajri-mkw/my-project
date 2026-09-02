@@ -81,7 +81,8 @@ export function InventoryManagementView() {
   const [editingItem, setEditingItem] = useState<InventoryItem | null>(null)
   const [isSaving, setIsSaving] = useState(false)
   const [isUploadingImage, setIsUploadingImage] = useState(false)
-  const fileInputRef = useRef<HTMLInputElement>(null)
+  const cameraInputRef = useRef<HTMLInputElement>(null)
+  const galleryInputRef = useRef<HTMLInputElement>(null)
 
   const [formData, setFormData] = useState({ kodeBarang: '', namaBarang: '', kategori: 'Merchandise', jumlahTotal: 1, lokasi: '', pengguna: '', penanggungJawab: '', sumberPengadaan: '', tahunPengadaan: '', status: 'baik', catatan: '', imageUrl: '', imageFileId: '' })
 
@@ -708,14 +709,18 @@ export function InventoryManagementView() {
                 {formData.imageUrl ? <img src={driveImageUrl(formData.imageUrl) || undefined} alt="Preview" className="w-full h-full object-cover" onError={(e) => { const t = e.target as HTMLImageElement; t.style.display = 'none'; t.parentElement!.innerHTML = '<div class="w-10 h-10 text-stone-300"><svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 10V8a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h6"/><path d="m16 19 2 2 4-4"/></svg></div>' }} /> : <Package className="w-10 h-10 text-stone-300" />}
               </div>
               <div className="flex-1">
-                <Label className="text-sm font-medium">Foto Barang</Label><p className="text-xs text-stone-500 mb-2">Ambil foto dengan kamera atau upload file</p>
-                <div className="flex gap-2">
-                  <Button type="button" variant="outline" size="sm" className="gap-1.5" disabled={isUploadingImage} onClick={() => fileInputRef.current?.click()}>
-                    {isUploadingImage ? <Loader2 className="w-4 h-4 animate-spin" /> : <Camera className="w-4 h-4" />}<span>{isUploadingImage ? 'Mengupload...' : 'Ambil / Upload Foto'}</span>
+                <Label className="text-sm font-medium">Foto Barang</Label><p className="text-xs text-stone-500 mb-2">Ambil foto dengan kamera atau pilih dari galeri</p>
+                <div className="flex gap-2 flex-wrap">
+                  <Button type="button" variant="outline" size="sm" className="gap-1.5" disabled={isUploadingImage} onClick={() => cameraInputRef.current?.click()}>
+                    {isUploadingImage ? <Loader2 className="w-4 h-4 animate-spin" /> : <Camera className="w-4 h-4" />}<span>Kamera</span>
+                  </Button>
+                  <Button type="button" variant="outline" size="sm" className="gap-1.5" disabled={isUploadingImage} onClick={() => galleryInputRef.current?.click()}>
+                    {isUploadingImage ? <Loader2 className="w-4 h-4 animate-spin" /> : <Package className="w-4 h-4" />}<span>Galeri / File</span>
                   </Button>
                   {formData.imageUrl && <Button type="button" variant="ghost" size="sm" className="text-red-600" onClick={() => setFormData(prev => ({ ...prev, imageUrl: '', imageFileId: '' }))}><Trash2 className="w-4 h-4" /></Button>}
                 </div>
-                <input ref={fileInputRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={handleImageUpload} />
+                <input ref={cameraInputRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={handleImageUpload} />
+                <input ref={galleryInputRef} type="file" accept="image/*" className="hidden" onChange={handleImageUpload} />
               </div>
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
