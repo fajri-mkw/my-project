@@ -83,6 +83,91 @@ export function InventoryManagementView() {
   const [isUploadingImage, setIsUploadingImage] = useState(false)
   const cameraInputRef = useRef<HTMLInputElement>(null)
   const galleryInputRef = useRef<HTMLInputElement>(null)
+  const webcamRef = useRef<HTMLVideoElement>(null)
+  const webcamStreamRef = useRef<MediaStream | null>(null)
+  const [isWebcamOpen, setIsWebcamOpen] = useState(false)
+
+  // Deteksi mobile: kalau mobile, pakai input capture. Kalau desktop, pakai
+  // getUserMedia webcam (karena input capture di desktop hanya buka file manager).
+  const isMobile = typeof window !== 'undefined' && (
+    /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent)
+    || (navigator.maxTouchPoints > 1 && window.innerWidth < 768)
+  )
+
+  // Buka kamera: mobile → input capture, desktop → getUserMedia webcam
+  const openCamera = () => {
+    if (isMobile) {
+      cameraInputRef.current?.click()
+    } else {
+      openWebcam()
+    }
+  }
+
+  // Desktop webcam: buka video stream via getUserMedia
+  const openWebcam = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' } })
+      webcamStreamRef.current = stream
+      setIsWebcamOpen(true)
+      // Set video src setelah dialog render
+      setTimeout(() => {
+        if (webcamRef.current) {
+          webcamRef.current.srcObject = stream
+          webcamRef.current.play()
+        }
+      }, 100)
+    } catch (err) {
+      showAlert('Tidak bisa mengakses kamera: ' + (err instanceof Error ? err.message : 'Permission denied'))
+    }
+  }
+
+  // Capture foto dari webcam stream
+  const captureWebcam = () => {
+    if (!webcamRef.current) return
+    const video = webcamRef.current
+    const canvas = document.createElement('canvas')
+    canvas.width = video.videoWidth || 640
+    canvas.height = video.videoHeight || 480
+    const ctx = canvas.getContext('2d')
+    if (!ctx) return
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height)
+    canvas.toBlob(async (blob) => {
+      if (!blob) return
+      closeWebcam()
+      // Upload blob as file
+      const file = new File([blob], `webcam-${Date.now()}.jpg`, { type: 'image/jpeg' })
+      await uploadImageFile(file)
+    }, 'image/jpeg', 0.9)
+  }
+
+  // Close webcam + stop stream
+  const closeWebcam = () => {
+    if (webcamStreamRef.current) {
+      webcamStreamRef.current.getTracks().forEach(t => t.stop())
+      webcamStreamRef.current = null
+    }
+    setIsWebcamOpen(false)
+  }
+
+  // Upload image file to Drive (dipakai oleh gallery input + webcam capture)
+  const uploadImageFile = async (file: File) => {
+    setIsUploadingImage(true)
+    try {
+      const fd = new FormData()
+      fd.append('file', file)
+      const r = await fetch('/api/inventory/upload-image', { method: 'POST', body: fd })
+      if (r.ok) {
+        const d = await r.json()
+        setFormData(prev => ({ ...prev, imageUrl: d.imageUrl, imageFileId: d.imageFileId }))
+        showAlert('Foto berhasil diunggah ke Google Drive')
+      } else {
+        const reader = new FileReader()
+        reader.onload = () => setFormData(prev => ({ ...prev, imageUrl: reader.result as string }))
+        reader.readAsDataURL(file)
+        showAlert('Foto disimpan sebagai preview (Drive upload gagal)')
+      }
+    } catch { showAlert('Gagal upload foto') } finally { setIsUploadingImage(false) }
+  }
 
   const [formData, setFormData] = useState({ kodeBarang: '', namaBarang: '', kategori: 'Merchandise', jumlahTotal: 1, lokasi: '', pengguna: '', penanggungJawab: '', sumberPengadaan: '', tahunPengadaan: '', status: 'baik', catatan: '', imageUrl: '', imageFileId: '' })
 
@@ -305,23 +390,9 @@ export function InventoryManagementView() {
   const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (!file) return
-    setIsUploadingImage(true)
-    try {
-      const fd = new FormData()
-      fd.append('file', file)
-      const r = await fetch('/api/inventory/upload-image', { method: 'POST', body: fd })
-      if (r.ok) {
-        const d = await r.json()
-        setFormData(prev => ({ ...prev, imageUrl: d.imageUrl, imageFileId: d.imageFileId }))
-        showAlert('Foto berhasil diunggah ke Google Drive')
-      } else {
-        // Fallback: local preview only
-        const reader = new FileReader()
-        reader.onload = () => setFormData(prev => ({ ...prev, imageUrl: reader.result as string }))
-        reader.readAsDataURL(file)
-        showAlert('Foto disimpan sebagai preview (Drive upload gagal)')
-      }
-    } catch { showAlert('Gagal upload foto') } finally { setIsUploadingImage(false) }
+    await uploadImageFile(file)
+    // Reset input supaya bisa upload file yang sama lagi
+    e.target.value = ''
   }
 
   // Loan handlers
@@ -711,7 +782,7 @@ export function InventoryManagementView() {
               <div className="flex-1">
                 <Label className="text-sm font-medium">Foto Barang</Label><p className="text-xs text-stone-500 mb-2">Ambil foto dengan kamera atau pilih dari galeri</p>
                 <div className="flex gap-2 flex-wrap">
-                  <Button type="button" variant="outline" size="sm" className="gap-1.5" disabled={isUploadingImage} onClick={() => cameraInputRef.current?.click()}>
+                  <Button type="button" variant="outline" size="sm" className="gap-1.5" disabled={isUploadingImage} onClick={openCamera}>
                     {isUploadingImage ? <Loader2 className="w-4 h-4 animate-spin" /> : <Camera className="w-4 h-4" />}<span>Kamera</span>
                   </Button>
                   <Button type="button" variant="outline" size="sm" className="gap-1.5" disabled={isUploadingImage} onClick={() => galleryInputRef.current?.click()}>
@@ -953,6 +1024,22 @@ export function InventoryManagementView() {
             <div className="p-3 bg-stone-50 rounded-lg text-xs text-stone-600"><p>• <b>Baik</b>: stok kembali normal</p><p>• <b>Rusak Ringan</b>: stok kembali, status tetap baik</p><p>• <b>Rusak Berat</b>: stok tidak kembali, status → rusak</p><p>• <b>Hilang</b>: total dikurangi, status → hilang</p></div>
           </div>
           <DialogFooter className="gap-2"><Button variant="outline" onClick={() => setReturnLoanId(null)}>Batal</Button><Button onClick={() => { handleLoanAction(returnLoanId!, 'return', returnForm); setReturnLoanId(null) }}>Kembalikan</Button></DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ===== WEBCAM DIALOG (desktop only) ===== */}
+      <Dialog open={isWebcamOpen} onOpenChange={(v) => { if (!v) closeWebcam() }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader><DialogTitle>Ambil Foto dengan Kamera</DialogTitle></DialogHeader>
+          <div className="space-y-4 py-2">
+            <div className="relative rounded-xl overflow-hidden bg-stone-900 aspect-video">
+              <video ref={webcamRef} autoPlay playsInline muted className="w-full h-full object-cover" />
+            </div>
+            <div className="flex justify-center gap-3">
+              <Button variant="outline" onClick={closeWebcam}>Batal</Button>
+              <Button onClick={captureWebcam} className="gap-2"><Camera className="w-4 h-4" />Ambil Foto</Button>
+            </div>
+          </div>
         </DialogContent>
       </Dialog>
 
