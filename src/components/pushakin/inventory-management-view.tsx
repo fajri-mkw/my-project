@@ -95,8 +95,9 @@ export function InventoryManagementView() {
   // Rekapitulasi filter + sort state
   const [rekapFilterKategori, setRekapFilterKategori] = useState('all')
   const [rekapFilterStatus, setRekapFilterStatus] = useState('all')
-  const [rekapSortBy, setRekapSortBy] = useState<'namaBarang' | 'kodeBarang' | 'kategori' | 'jumlahTersedia' | 'jumlahTotal' | 'status' | 'tahunPengadaan'>('namaBarang')
-  const [rekapSortAsc, setRekapSortAsc] = useState(true)
+  const [rekapSortBy, setRekapSortBy] = useState<'namaBarang' | 'kodeBarang' | 'kategori' | 'jumlahTersedia' | 'jumlahTotal' | 'status' | 'tahunPengadaan' | 'updatedAt'>('updatedAt')
+  const [rekapSortAsc, setRekapSortAsc] = useState(false)
+  const [rekapSearch, setRekapSearch] = useState('')
   const [isExporting, setIsExporting] = useState(false)
 
   // Filtered + sorted items for rekapitulasi
@@ -104,6 +105,10 @@ export function InventoryManagementView() {
     let result = [...items]
     if (rekapFilterKategori !== 'all') result = result.filter(i => i.kategori === rekapFilterKategori)
     if (rekapFilterStatus !== 'all') result = result.filter(i => i.status === rekapFilterStatus)
+    if (rekapSearch.trim()) {
+      const q = rekapSearch.toLowerCase().trim()
+      result = result.filter(i => i.namaBarang.toLowerCase().includes(q) || i.kodeBarang.toLowerCase().includes(q) || (i.lokasi || '').toLowerCase().includes(q))
+    }
     result.sort((a, b) => {
       let cmp = 0
       const av = a[rekapSortBy]; const bv = b[rekapSortBy]
@@ -601,12 +606,16 @@ export function InventoryManagementView() {
                   <SelectItem value="jumlahTotal">Urut: Jumlah Total</SelectItem>
                   <SelectItem value="status">Urut: Status</SelectItem>
                   <SelectItem value="tahunPengadaan">Urut: Tahun</SelectItem>
+                  <SelectItem value="updatedAt">Urut: Update Data</SelectItem>
                 </SelectContent>
               </Select>
               <Button variant="outline" size="sm" className="gap-1.5" onClick={() => setRekapSortAsc(!rekapSortAsc)}>
                 <ArrowUpDown className="w-3.5 h-3.5" />{rekapSortAsc ? 'A→Z' : 'Z→A'}
               </Button>
-              <div className="flex-1" />
+              <div className="relative flex-1 min-w-[180px]">
+                <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-stone-400" />
+                <Input value={rekapSearch} onChange={e => setRekapSearch(e.target.value)} className="pl-9 h-8" />
+              </div>
               <Button variant="outline" size="sm" className="gap-1.5 text-green-700 border-green-300 hover:bg-green-50" onClick={exportExcel} disabled={isExporting}>
                 {isExporting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Download className="w-3.5 h-3.5" />}Export Excel
               </Button>
