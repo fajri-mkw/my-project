@@ -85,6 +85,7 @@ export function InventoryManagementView() {
   const webcamRef = useRef<HTMLVideoElement>(null)
   const webcamStreamRef = useRef<MediaStream | null>(null)
   const [isWebcamOpen, setIsWebcamOpen] = useState(false)
+  const [webcamMode, setWebcamMode] = useState<'item' | 'loan'>('item')
 
   // Deteksi mobile: kalau mobile, pakai input capture. Kalau desktop, pakai
   // getUserMedia webcam (karena input capture di desktop hanya buka file manager).
@@ -94,9 +95,11 @@ export function InventoryManagementView() {
   )
 
   // Buka kamera: mobile → input capture, desktop → getUserMedia webcam
-  const openCamera = () => {
+  const openCamera = (mode: 'item' | 'loan' = 'item') => {
+    setWebcamMode(mode)
     if (isMobile) {
-      cameraInputRef.current?.click()
+      if (mode === 'loan') loanCameraInputRef.current?.click()
+      else cameraInputRef.current?.click()
     } else {
       openWebcam()
     }
@@ -133,9 +136,12 @@ export function InventoryManagementView() {
     canvas.toBlob(async (blob) => {
       if (!blob) return
       closeWebcam()
-      // Upload blob as file
       const file = new File([blob], `webcam-${Date.now()}.jpg`, { type: 'image/jpeg' })
-      await uploadImageFile(file)
+      if (webcamMode === 'loan') {
+        await uploadLoanPhotoFile(file)
+      } else {
+        await uploadImageFile(file)
+      }
     }, 'image/jpeg', 0.9)
   }
 
@@ -148,7 +154,7 @@ export function InventoryManagementView() {
     setIsWebcamOpen(false)
   }
 
-  // Upload image file to Drive (dipakai oleh gallery input + webcam capture)
+  // Upload image file to Drive — for item photo (dipakai oleh gallery input + webcam capture)
   const uploadImageFile = async (file: File) => {
     setIsUploadingImage(true)
     try {
@@ -166,6 +172,26 @@ export function InventoryManagementView() {
         showAlert('Foto disimpan sebagai preview (Drive upload gagal)')
       }
     } catch { showAlert('Gagal upload foto') } finally { setIsUploadingImage(false) }
+  }
+
+  // Upload image file to Drive — for loan borrower photo
+  const uploadLoanPhotoFile = async (file: File) => {
+    setIsUploadingLoanPhoto(true)
+    try {
+      const fd = new FormData()
+      fd.append('file', file)
+      const r = await fetch('/api/inventory/upload-image', { method: 'POST', body: fd })
+      if (r.ok) {
+        const d = await r.json()
+        setLoanForm(p => ({ ...p, peminjamPhotoUrl: d.imageUrl, peminjamPhotoFileId: d.imageFileId }))
+        showAlert('Foto peminjam berhasil diunggah')
+      } else {
+        const reader = new FileReader()
+        reader.onload = () => setLoanForm(p => ({ ...p, peminjamPhotoUrl: reader.result as string }))
+        reader.readAsDataURL(file)
+        showAlert('Foto disimpan sebagai preview (Drive upload gagal)')
+      }
+    } catch { showAlert('Gagal upload foto') } finally { setIsUploadingLoanPhoto(false) }
   }
 
   const [formData, setFormData] = useState({ kodeBarang: '', namaBarang: '', kategori: 'Merchandise', jumlahTotal: 1, lokasi: '', pengguna: '', penanggungJawab: '', sumberPengadaan: '', tahunPengadaan: '', status: 'baik', catatan: '', imageUrl: '', imageFileId: '' })
@@ -429,19 +455,8 @@ export function InventoryManagementView() {
   const handleLoanPhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (!file) return
-    setIsUploadingLoanPhoto(true)
-    try {
-      const fd = new FormData()
-      fd.append('file', file)
-      const r = await fetch('/api/inventory/upload-image', { method: 'POST', body: fd })
-      if (r.ok) {
-        const d = await r.json()
-        setLoanForm(p => ({ ...p, peminjamPhotoUrl: d.imageUrl, peminjamPhotoFileId: d.imageFileId }))
-        showAlert('Foto peminjam berhasil diunggah')
-      } else {
-        showAlert('Gagal upload foto peminjam')
-      }
-    } catch { showAlert('Gagal upload foto') } finally { setIsUploadingLoanPhoto(false); e.target.value = '' }
+    await uploadLoanPhotoFile(file)
+    e.target.value = ''
   }
 
   const openLoanDialog = (item?: InventoryItem) => {
@@ -841,7 +856,7 @@ export function InventoryManagementView() {
               <div className="flex-1">
                 <Label className="text-sm font-medium">Foto Barang</Label><p className="text-xs text-stone-500 mb-2">Ambil foto dengan kamera atau pilih dari galeri</p>
                 <div className="flex gap-2 flex-wrap">
-                  <Button type="button" variant="outline" size="sm" className="gap-1.5" disabled={isUploadingImage} onClick={openCamera}>
+                  <Button type="button" variant="outline" size="sm" className="gap-1.5" disabled={isUploadingImage} onClick={() => openCamera('item')}>
                     {isUploadingImage ? <Loader2 className="w-4 h-4 animate-spin" /> : <Camera className="w-4 h-4" />}<span>Kamera</span>
                   </Button>
                   <Button type="button" variant="outline" size="sm" className="gap-1.5" disabled={isUploadingImage} onClick={() => galleryInputRef.current?.click()}>
@@ -891,7 +906,7 @@ export function InventoryManagementView() {
                 <Label className="text-sm font-medium">Foto Peminjam (Bukti)</Label>
                 <p className="text-xs text-stone-500 mb-2">Foto peminjam sebagai bukti peminjaman</p>
                 <div className="flex gap-2 flex-wrap">
-                  <Button type="button" variant="outline" size="sm" className="gap-1.5" disabled={isUploadingLoanPhoto} onClick={() => { if (isMobile) loanCameraInputRef.current?.click(); else openWebcam() }}>
+                  <Button type="button" variant="outline" size="sm" className="gap-1.5" disabled={isUploadingLoanPhoto} onClick={() => openCamera('loan')}>
                     {isUploadingLoanPhoto ? <Loader2 className="w-4 h-4 animate-spin" /> : <Camera className="w-4 h-4" />}Kamera
                   </Button>
                   <Button type="button" variant="outline" size="sm" className="gap-1.5" disabled={isUploadingLoanPhoto} onClick={() => loanGalleryInputRef.current?.click()}>
