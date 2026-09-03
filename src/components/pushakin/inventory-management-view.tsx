@@ -471,6 +471,16 @@ export function InventoryManagementView() {
     } catch { showAlert('Gagal') }
   }
 
+  // Hapus peminjaman (hanya untuk status returned/rejected/pending)
+  const handleDeleteLoan = async (loanId: string) => {
+    if (!confirm('Hapus data peminjaman ini? Tindakan tidak dapat dibatalkan.')) return
+    try {
+      const r = await fetch(`/api/inventory/loans?id=${loanId}`, { method: 'DELETE' })
+      if (r.ok) { showAlert('Peminjaman berhasil dihapus'); fetchLoans(); fetchItemsFresh(); fetchHistories() }
+      else { const e = await r.json().catch(() => ({})); showAlert(e?.error || 'Gagal hapus') }
+    } catch { showAlert('Gagal') }
+  }
+
   // Fetch items dengan cache-buster untuk bypass browser cache setelah
   // perubahan (return/approve/distribution). Tambah _t=timestamp supaya
   // browser tidak pakai cached response yang mungkin stale.
@@ -631,6 +641,7 @@ export function InventoryManagementView() {
                             <Button variant="ghost" size="sm" className="h-7 px-2 text-red-600" onClick={() => { setRejectLoanId(loan.id); setRejectReason('') }}><XCircle className="w-3.5 h-3.5 mr-1" />Reject</Button>
                           </>}
                           {(loan.status === 'active' || loan.status === 'overdue') && <Button variant="ghost" size="sm" className="h-7 px-2 text-blue-600" onClick={() => { setReturnLoanId(loan.id); setReturnForm({ kondisi: 'baik', catatan: '' }) }}><ArrowLeftRight className="w-3.5 h-3.5 mr-1" />Kembalikan</Button>}
+                          <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-red-600" title="Hapus" onClick={() => handleDeleteLoan(loan.id)}><Trash2 className="w-3.5 h-3.5" /></Button>
                         </div></td>
                       </tr>
                     ))}

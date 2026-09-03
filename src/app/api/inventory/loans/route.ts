@@ -232,3 +232,53 @@ export async function PUT(request: NextRequest) {
     return NextResponse.json({ error: 'Gagal memproses peminjaman' }, { status: 500 })
   }
 }
+
+// DELETE /api/inventory/loans?id=... — hapus data peminjaman
+// Hanya untuk status returned/rejected/pending (active/overdue tidak bisa
+// dihapus karena barang masih di peminjam — harus dikembalikan dulu).
+// Jika status adalah 'active', kembalikan stok dulu sebelum hapus.
+export async function DELETE(request: NextRequest) {
+  const userRole = request.headers.get('X-User-Role')
+  if (!['Admin', 'Administrator'].includes(userRole || '')) return NextResponse.json({ error: 'Hanya Super Admin' }, { status: 403 })
+
+  try {
+    const { searchParams } = new URL(request.url)
+    const loanId = searchParams.get('id')
+    if (!loanId) return NextResponse.json({ error: 'id wajib diisi' }, { status: 400 })
+
+    const client = getLibsql()
+    const loanRes = await client.execute({
+      sql: `SELECT l.id, l.inventoryId, l.jumlahDipinjam, l.status, i.namaBarang
+            FROM inventory_loans l JOIN inventory i ON l.inventoryId = i.id WHERE l.id = ?`,
+      args: [bind(loanId)],
+    })
+    if (loanRes.rows.length === 0) return NextResponse.json({ error: 'Peminjaman tidak ditemukan' }, { status: 404 })
+
+    const loan = loanRes.rows[0] as Record<string, unknown>
+    const loanStatus = String(loan.status)
+    const invId = String(loan.inventoryId)
+    const jml = Number(loan.jumlahDipinjam ?? 1)
+    const ts = nowMs()
+
+    // Kalau status active/overdue, kembalikan stok dulu (barang masih dipinjam)
+    if (loanStatus === 'active' || loanStatus === 'overdue') {
+      await client.execute({
+        sql: `UPDATE inventory SET jumlahTersedia = jumlahTersedia + ?, jumlahDipinjam = jumlahDipinjam - ?, updatedAt = ? WHERE id = ?`,
+        args: [bind(jml), bind(jml), bind(ts), bind(invId)],
+      })
+    }
+
+    // Hapus return record (jika ada), lalu loan record
+    try { await client.execute({ sql: `DELETE FROM inventory_returns WHERE loanId = ?`, args: [bind(loanId)] }) } catch {}
+    await client.execute({ sql: `DELETE FROM inventory_loans WHERE id = ?`, args: [bind(loanId)] })
+
+    deferToBackground(invalidateCache('/api/inventory/loans'))
+    deferToBackground(invalidateCache('/api/inventory'))
+    deferToBackground(invalidateCache('/api/inventory/history'))
+
+    return NextResponse.json({ success: true, message: 'Peminjaman berhasil dihapus' })
+  } catch (error) {
+    console.error('[LOANS DELETE] Error:', error)
+    return NextResponse.json({ error: 'Gagal menghapus peminjaman' }, { status: 500 })
+  }
+}
