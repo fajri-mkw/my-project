@@ -313,17 +313,17 @@ export function InventoryManagementView() {
   }, [search, filterKategori, filterStatus])
 
   const fetchLoans = useCallback(async () => {
-    const r = await fetch('/api/inventory/loans')
+    const r = await fetch(`/api/inventory/loans?_t=${Date.now()}`)
     if (r.ok) setLoans(await r.json())
   }, [])
 
   const fetchDistributions = useCallback(async () => {
-    const r = await fetch('/api/inventory/distributions')
+    const r = await fetch(`/api/inventory/distributions?_t=${Date.now()}`)
     if (r.ok) setDistributions(await r.json())
   }, [])
 
   const fetchHistories = useCallback(async () => {
-    const r = await fetch('/api/inventory/history?limit=200')
+    const r = await fetch(`/api/inventory/history?limit=200&_t=${Date.now()}`)
     if (r.ok) setHistories(await r.json())
   }, [])
 
