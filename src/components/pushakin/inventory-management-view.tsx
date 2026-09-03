@@ -173,9 +173,14 @@ export function InventoryManagementView() {
 
   // Loan dialog
   const [isLoanDialogOpen, setIsLoanDialogOpen] = useState(false)
-  const [loanForm, setLoanForm] = useState({ peminjamName: '', peminjamUnit: '', peminjamPhone: '', tanggalKembaliRencana: '', keperluan: '', catatan: '' })
+  const [loanForm, setLoanForm] = useState({ peminjamName: '', peminjamUnit: '', peminjamPhone: '', tanggalKembaliRencana: '', keperluan: '', catatan: '', peminjamPhotoUrl: '', peminjamPhotoFileId: '' })
   const [loanItems, setLoanItems] = useState<Array<{ inventoryId: string; jumlahDipinjam: number }>>([])
   const [isLoanSaving, setIsLoanSaving] = useState(false)
+  const [isUploadingLoanPhoto, setIsUploadingLoanPhoto] = useState(false)
+  const loanCameraInputRef = useRef<HTMLInputElement>(null)
+  const loanGalleryInputRef = useRef<HTMLInputElement>(null)
+  const [loanTemplates, setLoanTemplates] = useState<string[]>([])
+  const [showTemplateDropdown, setShowTemplateDropdown] = useState(false)
   const [printLoanGroupId, setPrintLoanGroupId] = useState<string | null>(null)
 
   // Rekapitulasi filter + sort state
@@ -396,8 +401,51 @@ export function InventoryManagementView() {
   }
 
   // Loan handlers
+  // Load catatan templates from localStorage on mount
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem('inventory_loan_templates')
+      if (saved) setLoanTemplates(JSON.parse(saved))
+    } catch {}
+  }, [])
+
+  // Save current catatan as template
+  const saveTemplate = () => {
+    if (!loanForm.catatan.trim()) { showAlert('Catatan kosong, tidak bisa disimpan sebagai template'); return }
+    const updated = [...loanTemplates, loanForm.catatan]
+    setLoanTemplates(updated)
+    try { localStorage.setItem('inventory_loan_templates', JSON.stringify(updated)) } catch {}
+    showAlert('Template catatan berhasil disimpan')
+  }
+
+  // Delete template by index
+  const deleteTemplate = (idx: number) => {
+    const updated = loanTemplates.filter((_, i) => i !== idx)
+    setLoanTemplates(updated)
+    try { localStorage.setItem('inventory_loan_templates', JSON.stringify(updated)) } catch {}
+  }
+
+  // Upload foto peminjam
+  const handleLoanPhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    setIsUploadingLoanPhoto(true)
+    try {
+      const fd = new FormData()
+      fd.append('file', file)
+      const r = await fetch('/api/inventory/upload-image', { method: 'POST', body: fd })
+      if (r.ok) {
+        const d = await r.json()
+        setLoanForm(p => ({ ...p, peminjamPhotoUrl: d.imageUrl, peminjamPhotoFileId: d.imageFileId }))
+        showAlert('Foto peminjam berhasil diunggah')
+      } else {
+        showAlert('Gagal upload foto peminjam')
+      }
+    } catch { showAlert('Gagal upload foto') } finally { setIsUploadingLoanPhoto(false); e.target.value = '' }
+  }
+
   const openLoanDialog = (item?: InventoryItem) => {
-    setLoanForm({ peminjamName: '', peminjamUnit: '', peminjamPhone: '', tanggalKembaliRencana: '', keperluan: '', catatan: '' })
+    setLoanForm({ peminjamName: '', peminjamUnit: '', peminjamPhone: '', tanggalKembaliRencana: '', keperluan: '', catatan: '', peminjamPhotoUrl: '', peminjamPhotoFileId: '' })
     setLoanItems(item ? [{ inventoryId: item.id, jumlahDipinjam: 1 }] : [])
     setIsLoanDialogOpen(true)
   }
@@ -819,10 +867,32 @@ export function InventoryManagementView() {
         </DialogContent>
       </Dialog>
 
-      {/* ===== LOAN DIALOG (Multi-item) ===== */}
+      {/* ===== LOAN DIALOG (Multi-item + photo + template) ===== */}
       <Dialog open={isLoanDialogOpen} onOpenChange={setIsLoanDialogOpen}>
         <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto"><DialogHeader><DialogTitle>Form Peminjaman Barang</DialogTitle></DialogHeader>
           <div className="space-y-4 py-2">
+            {/* Foto peminjam */}
+            <div className="flex items-center gap-4">
+              <div className="w-20 h-20 rounded-xl border-2 border-dashed border-stone-300 flex items-center justify-center overflow-hidden bg-stone-50">
+                {loanForm.peminjamPhotoUrl ? <img src={driveImageUrl(loanForm.peminjamPhotoUrl) || undefined} alt="Foto Peminjam" className="w-full h-full object-cover" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }} /> : <Camera className="w-8 h-8 text-stone-300" />}
+              </div>
+              <div className="flex-1">
+                <Label className="text-sm font-medium">Foto Peminjam (Bukti)</Label>
+                <p className="text-xs text-stone-500 mb-2">Foto peminjam sebagai bukti peminjaman</p>
+                <div className="flex gap-2 flex-wrap">
+                  <Button type="button" variant="outline" size="sm" className="gap-1.5" disabled={isUploadingLoanPhoto} onClick={() => { if (isMobile) loanCameraInputRef.current?.click(); else openWebcam() }}>
+                    {isUploadingLoanPhoto ? <Loader2 className="w-4 h-4 animate-spin" /> : <Camera className="w-4 h-4" />}Kamera
+                  </Button>
+                  <Button type="button" variant="outline" size="sm" className="gap-1.5" disabled={isUploadingLoanPhoto} onClick={() => loanGalleryInputRef.current?.click()}>
+                    {isUploadingLoanPhoto ? <Loader2 className="w-4 h-4 animate-spin" /> : <Package className="w-4 h-4" />}Galeri / File
+                  </Button>
+                  {loanForm.peminjamPhotoUrl && <Button type="button" variant="ghost" size="sm" className="text-red-600" onClick={() => setLoanForm(p => ({ ...p, peminjamPhotoUrl: '', peminjamPhotoFileId: '' }))}><Trash2 className="w-4 h-4" /></Button>}
+                </div>
+                <input ref={loanCameraInputRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={handleLoanPhotoUpload} />
+                <input ref={loanGalleryInputRef} type="file" accept="image/*" className="hidden" onChange={handleLoanPhotoUpload} />
+              </div>
+            </div>
+
             {/* Borrower info */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div><Label htmlFor="peminjamName">Nama Peminjam *</Label><Input id="peminjamName" value={loanForm.peminjamName} onChange={e => setLoanForm(p => ({ ...p, peminjamName: e.target.value }))} /></div>
@@ -852,7 +922,31 @@ export function InventoryManagementView() {
               </div>
             </div>
 
-            <div><Label htmlFor="loanCatatan">Catatan</Label><Textarea id="loanCatatan" rows={2} value={loanForm.catatan} onChange={e => setLoanForm(p => ({ ...p, catatan: e.target.value }))} /></div>
+            {/* Catatan dengan template */}
+            <div>
+              <div className="flex items-center justify-between mb-1">
+                <Label htmlFor="loanCatatan">Catatan</Label>
+                <div className="flex items-center gap-1">
+                  {loanTemplates.length > 0 && (
+                    <div className="relative">
+                      <Button type="button" variant="ghost" size="sm" className="h-6 px-2 text-xs text-violet-600" onClick={() => setShowTemplateDropdown(!showTemplateDropdown)}>Template ▾</Button>
+                      {showTemplateDropdown && (
+                        <div className="absolute right-0 top-7 z-20 bg-white border border-stone-200 rounded-lg shadow-lg min-w-[200px] max-w-[300px] max-h-[200px] overflow-y-auto">
+                          {loanTemplates.map((tpl, i) => (
+                            <div key={i} className="flex items-center gap-1 p-2 hover:bg-stone-50 border-b border-stone-100 last:border-0">
+                              <button type="button" className="flex-1 text-left text-xs truncate" onClick={() => { setLoanForm(p => ({ ...p, catatan: tpl })); setShowTemplateDropdown(false) }}>{tpl}</button>
+                              <Button type="button" variant="ghost" size="sm" className="h-5 w-5 p-0 text-red-500" onClick={() => deleteTemplate(i)}><XCircle className="w-3 h-3" /></Button>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                  <Button type="button" variant="ghost" size="sm" className="h-6 px-2 text-xs text-green-600" onClick={saveTemplate}>+ Simpan Template</Button>
+                </div>
+              </div>
+              <Textarea id="loanCatatan" rows={2} value={loanForm.catatan} onChange={e => setLoanForm(p => ({ ...p, catatan: e.target.value }))} />
+            </div>
           </div>
           <DialogFooter className="gap-2"><Button variant="outline" onClick={() => setIsLoanDialogOpen(false)} disabled={isLoanSaving}>Batal</Button><Button onClick={handleLoanSubmit} disabled={isLoanSaving}>{isLoanSaving ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : null}Buat Permintaan</Button></DialogFooter>
         </DialogContent>
