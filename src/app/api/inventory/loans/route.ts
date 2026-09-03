@@ -19,6 +19,7 @@ export const GET = withEdgeCache(async (request: NextRequest) => {
     const client = getLibsql()
     const result = await client.execute({
       sql: `SELECT l.id, l.inventoryId, l.peminjamName, l.peminjamId, l.peminjamUnit, l.peminjamPhone,
+              l.peminjamPhotoUrl, l.peminjamPhotoFileId,
               l.loanGroupId, l.tanggalPinjam, l.tanggalKembaliRencana, l.tanggalKembaliAktual,
               l.jumlahDipinjam, l.status, l.keperluan, l.catatan,
               l.approverId, l.approvedAt, l.rejectedReason, l.createdAt,
@@ -36,6 +37,7 @@ export const GET = withEdgeCache(async (request: NextRequest) => {
         id: String(row.id), inventoryId: String(row.inventoryId),
         peminjamName: String(row.peminjamName), peminjamId: strOrNull(row.peminjamId),
         peminjamUnit: strOrNull(row.peminjamUnit), peminjamPhone: strOrNull(row.peminjamPhone),
+        peminjamPhotoUrl: strOrNull(row.peminjamPhotoUrl), peminjamPhotoFileId: strOrNull(row.peminjamPhotoFileId),
         loanGroupId: strOrNull(row.loanGroupId),
         tanggalPinjam: String(row.tanggalPinjam ?? ''),
         tanggalKembaliRencana: strOrNull(row.tanggalKembaliRencana),
@@ -63,9 +65,11 @@ export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
     const { items, peminjamName, peminjamUnit, peminjamPhone, peminjamId,
+            peminjamPhotoUrl, peminjamPhotoFileId,
             tanggalKembaliRencana, keperluan, catatan } = body as {
       items?: Array<{ inventoryId: string; jumlahDipinjam: number }>
       peminjamName?: string; peminjamUnit?: string; peminjamPhone?: string
+      peminjamPhotoUrl?: string; peminjamPhotoFileId?: string
       peminjamId?: string; tanggalKembaliRencana?: string; keperluan?: string; catatan?: string
     }
 
@@ -113,12 +117,14 @@ export async function POST(request: NextRequest) {
       await client.execute({
         sql: `INSERT INTO inventory_loans
               (id, inventoryId, peminjamId, peminjamName, peminjamUnit, peminjamPhone,
+               peminjamPhotoUrl, peminjamPhotoFileId,
                loanGroupId, tanggalPinjam, tanggalKembaliRencana, jumlahDipinjam,
                status, keperluan, catatan, createdAt, updatedAt)
-              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?)`,
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?)`,
         args: [
           bind(loanId), bind(item.inventoryId), bind(peminjamId || null),
           bind(peminjamName), bind(peminjamUnit || null), bind(peminjamPhone || null),
+          bind(peminjamPhotoUrl || null), bind(peminjamPhotoFileId || null),
           bind(loanGroupId), bind(ts), bind(tanggalRencana), bind(jml),
           bind(keperluan || null), bind(catatan || null), bind(ts), bind(ts),
         ],
