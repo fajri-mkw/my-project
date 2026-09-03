@@ -139,7 +139,7 @@ export function Sidebar({ isOpen = false, onNavigate, onClose }: SidebarProps) {
     ...(canManageContent ? [{ id: 'announcements', label: 'Manajemen Konten', icon: Megaphone }] : []),
     ...(canViewReports ? [{ id: 'reports', label: 'Laporan Kegiatan', icon: FileText, badge: myCompletedCount > 0 ? myCompletedCount : undefined }] : []),
     { id: 'profile', label: 'Profil Saya', icon: UserCircle },
-    ...(['Admin', 'Administrator'].includes(currentUser?.role || '') ? [{ id: 'inventory', label: 'Manajemen Inventaris', icon: Package }] : []),
+    ...(['Admin', 'Administrator', 'Manager'].includes(currentUser?.role || '') ? [{ id: 'inventory', label: 'Manajemen Inventaris', icon: Package }] : []),
     ...(canManageUsers ? [{ id: 'users', label: 'Manajemen User', icon: Users }] : []),
     ...(canManageUsers || showReviewerSettings ? [{ id: 'settings', label: 'Pengaturan', icon: Settings }] : []),
   ]

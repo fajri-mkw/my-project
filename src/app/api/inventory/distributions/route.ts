@@ -5,7 +5,7 @@ import { getLibsql, bind, nowMs, genId, type InValue } from '@/lib/libsql-client
 // GET /api/inventory/distributions — list (edge-cached 30s)
 export const GET = withEdgeCache(async (request: NextRequest) => {
   const userRole = request.headers.get('X-User-Role')
-  if (!['Admin', 'Administrator'].includes(userRole || '')) return NextResponse.json({ error: 'Hanya Super Admin' }, { status: 403 })
+  if (!['Admin', 'Administrator', 'Manager'].includes(userRole || '')) return NextResponse.json({ error: 'Hanya Super Admin' }, { status: 403 })
   try {
     const client = getLibsql()
     const result = await client.execute({
@@ -41,7 +41,7 @@ export const GET = withEdgeCache(async (request: NextRequest) => {
 // POST /api/inventory/distributions — create distribution (deduct stock immediately)
 export async function POST(request: NextRequest) {
   const userRole = request.headers.get('X-User-Role')
-  if (!['Admin', 'Administrator'].includes(userRole || '')) return NextResponse.json({ error: 'Hanya Super Admin' }, { status: 403 })
+  if (!['Admin', 'Administrator', 'Manager'].includes(userRole || '')) return NextResponse.json({ error: 'Hanya Super Admin' }, { status: 403 })
   try {
     const body = await request.json()
     const { inventoryId, penerimaName, penerimaUnit, jumlahDibagikan, keperluan, catatan, distribusiById } = body as Record<string, string | undefined>
