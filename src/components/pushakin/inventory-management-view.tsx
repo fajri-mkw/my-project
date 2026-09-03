@@ -1038,7 +1038,45 @@ export function InventoryManagementView() {
                   doc.setTextColor(0)
                   y += 10
 
-                  // Info peminjam
+                  // Layout: info peminjam di kiri, foto peminjam di kanan
+                  const infoEndY = y + 42 // 7 baris info × 6mm
+
+                  // Foto peminjam di kanan (jika ada)
+                  if (first.peminjamPhotoUrl || (loanForm.peminjamPhotoUrl)) {
+                    const photoUrl = driveImageUrl(first.peminjamPhotoUrl || loanForm.peminjamPhotoUrl)
+                    if (photoUrl) {
+                      try {
+                        // Fetch image as base64 untuk embed di PDF
+                        const imgResp = await fetch(photoUrl)
+                        const imgBlob = await imgResp.blob()
+                        const reader = new FileReader()
+                        const base64Promise = new Promise<string>((resolve) => {
+                          reader.onload = () => resolve(reader.result as string)
+                          reader.readAsDataURL(imgBlob)
+                        })
+                        const base64 = await base64Promise
+                        // Ukuran foto: 35mm × 45mm (compact, serasi di kanan halaman)
+                        const photoW = 35
+                        const photoH = 45
+                        const photoX = pageW - margin - photoW
+                        const photoY = y - 4
+                        // Border foto
+                        doc.setDrawColor(180); doc.setLineWidth(0.3)
+                        doc.rect(photoX - 0.5, photoY - 0.5, photoW + 1, photoH + 1)
+                        // Embed foto
+                        doc.addImage(base64, 'JPEG', photoX, photoY, photoW, photoH, undefined, 'FAST')
+                        // Label
+                        doc.setFontSize(7); doc.setFont('helvetica', 'bold')
+                        doc.text('Foto Peminjam', photoX + photoW / 2, photoY + photoH + 4, { align: 'center' })
+                      } catch (imgErr) {
+                        console.error('[PDF] Failed to embed photo:', imgErr)
+                        doc.setFontSize(8); doc.setFont('helvetica', 'italic')
+                        doc.text('(Foto peminjam tidak tersedia)', pageW - margin - 17, y + 20, { align: 'center' })
+                      }
+                    }
+                  }
+
+                  // Info peminjam di kiri (width dibatasi supaya tidak overlap dengan foto)
                   doc.setFontSize(10); doc.setFont('helvetica', 'normal')
                   const info = [
                     ['Nama Peminjam', first.peminjamName],
@@ -1048,19 +1086,19 @@ export function InventoryManagementView() {
                     ['Tanggal Pengembalian', formatShortDate(first.tanggalKembaliRencana)],
                     ['Keperluan', first.keperluan || '—'],
                   ]
+                  const infoMaxW = pageW - margin * 2 - 42 // sisakan ruang untuk foto di kanan
                   for (const [label, value] of info) {
                     doc.setFont('helvetica', 'bold')
                     doc.text(label, margin, y)
                     doc.setFont('helvetica', 'normal')
-                    doc.text(`: ${value}`, margin + 50, y)
+                    doc.text(`: ${value}`, margin + 50, y, { maxWidth: infoMaxW - 50 })
                     y += 6
                   }
-                  y += 4
+                  y = Math.max(y, infoEndY) + 4
 
                   // Tabel barang
                   const colW = [12, 35, 75, 20, 38]
                   const tableX = margin
-                  // Header row
                   doc.setFillColor(245, 245, 244)
                   doc.rect(tableX, y - 4, colW.reduce((a, b) => a + b, 0), 7, 'F')
                   doc.setFontSize(9); doc.setFont('helvetica', 'bold')
@@ -1071,7 +1109,6 @@ export function InventoryManagementView() {
                     cx += colW[i]
                   }
                   y += 8
-                  // Data rows
                   doc.setFont('helvetica', 'normal')
                   doc.setDrawColor(200)
                   groupLoans.forEach((l, i) => {
