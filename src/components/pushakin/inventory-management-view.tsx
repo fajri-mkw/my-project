@@ -13,8 +13,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '
 import { useAppStore } from '@/lib/store'
 import { cn } from '@/lib/utils'
 import { Package, Plus, Search, Camera, Trash2, Pencil, Loader2, PackageCheck, PackageOpen, ClipboardList, History, CheckCircle2, XCircle, ArrowLeftRight, FileText, Download, ArrowUpDown } from 'lucide-react'
-import { jsPDF } from 'jspdf'
-import { loadXLSX } from '@/lib/export-utils'
+import { loadJsPDF, loadXLSX } from '@/lib/export-utils'
 
 interface InventoryItem { id: string; kodeBarang: string; namaBarang: string; kategori: string; jumlahTotal: number; jumlahTersedia: number; jumlahDipinjam: number; jumlahDibagikan: number; lokasi: string | null; pengguna: string | null; penanggungJawab: string | null; sumberPengadaan: string | null; tahunPengadaan: number | null; status: string; kondisiCatatan: string | null; imageFileId: string | null; imageUrl: string | null; catatan: string | null; createdAt: string; updatedAt: string }
 interface Loan { id: string; inventoryId: string; peminjamName: string; peminjamId: string | null; peminjamUnit: string | null; peminjamPhone: string | null; loanGroupId: string | null; tanggalPinjam: string; tanggalKembaliRencana: string | null; tanggalKembaliAktual: string | null; jumlahDipinjam: number; status: string; keperluan: string | null; catatan: string | null; rejectedReason: string | null; kodeBarang: string; namaBarang: string; kategori: string }
@@ -242,9 +241,10 @@ export function InventoryManagementView() {
   }
 
   // Export PDF (jsPDF with table)
-  const exportPDF = () => {
+  const exportPDF = async () => {
     setIsExporting(true)
     try {
+      const { jsPDF } = await loadJsPDF()
       const doc = new jsPDF({ unit: 'mm', format: 'a4', orientation: 'landscape' })
       const pageW = 297; const margin = 10
       let y = 15
@@ -1019,8 +1019,8 @@ export function InventoryManagementView() {
               </div>
               <DialogFooter className="gap-2 no-print">
                 <Button variant="outline" onClick={() => setPrintLoanGroupId(null)}>Tutup</Button>
-                <Button onClick={() => {
-                  // Generate PDF langsung pakai jsPDF — download file .pdf
+                <Button onClick={async () => {
+                  const { jsPDF } = await loadJsPDF()
                   const doc = new jsPDF({ unit: 'mm', format: 'a4' })
                   const pageW = 210
                   const margin = 15
