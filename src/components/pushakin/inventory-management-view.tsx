@@ -1115,37 +1115,68 @@ export function InventoryManagementView() {
                   const infoEndY = y + 42 // 7 baris info × 6mm
 
                   // Foto peminjam di kanan (jika ada)
-                  if (first.peminjamPhotoUrl || (loanForm.peminjamPhotoUrl)) {
-                    const photoUrl = driveImageUrl(first.peminjamPhotoUrl || loanForm.peminjamPhotoUrl)
-                    if (photoUrl) {
-                      try {
-                        // Fetch image as base64 untuk embed di PDF
-                        const imgResp = await fetch(photoUrl)
-                        const imgBlob = await imgResp.blob()
-                        const reader = new FileReader()
-                        const base64Promise = new Promise<string>((resolve) => {
-                          reader.onload = () => resolve(reader.result as string)
-                          reader.readAsDataURL(imgBlob)
-                        })
-                        const base64 = await base64Promise
-                        // Ukuran foto: 35mm × 45mm (compact, serasi di kanan halaman)
-                        const photoW = 35
-                        const photoH = 45
-                        const photoX = pageW - margin - photoW
-                        const photoY = y - 4
-                        // Border foto
-                        doc.setDrawColor(180); doc.setLineWidth(0.3)
-                        doc.rect(photoX - 0.5, photoY - 0.5, photoW + 1, photoH + 1)
-                        // Embed foto
-                        doc.addImage(base64, 'JPEG', photoX, photoY, photoW, photoH, undefined, 'FAST')
-                        // Label
-                        doc.setFontSize(7); doc.setFont('helvetica', 'bold')
-                        doc.text('Foto Peminjam', photoX + photoW / 2, photoY + photoH + 4, { align: 'center' })
-                      } catch (imgErr) {
-                        console.error('[PDF] Failed to embed photo:', imgErr)
-                        doc.setFontSize(8); doc.setFont('helvetica', 'italic')
-                        doc.text('(Foto peminjam tidak tersedia)', pageW - margin - 17, y + 20, { align: 'center' })
-                      }
+                  //
+                  // WHY PROXY: Browser fetch() ke drive.google.com/thumbnail?id=XXX
+                  // GAGAL karena CORS — Drive tidak kirim Access-Control-Allow-Origin.
+                  // <img> tag bisa render (no CORS enforcement), tapi fetch() butuh
+                  // CORS-OK response untuk jsPDF addImage pipeline.
+                  //
+                  // SOLUSI: pakai backend proxy /api/inventory/proxy-image?fileId=XXX
+                  // yang fetch raw bytes via Service Account, return sebagai same-origin
+                  // image response (no CORS). Untuk base64 data URL (Drive upload gagal
+                  // → fallback ke base64), fetch() langsung berfungsi tanpa proxy.
+                  const photoFileIdRaw = first.peminjamPhotoFileId || loanForm.peminjamPhotoFileId
+                  const photoUrlRaw = first.peminjamPhotoUrl || loanForm.peminjamPhotoUrl
+                  // Extract fileId dari URL kalau fileId kolom belum terisi (loan lama)
+                  let photoFileId = photoFileIdRaw
+                  if (!photoFileId && photoUrlRaw) {
+                    const idMatch = photoUrlRaw.match(/[?&]id=([^&]+)/)
+                    if (idMatch) photoFileId = idMatch[1]
+                    else {
+                      const fileMatch = photoUrlRaw.match(/\/file\/d\/([^/]+)/)
+                      if (fileMatch) photoFileId = fileMatch[1]
+                    }
+                  }
+                  // Tentukan URL yang akan di-fetch:
+                  // - Base64 data URL → fetch langsung (works without CORS)
+                  // - File ID → pakai proxy (same-origin, no CORS)
+                  let fetchUrl: string | null = null
+                  if (photoUrlRaw && photoUrlRaw.startsWith('data:image/')) {
+                    fetchUrl = photoUrlRaw
+                  } else if (photoFileId) {
+                    fetchUrl = `/api/inventory/proxy-image?fileId=${encodeURIComponent(photoFileId)}`
+                  }
+                  if (fetchUrl) {
+                    try {
+                      const imgResp = await fetch(fetchUrl)
+                      if (!imgResp.ok) throw new Error(`HTTP ${imgResp.status}`)
+                      const imgBlob = await imgResp.blob()
+                      // Deteksi format dari MIME type — jsPDF expects 'JPEG'/'PNG'/'WEBP'
+                      const mimeFmt = (imgBlob.type || 'image/jpeg').split('/')[1]?.toUpperCase() || 'JPEG'
+                      const fmt = mimeFmt === 'JPG' ? 'JPEG' : mimeFmt
+                      const reader = new FileReader()
+                      const base64 = await new Promise<string>((resolve, reject) => {
+                        reader.onload = () => resolve(reader.result as string)
+                        reader.onerror = reject
+                        reader.readAsDataURL(imgBlob)
+                      })
+                      // Ukuran foto: 35mm × 45mm (compact, serasi di kanan halaman)
+                      const photoW = 35
+                      const photoH = 45
+                      const photoX = pageW - margin - photoW
+                      const photoY = y - 4
+                      // Border foto
+                      doc.setDrawColor(180); doc.setLineWidth(0.3)
+                      doc.rect(photoX - 0.5, photoY - 0.5, photoW + 1, photoH + 1)
+                      // Embed foto (fmt otomatis dari MIME type — support JPEG/PNG/WEBP)
+                      doc.addImage(base64, fmt, photoX, photoY, photoW, photoH, undefined, 'FAST')
+                      // Label
+                      doc.setFontSize(7); doc.setFont('helvetica', 'bold')
+                      doc.text('Foto Peminjam', photoX + photoW / 2, photoY + photoH + 4, { align: 'center' })
+                    } catch (imgErr) {
+                      console.error('[PDF] Failed to embed photo:', imgErr)
+                      doc.setFontSize(8); doc.setFont('helvetica', 'italic')
+                      doc.text('(Foto peminjam tidak tersedia)', pageW - margin - 17, y + 20, { align: 'center' })
                     }
                   }
 
