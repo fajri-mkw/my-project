@@ -207,6 +207,8 @@ export function InventoryManagementView() {
   const [loanTemplates, setLoanTemplates] = useState<string[]>([])
   const [showTemplateDropdown, setShowTemplateDropdown] = useState(false)
   const [printLoanGroupId, setPrintLoanGroupId] = useState<string | null>(null)
+  const [selectedHistoryIds, setSelectedHistoryIds] = useState<Set<string>>(new Set())
+  const [isDeletingHistory, setIsDeletingHistory] = useState(false)
 
   // Rekapitulasi filter + sort state
   const [rekapFilterKategori, setRekapFilterKategori] = useState('all')
@@ -496,6 +498,26 @@ export function InventoryManagementView() {
     } catch { showAlert('Gagal') }
   }
 
+  // Hapus history entries yang dicentang
+  const handleDeleteHistory = async () => {
+    if (selectedHistoryIds.size === 0) return
+    if (!confirm(`Hapus ${selectedHistoryIds.size} history terpilih? Tindakan tidak dapat dibatalkan.`)) return
+    setIsDeletingHistory(true)
+    try {
+      const ids = Array.from(selectedHistoryIds).join(',')
+      const r = await fetch(`/api/inventory/history?ids=${ids}`, { method: 'DELETE' })
+      if (r.ok) {
+        const d = await r.json()
+        showAlert(d.message || 'History berhasil dihapus')
+        setSelectedHistoryIds(new Set())
+        fetchHistories()
+      } else {
+        const e = await r.json().catch(() => ({}))
+        showAlert(e?.error || 'Gagal hapus history')
+      }
+    } catch { showAlert('Gagal') } finally { setIsDeletingHistory(false) }
+  }
+
   // Fetch items dengan cache-buster untuk bypass browser cache setelah
   // perubahan (return/approve/distribution). Tambah _t=timestamp supaya
   // browser tidak pakai cached response yang mungkin stale.
@@ -694,29 +716,64 @@ export function InventoryManagementView() {
           </CardContent></Card>
         </TabsContent>
 
-        {/* ===== TAB: HISTORY ===== */}
+        {/* ===== TAB: HISTORY (with checkbox + delete) ===== */}
         <TabsContent value="history" className="space-y-4">
           <Card><CardContent className="p-0">
             {histories.length === 0 ? <div className="flex flex-col items-center p-12 text-stone-400"><History className="w-12 h-12 mb-2" /><p className="text-sm">Belum ada history</p></div> : (
-              <div className="overflow-x-auto max-h-[600px] overflow-y-auto">
-                <table className="w-full text-sm">
-                  <thead className="bg-stone-50 sticky top-0 z-10"><tr className="border-b border-stone-200">
-                    <th className="text-left p-3 font-semibold">Tanggal</th><th className="text-left p-3 font-semibold">Jenis</th><th className="text-left p-3 font-semibold">Barang</th><th className="text-left p-3 font-semibold">Keterangan</th><th className="text-center p-3 font-semibold hidden sm:table-cell">Jml</th><th className="text-left p-3 font-semibold hidden md:table-cell">Pelaku</th>
-                  </tr></thead>
-                  <tbody>
-                    {histories.map(h => (
-                      <tr key={h.id} className="border-b border-stone-100 hover:bg-stone-50">
-                        <td className="p-3 text-xs">{formatDate(h.tanggalTransaksi)}</td>
-                        <td className="p-3">{getHistoryBadge(h.jenisTransaksi)}</td>
-                        <td className="p-3"><div><p className="font-medium text-xs">{h.namaBarang}</p><p className="text-[10px] text-stone-500 font-mono">{h.kodeBarang}</p></div></td>
-                        <td className="p-3 text-xs">{h.keterangan || '—'}</td>
-                        <td className="p-3 text-center hidden sm:table-cell">{h.jumlah != null ? h.jumlah : '—'}</td>
-                        <td className="p-3 hidden md:table-cell text-xs">{h.pelakuName || '—'}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+              <>
+                {/* Action bar */}
+                <div className="flex items-center justify-between p-3 border-b border-stone-200 bg-stone-50">
+                  <div className="flex items-center gap-3">
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <Checkbox checked={selectedHistoryIds.size === histories.length && histories.length > 0} onCheckedChange={(checked) => {
+                        if (checked) { setSelectedHistoryIds(new Set(histories.map(h => h.id))) }
+                        else { setSelectedHistoryIds(new Set()) }
+                      }} />
+                      <span className="text-xs font-medium text-stone-600">Centang Semua</span>
+                    </label>
+                    {selectedHistoryIds.size > 0 && (
+                      <span className="text-xs text-stone-500">{selectedHistoryIds.size} dipilih</span>
+                    )}
+                  </div>
+                  {selectedHistoryIds.size > 0 && (
+                    <Button variant="outline" size="sm" className="gap-1.5 text-red-600 border-red-300 hover:bg-red-50" onClick={handleDeleteHistory} disabled={isDeletingHistory}>
+                      {isDeletingHistory ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
+                      Hapus ({selectedHistoryIds.size})
+                    </Button>
+                  )}
+                </div>
+                <div className="overflow-x-auto max-h-[550px] overflow-y-auto">
+                  <table className="w-full text-sm">
+                    <thead className="bg-stone-50 sticky top-0 z-10"><tr className="border-b border-stone-200">
+                      <th className="text-center p-3 w-10"><Checkbox checked={selectedHistoryIds.size === histories.length && histories.length > 0} onCheckedChange={(checked) => {
+                        if (checked) { setSelectedHistoryIds(new Set(histories.map(h => h.id))) }
+                        else { setSelectedHistoryIds(new Set()) }
+                      }} /></th>
+                      <th className="text-left p-3 font-semibold">Tanggal</th><th className="text-left p-3 font-semibold">Jenis</th><th className="text-left p-3 font-semibold">Barang</th><th className="text-left p-3 font-semibold">Keterangan</th><th className="text-center p-3 font-semibold hidden sm:table-cell">Jml</th><th className="text-left p-3 font-semibold hidden md:table-cell">Pelaku</th>
+                    </tr></thead>
+                    <tbody>
+                      {histories.map(h => (
+                        <tr key={h.id} className={cn("border-b border-stone-100 hover:bg-stone-50", selectedHistoryIds.has(h.id) && "bg-red-50")}>
+                          <td className="p-3 text-center"><Checkbox checked={selectedHistoryIds.has(h.id)} onCheckedChange={(checked) => {
+                            setSelectedHistoryIds(prev => {
+                              const next = new Set(prev)
+                              if (checked) next.add(h.id)
+                              else next.delete(h.id)
+                              return next
+                            })
+                          }} /></td>
+                          <td className="p-3 text-xs">{formatDate(h.tanggalTransaksi)}</td>
+                          <td className="p-3">{getHistoryBadge(h.jenisTransaksi)}</td>
+                          <td className="p-3"><div><p className="font-medium text-xs">{h.namaBarang}</p><p className="text-[10px] text-stone-500 font-mono">{h.kodeBarang}</p></div></td>
+                          <td className="p-3 text-xs">{h.keterangan || '—'}</td>
+                          <td className="p-3 text-center hidden sm:table-cell">{h.jumlah != null ? h.jumlah : '—'}</td>
+                          <td className="p-3 hidden md:table-cell text-xs">{h.pelakuName || '—'}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </>
             )}
           </CardContent></Card>
         </TabsContent>

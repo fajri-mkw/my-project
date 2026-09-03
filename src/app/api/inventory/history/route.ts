@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { withEdgeCache } from '@/lib/edge-cache'
+import { withEdgeCache, invalidateCache, deferToBackground } from '@/lib/edge-cache'
 import { getLibsql, bind, type InValue } from '@/lib/libsql-client'
 
 // GET /api/inventory/history — list all history with filters (edge-cached 30s)
@@ -52,3 +52,34 @@ export const GET = withEdgeCache(async (request: NextRequest) => {
 }, { ttl: 30 })
 
 function strOrNull(v: unknown): string | null { if (v === null || v === undefined) return null; return String(v) }
+
+// DELETE /api/inventory/history?ids=id1,id2,id3 — hapus multiple history entries
+export async function DELETE(request: NextRequest) {
+  const userRole = request.headers.get('X-User-Role')
+  if (!['Admin', 'Administrator', 'Manager'].includes(userRole || '')) return NextResponse.json({ error: 'Hanya Super Admin' }, { status: 403 })
+
+  try {
+    const { searchParams } = new URL(request.url)
+    const idsParam = searchParams.get('ids')
+    if (!idsParam) return NextResponse.json({ error: 'ids wajib diisi' }, { status: 400 })
+
+    const ids = idsParam.split(',').filter(Boolean)
+    if (ids.length === 0) return NextResponse.json({ error: 'ids tidak boleh kosong' }, { status: 400 })
+
+    const client = getLibsql()
+    // Delete each history entry
+    for (const id of ids) {
+      try {
+        await client.execute({ sql: `DELETE FROM inventory_history WHERE id = ?`, args: [bind(id)] })
+      } catch (err) {
+        console.error(`[HISTORY DELETE] Failed to delete ${id}:`, err)
+      }
+    }
+
+    deferToBackground(invalidateCache('/api/inventory/history'))
+    return NextResponse.json({ success: true, message: `${ids.length} history berhasil dihapus` })
+  } catch (error) {
+    console.error('[HISTORY DELETE] Error:', error)
+    return NextResponse.json({ error: 'Gagal menghapus history' }, { status: 500 })
+  }
+}
