@@ -501,7 +501,6 @@ export function InventoryManagementView() {
         peminjamPhotoUrl: photoUrl,
         peminjamPhotoFileId: photoFileId,
       }
-      console.log('[LOAN SUBMIT] Sending photo data:', { hasUrl: !!photoUrl, hasFileId: !!photoFileId, urlLen: photoUrl.length, fileId: photoFileId.substring(0, 30) })
       const r = await fetch('/api/inventory/loans', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
       if (r.ok) { const d = await r.json(); showAlert(d.message || 'Permintaan dibuat'); setIsLoanDialogOpen(false); fetchLoans(); fetchHistories() }
       else { const e = await r.json().catch(() => ({})); showAlert(e?.error || 'Gagal') }
@@ -1137,15 +1136,9 @@ export function InventoryManagementView() {
               <DialogFooter className="gap-2 no-print">
                 <Button variant="outline" onClick={() => setPrintLoanGroupId(null)}>Tutup</Button>
                 <Button onClick={async () => {
-                  console.log('[PDF] === Starting PDF generation ===')
-                  console.log('[PDF] printLoanGroupId:', printLoanGroupId)
-                  console.log('[PDF] first.peminjamPhotoFileId:', first.peminjamPhotoFileId)
-                  console.log('[PDF] first.peminjamPhotoUrl:', first.peminjamPhotoUrl)
                   try {
                   const { jsPDF } = await loadJsPDF()
-                  console.log('[PDF] jsPDF loaded')
                   const doc = new jsPDF({ unit: 'mm', format: 'a4' })
-                  console.log('[PDF] doc created')
                   const pageW = 210
                   const margin = 15
                   let y = 20
@@ -1199,16 +1192,12 @@ export function InventoryManagementView() {
                   }
                   if (fetchUrl) {
                     try {
-                      console.log('[PDF] Fetching image from:', fetchUrl.substring(0, 80))
                       const imgResp = await fetch(fetchUrl)
-                      console.log('[PDF] Fetch response:', imgResp.status, imgResp.ok)
                       if (!imgResp.ok) throw new Error(`HTTP ${imgResp.status}`)
                       const imgBlob = await imgResp.blob()
-                      console.log('[PDF] Blob received:', imgBlob.size, 'bytes, type:', imgBlob.type)
                       let jpegBase64: string
                       try {
                         const bitmap = await createImageBitmap(imgBlob)
-                        console.log('[PDF] Bitmap created:', bitmap.width, 'x', bitmap.height)
                         const canvas = document.createElement('canvas')
                         canvas.width = bitmap.width
                         canvas.height = bitmap.height
@@ -1219,16 +1208,13 @@ export function InventoryManagementView() {
                         ctx.drawImage(bitmap, 0, 0)
                         bitmap.close()
                         jpegBase64 = canvas.toDataURL('image/jpeg', 0.85)
-                        console.log('[PDF] Canvas conversion done, base64 length:', jpegBase64.length, 'prefix:', jpegBase64.substring(0, 30))
                       } catch (canvasErr) {
-                        console.warn('[PDF] Canvas conversion failed, using FileReader fallback:', canvasErr)
                         const reader = new FileReader()
                         jpegBase64 = await new Promise<string>((resolve, reject) => {
                           reader.onload = () => resolve(reader.result as string)
                           reader.onerror = reject
                           reader.readAsDataURL(imgBlob)
                         })
-                        console.log('[PDF] FileReader fallback done, base64 length:', jpegBase64.length)
                       }
                       const photoW = 35
                       const photoH = 45
@@ -1236,9 +1222,7 @@ export function InventoryManagementView() {
                       const photoY = y - 4
                       doc.setDrawColor(180); doc.setLineWidth(0.3)
                       doc.rect(photoX - 0.5, photoY - 0.5, photoW + 1, photoH + 1)
-                      console.log('[PDF] About to call addImage with format JPEG at', photoX, photoY, photoW, 'x', photoH)
                       doc.addImage(jpegBase64, 'JPEG', photoX, photoY, photoW, photoH, undefined, 'FAST')
-                      console.log('[PDF] addImage SUCCESS!')
                       doc.setFontSize(7); doc.setFont('helvetica', 'bold')
                       doc.text('Foto Peminjam', photoX + photoW / 2, photoY + photoH + 4, { align: 'center' })
                     } catch (imgErr) {
@@ -1246,8 +1230,6 @@ export function InventoryManagementView() {
                       doc.setFontSize(8); doc.setFont('helvetica', 'italic')
                       doc.text('(Foto peminjam tidak tersedia)', pageW - margin - 17, y + 20, { align: 'center' })
                     }
-                  } else {
-                    console.log('[PDF] No fetchUrl — no photo data for this loan')
                   }
 
                   // Info peminjam di kiri (width dibatasi supaya tidak overlap dengan foto)
@@ -1322,12 +1304,10 @@ export function InventoryManagementView() {
                   doc.text('(____________________)', pageW - margin - 33, y, { align: 'center' })
 
                   // Download
-                  console.log('[PDF] About to save PDF')
                   doc.save(`Form-Peminjaman-${first.peminjamName.replace(/\s+/g, '_')}.pdf`)
-                  console.log('[PDF] PDF saved successfully!')
                   showAlert('Form PDF berhasil di-download.')
                   } catch (pdfErr) {
-                    console.error('[PDF] FATAL ERROR in PDF generation:', pdfErr)
+                    console.error('[PDF] Error:', pdfErr)
                     showAlert('Gagal generate PDF: ' + (pdfErr instanceof Error ? pdfErr.message : String(pdfErr)))
                   }
                 }} className="gap-2"><PackageCheck className="w-4 h-4" />Download PDF</Button>

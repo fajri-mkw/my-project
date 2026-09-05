@@ -1,19 +1,26 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { withEdgeCache } from '@/lib/edge-cache'
 import { getCachedAccessToken } from '@/lib/drive-service'
 import { readDriveSettings } from '@/lib/drive-helpers'
 
 // GET /api/inventory/proxy-image?fileId=XXX
 // Fetch raw image bytes dari Google Drive pakai Service Account,
-// return ke browser sebagai response image dengan CORS headers.
+// return ke browser sebagai response image.
 //
-// WHY: Browser fetch() ke drive.google.com/thumbnail?id=XXX GAGAL
-// karena CORS (Drive tidak kirim Access-Control-Allow-Origin untuk
-// endpoint thumbnail). <img> tag bisa render karena tidak enforce
-// CORS, tapi fetch() di jsPDF pipeline butuh response yang CORS-OK.
+// WHY PROXY: Browser fetch() ke drive.google.com/thumbnail?id=XXX GAGAL
+// karena CORS. <img> tag bisa render (no CORS enforcement), tapi fetch()
+// di jsPDF pipeline butuh CORS-OK response. Proxy = same-origin = no CORS.
 //
-// Dengan proxy ini, frontend fetch dari same-origin → tidak ada CORS.
-// Backend pakai service account → akses file apapun di Drive folder.
-export async function GET(request: NextRequest) {
+// WHY EDGE CACHE: Foto peminjam jarang berubah (upload sekali, pakai selamanya).
+// Dengan edge cache 24 jam:
+//   - First request: Worker processes + Drive API call
+//   - Subsequent requests (same fileId): served from edge cache, 0 Worker CPU
+// Browser juga cache 24h (max-age=86400) → repeat requests dari browser yang
+// sama tidak hit Worker sama sekali.
+//
+// shouldBypass: non-admin requests skip cache (always run handler → 403).
+// Admin requests use cache. Ini mencegah non-admin akses cached admin response.
+export const GET = withEdgeCache(async (request: NextRequest) => {
   const userRole = request.headers.get('X-User-Role')
   if (!['Admin', 'Administrator', 'Manager'].includes(userRole || '')) {
     return NextResponse.json({ error: 'Hanya Super Admin' }, { status: 403 })
@@ -38,14 +45,12 @@ export async function GET(request: NextRequest) {
     })
 
     if (!resp.ok) {
-      console.error('[PROXY-IMAGE] Drive API error:', resp.status, await resp.text().catch(() => ''))
       return NextResponse.json({ error: `Gagal fetch dari Drive (${resp.status})` }, { status: 502 })
     }
 
     const contentType = resp.headers.get('Content-Type') || 'image/jpeg'
     const buf = await resp.arrayBuffer()
 
-    // Cache 24 jam di browser + edge — foto jarang berubah, hemat request.
     return new NextResponse(buf, {
       status: 200,
       headers: {
@@ -56,7 +61,13 @@ export async function GET(request: NextRequest) {
       },
     })
   } catch (error) {
-    console.error('[PROXY-IMAGE] Error:', error)
     return NextResponse.json({ error: 'Gagal fetch image' }, { status: 500 })
   }
-}
+}, {
+  ttl: 86400, // 24 jam — foto jarang berubah
+  shouldBypass: (request: Request) => {
+    // Non-admin requests skip cache (always run handler → 403)
+    const role = request.headers.get('X-User-Role')
+    return !['Admin', 'Administrator', 'Manager'].includes(role || '')
+  }
+})
