@@ -73,6 +73,16 @@ export async function POST(request: NextRequest) {
       peminjamId?: string; tanggalKembaliRencana?: string; keperluan?: string; catatan?: string
     }
 
+    // Debug log — confirm what photo data is received from frontend
+    console.log('[LOANS POST] Photo data received:', {
+      hasPhotoUrl: !!peminjamPhotoUrl,
+      hasPhotoFileId: !!peminjamPhotoFileId,
+      photoUrlLen: peminjamPhotoUrl?.length || 0,
+      photoFileIdPreview: peminjamPhotoFileId ? peminjamPhotoFileId.substring(0, 30) : '(empty)',
+      peminjamName,
+      bodyKeys: Object.keys(body),
+    })
+
     // Support both multi-item (items[]) and single-item (inventoryId + jumlahDipinjam) for backward compat
     let loanItems: Array<{ inventoryId: string; jumlahDipinjam: number }>
     if (items && Array.isArray(items) && items.length > 0) {

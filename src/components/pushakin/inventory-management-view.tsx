@@ -184,11 +184,17 @@ export function InventoryManagementView() {
       const r = await fetch('/api/inventory/upload-image', { method: 'POST', body: fd })
       if (r.ok) {
         const d = await r.json()
+        // Update BOTH state dan ref — ref sebagai backup untuk race condition
+        loanPhotoRef.current = { url: d.imageUrl || '', fileId: d.imageFileId || '' }
         setLoanForm(p => ({ ...p, peminjamPhotoUrl: d.imageUrl, peminjamPhotoFileId: d.imageFileId }))
         showAlert('Foto peminjam berhasil diunggah')
       } else {
         const reader = new FileReader()
-        reader.onload = () => setLoanForm(p => ({ ...p, peminjamPhotoUrl: reader.result as string }))
+        reader.onload = () => {
+          const base64 = reader.result as string
+          loanPhotoRef.current = { url: base64, fileId: '' }
+          setLoanForm(p => ({ ...p, peminjamPhotoUrl: base64 }))
+        }
         reader.readAsDataURL(file)
         showAlert('Foto disimpan sebagai preview (Drive upload gagal)')
       }
@@ -205,6 +211,10 @@ export function InventoryManagementView() {
   const [isUploadingLoanPhoto, setIsUploadingLoanPhoto] = useState(false)
   const loanCameraInputRef = useRef<HTMLInputElement>(null)
   const loanGalleryInputRef = useRef<HTMLInputElement>(null)
+  // Ref backup untuk foto peminjam — supaya handleLoanSubmit selalu punya
+  // data terbaru bahkan jika ada race condition dengan React state update.
+  // Setiap kali setLoanForm dipanggil untuk foto, ref ini juga diupdate.
+  const loanPhotoRef = useRef<{ url: string; fileId: string }>({ url: '', fileId: '' })
   const [loanTemplates, setLoanTemplates] = useState<string[]>([])
   const [showTemplateDropdown, setShowTemplateDropdown] = useState(false)
   const [printLoanGroupId, setPrintLoanGroupId] = useState<string | null>(null)
@@ -463,6 +473,8 @@ export function InventoryManagementView() {
   }
 
   const openLoanDialog = (item?: InventoryItem) => {
+    // Reset BOTH state dan ref saat dialog dibuka
+    loanPhotoRef.current = { url: '', fileId: '' }
     setLoanForm({ peminjamName: '', peminjamUnit: '', peminjamPhone: '', tanggalKembaliRencana: '', keperluan: '', catatan: '', peminjamPhotoUrl: '', peminjamPhotoFileId: '' })
     setLoanItems(item ? [{ inventoryId: item.id, jumlahDipinjam: 1 }] : [])
     setIsLoanDialogOpen(true)
@@ -470,9 +482,27 @@ export function InventoryManagementView() {
   const handleLoanSubmit = async () => {
     if (loanItems.length === 0) { showAlert('Pilih minimal 1 barang'); return }
     if (!loanForm.peminjamName) { showAlert('Nama peminjam wajib diisi'); return }
+    // Jangan izinkan submit kalau foto masih diupload — race condition
+    if (isUploadingLoanPhoto) { showAlert('Foto masih diunggah, tunggu sebentar...'); return }
     setIsLoanSaving(true)
     try {
-      const r = await fetch('/api/inventory/loans', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ items: loanItems, ...loanForm }) })
+      // Gunakan ref sebagai fallback — supaya data foto tidak hilang
+      // bahkan kalau React state belum re-render saat tombol diklik
+      const photoUrl = loanForm.peminjamPhotoUrl || loanPhotoRef.current.url || ''
+      const photoFileId = loanForm.peminjamPhotoFileId || loanPhotoRef.current.fileId || ''
+      const payload = {
+        items: loanItems,
+        peminjamName: loanForm.peminjamName,
+        peminjamUnit: loanForm.peminjamUnit,
+        peminjamPhone: loanForm.peminjamPhone,
+        tanggalKembaliRencana: loanForm.tanggalKembaliRencana,
+        keperluan: loanForm.keperluan,
+        catatan: loanForm.catatan,
+        peminjamPhotoUrl: photoUrl,
+        peminjamPhotoFileId: photoFileId,
+      }
+      console.log('[LOAN SUBMIT] Sending photo data:', { hasUrl: !!photoUrl, hasFileId: !!photoFileId, urlLen: photoUrl.length, fileId: photoFileId.substring(0, 30) })
+      const r = await fetch('/api/inventory/loans', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
       if (r.ok) { const d = await r.json(); showAlert(d.message || 'Permintaan dibuat'); setIsLoanDialogOpen(false); fetchLoans(); fetchHistories() }
       else { const e = await r.json().catch(() => ({})); showAlert(e?.error || 'Gagal') }
     } catch { showAlert('Gagal') } finally { setIsLoanSaving(false) }
@@ -1032,7 +1062,7 @@ export function InventoryManagementView() {
               <Textarea id="loanCatatan" rows={2} value={loanForm.catatan} onChange={e => setLoanForm(p => ({ ...p, catatan: e.target.value }))} />
             </div>
           </div>
-          <DialogFooter className="gap-2"><Button variant="outline" onClick={() => setIsLoanDialogOpen(false)} disabled={isLoanSaving}>Batal</Button><Button onClick={handleLoanSubmit} disabled={isLoanSaving}>{isLoanSaving ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : null}Buat Permintaan</Button></DialogFooter>
+          <DialogFooter className="gap-2"><Button variant="outline" onClick={() => setIsLoanDialogOpen(false)} disabled={isLoanSaving || isUploadingLoanPhoto}>Batal</Button><Button onClick={handleLoanSubmit} disabled={isLoanSaving || isUploadingLoanPhoto}>{isLoanSaving ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : isUploadingLoanPhoto ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : null}{isUploadingLoanPhoto ? 'Mengunggah foto...' : 'Buat Permintaan'}</Button></DialogFooter>
         </DialogContent>
       </Dialog>
 
