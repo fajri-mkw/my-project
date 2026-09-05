@@ -1083,16 +1083,30 @@ export function InventoryManagementView() {
                     <p className="text-sm">Pusat Hubungan Masyarakat dan Keterbukaan Informasi</p>
                     <p className="text-xs text-stone-500 mt-1">ID: {printLoanGroupId}</p>
                   </div>
-                  <table className="w-full text-sm mb-4">
-                    <tbody>
-                      <tr><td className="py-1 font-semibold w-1/3">Nama Peminjam</td><td className="py-1">: {first.peminjamName}</td></tr>
-                      <tr><td className="py-1 font-semibold">Unit / Instansi</td><td className="py-1">: {first.peminjamUnit || '—'}</td></tr>
-                      <tr><td className="py-1 font-semibold">No. HP / WhatsApp</td><td className="py-1">: {first.peminjamPhone || '—'}</td></tr>
-                      <tr><td className="py-1 font-semibold">Tanggal Pinjam</td><td className="py-1">: {formatShortDate(first.tanggalPinjam)}</td></tr>
-                      <tr><td className="py-1 font-semibold">Tanggal Pengembalian</td><td className="py-1">: {formatShortDate(first.tanggalKembaliRencana)}</td></tr>
-                      <tr><td className="py-1 font-semibold">Keperluan</td><td className="py-1">: {first.keperluan || '—'}</td></tr>
-                    </tbody>
-                  </table>
+                  <div className="flex gap-4 mb-4">
+                    <table className="flex-1 text-sm">
+                      <tbody>
+                        <tr><td className="py-1 font-semibold w-1/3">Nama Peminjam</td><td className="py-1">: {first.peminjamName}</td></tr>
+                        <tr><td className="py-1 font-semibold">Unit / Instansi</td><td className="py-1">: {first.peminjamUnit || '—'}</td></tr>
+                        <tr><td className="py-1 font-semibold">No. HP / WhatsApp</td><td className="py-1">: {first.peminjamPhone || '—'}</td></tr>
+                        <tr><td className="py-1 font-semibold">Tanggal Pinjam</td><td className="py-1">: {formatShortDate(first.tanggalPinjam)}</td></tr>
+                        <tr><td className="py-1 font-semibold">Tanggal Pengembalian</td><td className="py-1">: {formatShortDate(first.tanggalKembaliRencana)}</td></tr>
+                        <tr><td className="py-1 font-semibold">Keperluan</td><td className="py-1">: {first.keperluan || '—'}</td></tr>
+                      </tbody>
+                    </table>
+                    {/* Foto peminjam di pojok kanan — tampil di preview DAN di PDF */}
+                    {(() => {
+                      const photoUrl = first.peminjamPhotoUrl || loanForm.peminjamPhotoUrl
+                      if (!photoUrl) return null
+                      const thumbUrl = driveImageUrl(photoUrl)
+                      return (
+                        <div className="flex-shrink-0 text-center">
+                          <img src={thumbUrl || undefined} alt="Foto Peminjam" className="w-24 h-32 object-cover border border-stone-400 rounded" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }} />
+                          <p className="text-xs font-semibold mt-1">Foto Peminjam</p>
+                        </div>
+                      )
+                    })()}
+                  </div>
                   <table className="w-full text-sm border border-stone-400 mb-4">
                     <thead><tr className="bg-stone-100 border-b border-stone-400">
                       <th className="text-left p-2 border-r border-stone-400">No</th>
