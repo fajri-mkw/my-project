@@ -281,9 +281,18 @@ export function OverviewView() {
   // Format:
   //   📢 REMINDER PROGRESS PROYEK
   //   Periode: Minggu Ini | 9 Jul 2026
-  //   📊 Total: 7 proyek aktif, 0 selesai
   //
-  //   ⏳ BELUM SELESAI (7):
+  //   📊 RINGKASAN UMUM
+  //   Total: 7 proyek
+  //   Sedang berjalan: 5
+  //   Selesai: 2
+  //
+  //   👥 PROGRESS PER PETUGAS
+  //   • Achmad Magfur — Reporter, Editor — belum 3 dari 5
+  //   • Jamal Ripani — Photographer — belum 2 dari 4
+  //   • Rudi Hermawan — Graphic Designer — belum 0 dari 3 ✓
+  //
+  //   ⏳ BELUM SELESAI (5):
   //   1. Workshop Visi, Misi FEBI
   //      Tahap: Produksi (1/3) — Belum: Achmad Magfur (Reporter), Jamal (Foto)
   //   2. ...
@@ -301,11 +310,89 @@ export function OverviewView() {
       day: 'numeric', month: 'short', year: 'numeric'
     })
 
+    // === Per-user aggregation ===
+    // For each incomplete project, collect per-user stats:
+    // - totalProjects: how many incomplete projects this user is involved in
+    //   (has at least one task at or before current stage)
+    // - pendingProjects: how many of those have at least one pending (not
+    //   completed) task from this user
+    // - roles: all unique roles this user has across those projects
+    const userStats = new Map<string, {
+      name: string
+      roles: Set<string>
+      totalProjects: number
+      pendingProjects: number
+    }>()
+
+    incompleteProjects.forEach(project => {
+      // Tasks at or before current stage (these are tasks the user should be
+      // working on or should have completed by now — tasks ahead of the
+      // current stage are legitimately waiting, not "late")
+      const relevantTasks = project.tasks.filter(t => t.stage <= project.currentStage)
+
+      // Group tasks by user for this project
+      const tasksByUser = new Map<string, { hasPending: boolean; roles: Set<string> }>()
+      relevantTasks.forEach(t => {
+        if (!t.assignedTo) return
+        if (!tasksByUser.has(t.assignedTo)) {
+          tasksByUser.set(t.assignedTo, { hasPending: false, roles: new Set() })
+        }
+        const u = tasksByUser.get(t.assignedTo)!
+        u.roles.add(getRoleDisplayName(t.role))
+        if (t.status !== 'completed') u.hasPending = true
+      })
+
+      // Aggregate into global userStats
+      tasksByUser.forEach((data, userId) => {
+        if (!userStats.has(userId)) {
+          userStats.set(userId, {
+            name: getUserName(userId),
+            roles: new Set(),
+            totalProjects: 0,
+            pendingProjects: 0,
+          })
+        }
+        const stats = userStats.get(userId)!
+        data.roles.forEach(r => stats.roles.add(r))
+        stats.totalProjects++
+        if (data.hasPending) stats.pendingProjects++
+      })
+    })
+
+    // Convert to sorted array: most pending first (need reminding most),
+    // then by total projects (most involved)
+    const userList = Array.from(userStats.values())
+      .map(s => ({
+        name: s.name,
+        roles: Array.from(s.roles).sort().join(', '),
+        total: s.totalProjects,
+        pending: s.pendingProjects,
+      }))
+      .sort((a, b) => b.pending - a.pending || b.total - a.total)
+
     const lines: string[] = []
     lines.push('📢 *REMINDER PROGRESS PROYEK*')
     lines.push(`Periode: ${FILTER_LABELS[timeFilter] || 'Semua Waktu'} | ${todayStr}`)
-    lines.push(`📊 Total: ${totalProjects} proyek (${activeCount} aktif, ${completedCount} selesai)`)
     lines.push('')
+
+    // === Section 1: General summary ===
+    lines.push('📊 *RINGKASAN UMUM*')
+    lines.push(`Total: ${totalProjects} proyek`)
+    lines.push(`Sedang berjalan: ${activeCount}`)
+    lines.push(`Selesai: ${completedCount}`)
+    lines.push('')
+
+    // === Section 2: Per-user progress ===
+    if (userList.length > 0) {
+      lines.push(`👥 *PROGRESS PER PETUGAS* (${userList.length} orang)`)
+      userList.forEach(u => {
+        const done = u.pending === 0
+        lines.push(`• ${u.name} — ${u.roles} — belum ${u.pending} dari ${u.total}${done ? ' ✓' : ''}`)
+      })
+      lines.push('')
+    }
+
+    // === Section 3: Project details ===
     lines.push(`⏳ *BELUM SELESAI (${incompleteProjects.length}):*`)
     lines.push('')
 
@@ -350,11 +437,11 @@ export function OverviewView() {
     if (ok) {
       setCopiedDigest(true)
       setTimeout(() => setCopiedDigest(false), 2000)
-      showAlert(`✅ Reminder WA berhasil disalin!\n\n${incompleteProjects.length} proyek belum selesai. Tempel ke grup WA untuk mengingatkan petugas.`)
+      showAlert(`✅ Reminder WA berhasil disalin!\n\n${incompleteProjects.length} proyek belum selesai, ${userList.filter(u => u.pending > 0).length} petugas masih perlu mengerjakan. Tempel ke grup WA untuk mengingatkan petugas.`)
     } else {
       showAlert('Gagal menyalin ke clipboard. Coba lagi.')
     }
-  }, [targetProjects, timeFilter, totalProjects, activeCount, completedCount, copyToClipboard, showAlert])
+  }, [targetProjects, timeFilter, totalProjects, activeCount, completedCount, copyToClipboard, showAlert, users])
 
   // ============================================================================
   // handleCopyProjectReminder — Manager-only feature
