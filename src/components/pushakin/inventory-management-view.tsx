@@ -1151,15 +1151,37 @@ export function InventoryManagementView() {
                       const imgResp = await fetch(fetchUrl)
                       if (!imgResp.ok) throw new Error(`HTTP ${imgResp.status}`)
                       const imgBlob = await imgResp.blob()
-                      // Deteksi format dari MIME type — jsPDF expects 'JPEG'/'PNG'/'WEBP'
-                      const mimeFmt = (imgBlob.type || 'image/jpeg').split('/')[1]?.toUpperCase() || 'JPEG'
-                      const fmt = mimeFmt === 'JPG' ? 'JPEG' : mimeFmt
-                      const reader = new FileReader()
-                      const base64 = await new Promise<string>((resolve, reject) => {
-                        reader.onload = () => resolve(reader.result as string)
-                        reader.onerror = reject
-                        reader.readAsDataURL(imgBlob)
-                      })
+                      // WHY CANVAS CONVERSION:
+                      // jsPDF addImage() sering GAGAL pada PNG dengan alpha channel
+                      // (RGBA). Foto peminjam dari webcam/HP biasanya PNG RGBA.
+                      // Fix: decode image → draw ke canvas dengan background putih
+                      // → export sebagai JPEG data URL. Ini menstrip alpha channel
+                      // dan menormalisasi format (selalu JPEG → selalu support jsPDF).
+                      let jpegBase64: string
+                      try {
+                        // createImageBitmap adalah cara tercepat & support semua format
+                        const bitmap = await createImageBitmap(imgBlob)
+                        const canvas = document.createElement('canvas')
+                        canvas.width = bitmap.width
+                        canvas.height = bitmap.height
+                        const ctx = canvas.getContext('2d')
+                        if (!ctx) throw new Error('Canvas 2d context tidak tersedia')
+                        // Fill background putih dulu supaya transparansi jadi putih
+                        ctx.fillStyle = '#ffffff'
+                        ctx.fillRect(0, 0, canvas.width, canvas.height)
+                        ctx.drawImage(bitmap, 0, 0)
+                        bitmap.close()
+                        jpegBase64 = canvas.toDataURL('image/jpeg', 0.85)
+                      } catch {
+                        // Fallback: kalau createImageBitmap gagal, pakai FileReader
+                        // langsung (untuk base64 data URL atau JPEG biasa)
+                        const reader = new FileReader()
+                        jpegBase64 = await new Promise<string>((resolve, reject) => {
+                          reader.onload = () => resolve(reader.result as string)
+                          reader.onerror = reject
+                          reader.readAsDataURL(imgBlob)
+                        })
+                      }
                       // Ukuran foto: 35mm × 45mm (compact, serasi di kanan halaman)
                       const photoW = 35
                       const photoH = 45
@@ -1168,8 +1190,8 @@ export function InventoryManagementView() {
                       // Border foto
                       doc.setDrawColor(180); doc.setLineWidth(0.3)
                       doc.rect(photoX - 0.5, photoY - 0.5, photoW + 1, photoH + 1)
-                      // Embed foto (fmt otomatis dari MIME type — support JPEG/PNG/WEBP)
-                      doc.addImage(base64, fmt, photoX, photoY, photoW, photoH, undefined, 'FAST')
+                      // Embed foto sebagai JPEG (selalu support jsPDF, no alpha issues)
+                      doc.addImage(jpegBase64, 'JPEG', photoX, photoY, photoW, photoH, undefined, 'FAST')
                       // Label
                       doc.setFontSize(7); doc.setFont('helvetica', 'bold')
                       doc.text('Foto Peminjam', photoX + photoW / 2, photoY + photoH + 4, { align: 'center' })
