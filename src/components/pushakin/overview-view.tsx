@@ -317,6 +317,11 @@ export function OverviewView() {
     // - pendingProjects: how many of those have at least one pending (not
     //   completed) task from this user
     // - roles: all unique roles this user has across those projects
+    //
+    // IMPORTANT: group by USER NAME, not userId. The same person may have
+    // multiple user records (e.g. assigned with different IDs in different
+    // projects). Grouping by name ensures one line per person in the
+    // reminder — matches the user's request: "nama-roles-belum X dari Y".
     const userStats = new Map<string, {
       name: string
       roles: Set<string>
@@ -330,29 +335,30 @@ export function OverviewView() {
       // current stage are legitimately waiting, not "late")
       const relevantTasks = project.tasks.filter(t => t.stage <= project.currentStage)
 
-      // Group tasks by user for this project
+      // Group tasks by user NAME for this project
       const tasksByUser = new Map<string, { hasPending: boolean; roles: Set<string> }>()
       relevantTasks.forEach(t => {
         if (!t.assignedTo) return
-        if (!tasksByUser.has(t.assignedTo)) {
-          tasksByUser.set(t.assignedTo, { hasPending: false, roles: new Set() })
+        const name = getUserName(t.assignedTo)
+        if (!tasksByUser.has(name)) {
+          tasksByUser.set(name, { hasPending: false, roles: new Set() })
         }
-        const u = tasksByUser.get(t.assignedTo)!
+        const u = tasksByUser.get(name)!
         u.roles.add(getRoleDisplayName(t.role))
         if (t.status !== 'completed') u.hasPending = true
       })
 
-      // Aggregate into global userStats
-      tasksByUser.forEach((data, userId) => {
-        if (!userStats.has(userId)) {
-          userStats.set(userId, {
-            name: getUserName(userId),
+      // Aggregate into global userStats (keyed by name)
+      tasksByUser.forEach((data, name) => {
+        if (!userStats.has(name)) {
+          userStats.set(name, {
+            name,
             roles: new Set(),
             totalProjects: 0,
             pendingProjects: 0,
           })
         }
-        const stats = userStats.get(userId)!
+        const stats = userStats.get(name)!
         data.roles.forEach(r => stats.roles.add(r))
         stats.totalProjects++
         if (data.hasPending) stats.pendingProjects++
