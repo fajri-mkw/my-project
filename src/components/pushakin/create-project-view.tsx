@@ -1629,10 +1629,11 @@ export function CreateProjectView() {
   }, [selectedFolders, JSON.stringify(selectedUsers), users.length, JSON.stringify(folderRoles)]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Auto-assign default folder access when a project is initiated.
-  // For workflow folders (PRODUKSI / PASCA PRODUKSI) defined in FOLDER_ACCESS_DEFAULTS,
-  // automatically add every role whose stage has an access policy — but only for roles
-  // that currently have at least one selected user, and never re-add a role the manager
-  // explicitly removed (tracked in manualRoleRemovals).
+  // For workflow folders (PRODUKSI / PASCA PRODUKSI / PUBLIC / PRIVATE) defined
+  // in FOLDER_ACCESS_DEFAULTS, automatically add every role whose stage has an
+  // access policy — but only for roles that currently have at least one selected
+  // user, and never re-add a role the manager explicitly removed (tracked in
+  // manualRoleRemovals).
   useEffect(() => {
     setFolderRoles(prev => {
       const updated = { ...prev }
@@ -1640,7 +1641,7 @@ export function CreateProjectView() {
 
       selectedFolders.forEach(folderId => {
         const defaults = FOLDER_ACCESS_DEFAULTS[folderId]
-        if (!defaults) return // only PRODUKSI / PASCA PRODUKSI auto-assign roles
+        if (!defaults) return // only folders with access policy auto-assign roles
 
         const allowedStages = Object.keys(defaults).map(Number)
         const current = updated[folderId] || []
