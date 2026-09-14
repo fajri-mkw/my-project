@@ -176,7 +176,9 @@ export function CreateProjectView() {
   // also auto-check "lainnya" (4. Additional Asset) so managers don't have
   // to remember to tick it for every new project. Folder 3 (DESAIN) stays
   // opt-in because it's only relevant for visual-design projects.
-  const [selectedFolders, setSelectedFolders] = useState(['raw', 'revised', 'lainnya'])
+  // Folder 5 (PUBLIC) and 6 (PRIVATE) are also auto-checked so petugas
+  // Tahap 1 can filter photos for sharing vs. private from the start.
+  const [selectedFolders, setSelectedFolders] = useState(['raw', 'revised', 'lainnya', 'public', 'private'])
   const [folderRoles, setFolderRoles] = useState<Record<string, string[]>>({})
   // Track roles the manager explicitly removed from a folder, so the auto-assign
   // effect does not re-add them. Entries are `${folderId}:${role}` strings.
@@ -906,7 +908,7 @@ export function CreateProjectView() {
                 // sending custom folders through the subfolder parsing logic (broken data).
                 const isCustom = f.folderId.startsWith('custom-')
                 // Check if this is a subfolder (folderId contains dashes like 'raw-reporter-userId')
-                const isSub = !isCustom && f.folderId.includes('-') && !['raw', 'revised', 'final', 'desain', 'lainnya'].includes(f.folderId)
+                const isSub = !isCustom && f.folderId.includes('-') && !['raw', 'revised', 'final', 'desain', 'lainnya', 'public', 'private'].includes(f.folderId)
                 
                 if (isSub) {
                   // Check if this is a direct output subfolder for stage 1 workers (pattern: raw-output-userId-idx)
@@ -942,7 +944,7 @@ export function CreateProjectView() {
                   if (isOutputSub) {
                     // Extract the parent user subfolder ID (everything before "-output-")
                     const outputPrefix = f.folderId.substring(0, f.folderId.indexOf('-output-'))
-                    const parentType = ['raw', 'revised', 'final', 'desain', 'lainnya'].find(t => outputPrefix.startsWith(t + '-')) || ''
+                    const parentType = ['raw', 'revised', 'final', 'desain', 'lainnya', 'public', 'private'].find(t => outputPrefix.startsWith(t + '-')) || ''
 
                     // Find the user who owns this output subfolder by matching userId at end of prefix.
                     // This ensures the output subfolder (Foto/, Video/) inherits the owning user's
@@ -970,7 +972,7 @@ export function CreateProjectView() {
                   }
                   
                   // Parse subfolder: extract parentType, role, userId from folderId
-                  const parentType = ['raw', 'revised', 'final', 'desain', 'lainnya'].find(t => f.folderId.startsWith(t + '-')) || ''
+                  const parentType = ['raw', 'revised', 'final', 'desain', 'lainnya', 'public', 'private'].find(t => f.folderId.startsWith(t + '-')) || ''
                   const remaining = f.folderId.substring(parentType.length + 1)
                   const secondDash = remaining.indexOf('-')
                   const subRole = secondDash > 0 ? remaining.substring(0, secondDash) : remaining
@@ -1061,7 +1063,7 @@ export function CreateProjectView() {
                             const isOutputSub = f.folderId.includes('-output-')
                             if (isOutputSub) {
                               const outputPrefix = f.folderId.substring(0, f.folderId.indexOf('-output-'))
-                              const parentType = ['raw', 'revised', 'final', 'desain', 'lainnya'].find(t => outputPrefix.startsWith(t + '-')) || ''
+                              const parentType = ['raw', 'revised', 'final', 'desain', 'lainnya', 'public', 'private'].find(t => outputPrefix.startsWith(t + '-')) || ''
                               const matchedUser = users.find(u => outputPrefix.endsWith('-' + u.id))
                               const parentAccess = folderUserAccess[parentType] || {}
                               return {
@@ -1083,7 +1085,7 @@ export function CreateProjectView() {
                               }
                             }
                             // User subfolder (not output)
-                            const parentType = ['raw', 'revised', 'final', 'desain', 'lainnya'].find(t => f.folderId.startsWith(t + '-')) || ''
+                            const parentType = ['raw', 'revised', 'final', 'desain', 'lainnya', 'public', 'private'].find(t => f.folderId.startsWith(t + '-')) || ''
                             const remaining = f.folderId.substring(parentType.length + 1)
                             const secondDash = remaining.indexOf('-')
                             const subUserId = secondDash > 0 ? remaining.substring(secondDash + 1) : ''

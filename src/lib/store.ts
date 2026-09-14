@@ -424,7 +424,9 @@ export const FOLDER_OPTIONS = [
   { id: 'raw', title: '1. FOLDER', name: 'PRODUKSI (Berkas Mentah)', desc: 'Untuk upload mentahan: Reporter, Fotografer, Videografer, Desain Grafis. Untuk upload Petugas Tahap 1.', color: 'text-stone-600', bg: 'bg-stone-100', border: 'border-stone-200', accessHint: 'T1: UL | T2: DL' },
   { id: 'revised', title: '2. FOLDER', name: 'PASCA PRODUKSI (Draft & Editing)', desc: 'Untuk Editor, Reviewer, dan Publisher. Direview oleh QC.', color: 'text-orange-600', bg: 'bg-orange-50', border: 'border-orange-200', accessHint: 'T2: UL | T3: DL+UL | T4: DL+UL | T5: DL' },
   { id: 'desain', title: '3. FOLDER', name: 'DESAIN FOLDER (Aset Visual)', desc: 'Khusus untuk penyimpanan file project desain.', color: 'text-blue-600', bg: 'bg-blue-50', border: 'border-blue-200' },
-  { id: 'lainnya', title: '4. FOLDER', name: 'Additional Asset (Tambahan Foto/Footage)', desc: 'Folder kustom tambahan selain file kebutuhan output utama.', color: 'text-purple-600', bg: 'bg-purple-50', border: 'border-purple-200' }
+  { id: 'lainnya', title: '4. FOLDER', name: 'Additional Asset (Tambahan Foto/Footage)', desc: 'Folder kustom tambahan selain file kebutuhan output utama.', color: 'text-purple-600', bg: 'bg-purple-50', border: 'border-purple-200' },
+  { id: 'public', title: '5. FOLDER', name: 'PUBLIC/UMUM (Untuk Dibagi)', desc: 'Foto/file yang sudah dipilih untuk dibagikan ke publik atau pihak eksternal. Petugas Tahap 1 dapat filter lebih awal foto mana yang boleh dibagikan.', color: 'text-green-600', bg: 'bg-green-50', border: 'border-green-200', accessHint: 'T1: UL' },
+  { id: 'private', title: '6. FOLDER', name: 'PRIVATE/RAHASIA (Tidak untuk Dibagi)', desc: 'Foto/file yang TIDAK boleh dibagikan ke publik. Petugas Tahap 1 dapat filter lebih awal foto mana yang harus tetap rahasia.', color: 'text-red-600', bg: 'bg-red-50', border: 'border-red-200', accessHint: 'T1: UL' },
 ]
 
 // Default access policy per folder per workflow stage.
@@ -452,6 +454,14 @@ export const FOLDER_ACCESS_DEFAULTS: Record<string, Record<number, { download: b
     2: { download: false, upload: true },
     3: { download: true, upload: true },
     4: { download: true, upload: false },
+  },
+  // PUBLIC/UMUM: T1 (UL only) — petugas Tahap 1 filter foto yang boleh dibagi
+  public: {
+    1: { download: false, upload: true },
+  },
+  // PRIVATE/RAHASIA: T1 (UL only) — petugas Tahap 1 filter foto yang rahasia
+  private: {
+    1: { download: false, upload: true },
   },
 }
 

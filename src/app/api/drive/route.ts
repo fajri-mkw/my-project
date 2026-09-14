@@ -448,7 +448,9 @@ export async function POST(request: NextRequest) {
       raw: '1. PRODUKSI (Berkas Mentah)',
       revised: '2. PASCA PRODUKSI (Draft & Editing)',
       desain: '3. DESAIN FOLDER (Aset Visual)',
-      lainnya: '4. Additional Asset (Tambahan Foto/Footage)'
+      lainnya: '4. Additional Asset (Tambahan Foto/Footage)',
+      public: '5. PUBLIC-UMUM (Untuk Dibagi)',
+      private: '6. PRIVATE-RAHASIA (Tidak untuk Dibagi)'
     }
 
     // Build a lookup for custom folder definitions so we can resolve names

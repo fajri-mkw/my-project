@@ -75,7 +75,7 @@ function extractFolderId(url: string): string | null {
   const match = url.match(/\/folders\/([a-zA-Z0-9_-]+)/)
   if (!match) return null
   const extracted = match[1]
-  const knownPrefixes = ['raw-', 'revised-', 'final-', 'desain-', 'lainnya-', 'mock-']
+  const knownPrefixes = ['raw-', 'revised-', 'final-', 'desain-', 'lainnya-', 'public-', 'private-', 'mock-']
   if (knownPrefixes.some((p) => extracted.startsWith(p))) return null
   if (extracted.length < 20) return null
   return extracted

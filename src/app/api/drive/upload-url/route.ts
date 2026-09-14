@@ -154,7 +154,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Reject constructed/mock folder IDs
-    const knownPrefixes = ['raw-', 'revised-', 'final-', 'desain-', 'lainnya-', 'mock-']
+    const knownPrefixes = ['raw-', 'revised-', 'final-', 'desain-', 'lainnya-', 'public-', 'private-', 'mock-']
     if (knownPrefixes.some(p => folderId.startsWith(p)) || folderId.length < 20) {
       return NextResponse.json(
         { error: 'Folder ID tidak valid. Pastikan Google Drive sudah terhubung.' },

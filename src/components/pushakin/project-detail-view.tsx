@@ -361,7 +361,7 @@ Pushakin Flows — Sistem Manajemen Produksi`
       const match = f.link.match(/\/folders\/([a-zA-Z0-9_-]+)/)
       if (!match) return true
       const id = match[1]
-      const mockPrefixes = ['raw-', 'revised-', 'final-', 'desain-', 'lainnya-', 'mock-']
+      const mockPrefixes = ['raw-', 'revised-', 'final-', 'desain-', 'lainnya-', 'public-', 'private-', 'mock-']
       if (mockPrefixes.some(p => id.startsWith(p))) return true
       if (id.length < 20) return true
       return false
@@ -406,7 +406,7 @@ Pushakin Flows — Sistem Manajemen Produksi`
           // and grant every assigned worker both download & upload access. This
           // makes the "Buat Ulang Folder Drive" button usable for projects that
           // were created without any folders at all.
-          const PARENT_TYPES = ['raw', 'revised', 'desain', 'lainnya']
+          const PARENT_TYPES = ['raw', 'revised', 'desain', 'lainnya', 'public', 'private']
           // Include custom folders (id starts with "custom-") as parent folders
           // so they are recreated too — not just the 4 standard types.
           const parentFolders = project.driveFolders.filter(
@@ -1233,7 +1233,7 @@ Pushakin Flows — Sistem Manajemen Produksi`
     const myRole = currentUser?.role || ''
     // Detect subfolders (parentFolderId or folderId pattern)
     const isSub = folder.parentFolderId ||
-      (folder.folderId.includes('-') && ['raw', 'revised', 'final', 'desain', 'lainnya'].some(b => folder.folderId.startsWith(b + '-')))
+      (folder.folderId.includes('-') && ['raw', 'revised', 'final', 'desain', 'lainnya', 'public', 'private'].some(b => folder.folderId.startsWith(b + '-')))
     if (isSub) {
       // Check assignedUsers first (most precise) — match by userId
       if (folder.assignedUsers?.some((au: any) => au.userId === myId)) return true
@@ -1258,8 +1258,8 @@ Pushakin Flows — Sistem Manajemen Produksi`
   })
 
   // Separate parent folders and subfolders (including nested output subfolders)
-  const parentFolders = visibleFolders.filter(f => !f.parentFolderId && !(['raw', 'revised', 'final', 'desain', 'lainnya'].some(b => f.folderId.startsWith(b + '-') && f.folderId.includes('-'))))
-  const subfolders = visibleFolders.filter(f => f.parentFolderId || (f.folderId.includes('-') && ['raw', 'revised', 'final', 'desain', 'lainnya'].some(b => f.folderId.startsWith(b + '-'))))
+  const parentFolders = visibleFolders.filter(f => !f.parentFolderId && !(['raw', 'revised', 'final', 'desain', 'lainnya', 'public', 'private'].some(b => f.folderId.startsWith(b + '-') && f.folderId.includes('-'))))
+  const subfolders = visibleFolders.filter(f => f.parentFolderId || (f.folderId.includes('-') && ['raw', 'revised', 'final', 'desain', 'lainnya', 'public', 'private'].some(b => f.folderId.startsWith(b + '-'))))
   
   // Get direct child subfolders for a given parent ID (supports 3-level hierarchy)
   const getSubfolders = (parentId: string) => {
@@ -3029,8 +3029,8 @@ function TaskCard({
   // Shared helper: apakah folder ini adalah subfolder (bukan parent folder utama)
   const isSub = (f: DriveFolder) => {
     if (f.parentFolderId) return true
-    if (['raw', 'revised', 'final', 'desain', 'lainnya'].includes(f.folderId)) return false
-    if (f.folderId.includes('-') && ['raw', 'revised', 'final', 'desain', 'lainnya'].some(b => f.folderId.startsWith(b + '-'))) return true
+    if (['raw', 'revised', 'final', 'desain', 'lainnya', 'public', 'private'].includes(f.folderId)) return false
+    if (f.folderId.includes('-') && ['raw', 'revised', 'final', 'desain', 'lainnya', 'public', 'private'].some(b => f.folderId.startsWith(b + '-'))) return true
     if (/^[A-Z]{2}_/.test(f.name)) return true
     return false
   }
@@ -3096,7 +3096,7 @@ function TaskCard({
         return true
       }
       // Fallback: check by folderId prefix (legacy)
-      const parentType = ['raw', 'revised', 'final', 'desain', 'lainnya'].find(t => f.folderId.startsWith(t + '-'))
+      const parentType = ['raw', 'revised', 'final', 'desain', 'lainnya', 'public', 'private'].find(t => f.folderId.startsWith(t + '-'))
       return parentType && myParentFolderIds.has(parentType)
     })
 
@@ -3503,7 +3503,7 @@ function TaskCard({
                           const m = f.link.match(/\/folders\/([a-zA-Z0-9_-]+)/)
                           if (!m) return true
                           const id = m[1]
-                          const mockPrefixes = ['raw-', 'revised-', 'final-', 'desain-', 'lainnya-', 'mock-']
+                          const mockPrefixes = ['raw-', 'revised-', 'final-', 'desain-', 'lainnya-', 'public-', 'private-', 'mock-']
                           return mockPrefixes.some(p => id.startsWith(p)) || id.length < 20
                         }) && (
                           <div className="p-3 rounded-xl border border-amber-200 bg-amber-50 flex items-start gap-2">
