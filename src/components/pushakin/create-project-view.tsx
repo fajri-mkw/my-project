@@ -171,14 +171,10 @@ export function CreateProjectView() {
   const [picName, setPicName] = useState('')
   const [picWhatsApp, setPicWhatsApp] = useState('')
   const [selectedUsers, setSelectedUsers] = useState<Record<string, string[]>>({}) // role → list of selected user IDs
-  // Default-checked workflow folders. Historically only "raw" (1. PRODUKSI)
-  // and "revised" (2. PASCA PRODUKSI) were auto-checked, but per request we
-  // also auto-check "lainnya" (4. Additional Asset) so managers don't have
-  // to remember to tick it for every new project. Folder 3 (DESAIN) stays
-  // opt-in because it's only relevant for visual-design projects.
-  // Folder 5 (PUBLIC) and 6 (PRIVATE) are also auto-checked so petugas
-  // Tahap 1 can filter photos for sharing vs. private from the start.
-  const [selectedFolders, setSelectedFolders] = useState(['raw', 'revised', 'lainnya', 'public', 'private'])
+  // Default-checked workflow folders. Folder 1 (PRODUKSI), 2 (PASCA PRODUKSI),
+  // 3 (PUBLIC/UMUM), dan 4 (PRIVATE/RAHASIA) auto-checked.
+  // Folder desain & lainnya sudah dihapus — diganti dengan PUBLIC/PRIVATE.
+  const [selectedFolders, setSelectedFolders] = useState(['raw', 'revised', 'public', 'private'])
   const [folderRoles, setFolderRoles] = useState<Record<string, string[]>>({})
   // Track roles the manager explicitly removed from a folder, so the auto-assign
   // effect does not re-add them. Entries are `${folderId}:${role}` strings.
@@ -2727,7 +2723,7 @@ export function CreateProjectView() {
               ✅ Folder <span className="font-semibold">PRODUKSI</span> &amp; <span className="font-semibold">PASCA PRODUKSI</span> sudah tercentang otomatis. Akses <span className="font-semibold">Download/Upload</span> terisi otomatis sesuai tahapan kerja: T1 (UL) · T2 PRODUKSI (DL) · T2 PASCA PRODUKSI (UL) · T3 (DL+UL) · T4 (DL+UL) · T5 (DL). Manager tetap dapat menyesuaikan manual.
             </p>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 ml-8">
-              {FOLDER_OPTIONS.map(folder => {
+              {FOLDER_OPTIONS.filter(f => !(f as { hidden?: boolean }).hidden).map(folder => {
                 const isSelected = selectedFolders.includes(folder.id)
                 return (
                   <div

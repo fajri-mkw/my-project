@@ -447,10 +447,13 @@ export async function POST(request: NextRequest) {
     const folderNames: Record<string, string> = {
       raw: '1. PRODUKSI (Berkas Mentah)',
       revised: '2. PASCA PRODUKSI (Draft & Editing)',
+      public: '3. PUBLIC-UMUM (Untuk Dibagi)',
+      private: '4. PRIVATE-RAHASIA (Tidak untuk Dibagi)',
+      // DEPRECATED — masih ada untuk backward compat kalau project lama punya
+      // folder desain/lainnya yang di-repair/re-create. Tidak akan dibuat untuk
+      // project baru (form sudah tidak menampilkan opsi ini).
       desain: '3. DESAIN FOLDER (Aset Visual)',
       lainnya: '4. Additional Asset (Tambahan Foto/Footage)',
-      public: '5. PUBLIC-UMUM (Untuk Dibagi)',
-      private: '6. PRIVATE-RAHASIA (Tidak untuk Dibagi)'
     }
 
     // Build a lookup for custom folder definitions so we can resolve names
