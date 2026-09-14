@@ -495,34 +495,25 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Create user subfolders based on folderUserAccess (DL/UL checkboxes from Manager)
-    // Siapapun yang dicentang UL di folder mana → dapat subfolder di folder tersebut
-    const allUsers = assignedUsers || []
-    const access = folderUserAccess || {}
-
-    for (const folderType of folderTypes) {
-      const parentDriveId = folderIdMap[folderType]
-      if (!parentDriveId) continue
-
-      const folderAccess = access[folderType] || {}
-      // Cari user yang dicentang UL untuk folder ini
-      const usersWithUpload = allUsers.filter(u =>
-        folderAccess[u.userId]?.upload
-      )
-
-      if (usersWithUpload.length > 0) {
-        console.log(`[DRIVE] Creating subfolders in ${folderType} for UL-checked users:`, usersWithUpload.map(u => u.userName).join(', '))
-        await createUserSubfolders(accessToken, parentDriveId, folderType, usersWithUpload, driveIdForCreate, createdFolders, workerOutputs, workerCustomOutput)
-      }
-    }
-
+    // === WHY USER SUBFOLDERS ARE NOT CREATED HERE ===
+    // Previously this endpoint also created user subfolders + output subfolders
+    // per user per folder type. That added ~80+ Drive API calls on top of the
+    // ~12 structure calls → total ~92 subrequests, exceeding Cloudflare Workers
+    // free plan limit of 50 subrequests per invocation → Error 1102 + HTTP 500.
+    //
+    // FIX: User subfolders are now created in SEPARATE batched requests via
+    // POST /api/drive/create-user-subfolders. The frontend calls that endpoint
+    // once per folder type (each batch stays within the 50-subrequest limit).
+    //
+    // We return the folderIdMap so the frontend knows which Drive folder IDs
+    // to pass to the subfolder creation endpoint.
     return NextResponse.json({
       success: true,
       mainFolder: mainFolder.webViewLink,
       mainFolderId: mainFolder.id,
       folders: createdFolders,
+      folderIdMap: folderIdMap,
       linkShared: linkShared,
-      // Return the mode the upload was created in, for debugging/UI feedback.
       driveMode: target.mode,
       sharedDriveId: target.isSharedDrive ? target.rootId : undefined,
       driveFolderId: target.mode === 'folder' ? target.rootId : undefined,

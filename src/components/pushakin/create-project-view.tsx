@@ -1016,7 +1016,109 @@ export function CreateProjectView() {
                   })
                 }
               })
-              console.log('[DRIVE] Created folders:', driveData.mainFolder)
+              console.log('[DRIVE] Created main + stage folders:', driveData.mainFolder)
+
+              // === BATCHED USER SUBFOLDER CREATION (Error 1102 fix) ===
+              // The main POST /api/drive now ONLY creates the structure (main +
+              // stage folders). User subfolders + output subfolders are created
+              // in separate batched requests to stay within Cloudflare Workers'
+              // 50-subrequest-per-invocation limit.
+              //
+              // For each folder type that has users with upload access, call
+              // /api/drive/create-user-subfolders. Each call creates ~20 Drive
+              // folders (5 users × 4 subfolders) — well within the limit.
+              if (driveData.folderIdMap) {
+                const allUsers = assignedUsersData
+                for (const folderType of selectedFolders) {
+                  const parentDriveId = driveData.folderIdMap[folderType]
+                  if (!parentDriveId) continue
+
+                  const folderAccess = filteredFolderUserAccess[folderType] || {}
+                  const usersWithUpload = allUsers.filter(u =>
+                    folderAccess[u.userId]?.upload
+                  )
+
+                  if (usersWithUpload.length > 0) {
+                    setDriveCreatingStatus(`Membuat subfolder petugas untuk ${folderType}...`)
+                    try {
+                      const subResp = await fetch('/api/drive/create-user-subfolders', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                          folderType,
+                          parentDriveId,
+                          users: usersWithUpload,
+                          workerOutputs,
+                          workerCustomOutput,
+                        })
+                      })
+
+                      if (subResp.ok) {
+                        const subData = await subResp.json()
+                        if (subData.success && subData.subfolders) {
+                          // Map subfolders to the same format as the main folders
+                          const mappedSubs = subData.subfolders.map((f: { folderId: string; name: string; webViewLink: string }) => {
+                            const isOutputSub = f.folderId.includes('-output-')
+                            if (isOutputSub) {
+                              const outputPrefix = f.folderId.substring(0, f.folderId.indexOf('-output-'))
+                              const parentType = ['raw', 'revised', 'final', 'desain', 'lainnya'].find(t => outputPrefix.startsWith(t + '-')) || ''
+                              const matchedUser = users.find(u => outputPrefix.endsWith('-' + u.id))
+                              const parentAccess = folderUserAccess[parentType] || {}
+                              return {
+                                folderId: f.folderId,
+                                name: f.name,
+                                desc: `Output ${f.name}${matchedUser ? ' - ' + matchedUser.name : ''}`,
+                                color: 'text-stone-400',
+                                bg: 'bg-stone-50/50',
+                                border: 'border-stone-100',
+                                link: f.webViewLink,
+                                assignedRoles: matchedUser ? [matchedUser.role] : [],
+                                assignedUsers: matchedUser ? [{
+                                  userId: matchedUser.id,
+                                  userName: matchedUser.name,
+                                  download: parentAccess[matchedUser.id]?.download ?? true,
+                                  upload: true
+                                }] : [],
+                                parentFolderId: outputPrefix
+                              }
+                            }
+                            // User subfolder (not output)
+                            const parentType = ['raw', 'revised', 'final', 'desain', 'lainnya'].find(t => f.folderId.startsWith(t + '-')) || ''
+                            const remaining = f.folderId.substring(parentType.length + 1)
+                            const secondDash = remaining.indexOf('-')
+                            const subUserId = secondDash > 0 ? remaining.substring(secondDash + 1) : ''
+                            const matchedUser = users.find(u => u.id === subUserId)
+                            const parentAccess = folderUserAccess[parentType] || {}
+                            return {
+                              folderId: f.folderId,
+                              name: f.name,
+                              desc: `Subfolder untuk ${matchedUser?.name || ''}`,
+                              color: 'text-stone-500',
+                              bg: 'bg-stone-50',
+                              border: 'border-stone-200',
+                              link: f.webViewLink,
+                              assignedRoles: matchedUser ? [matchedUser.role] : [],
+                              assignedUsers: matchedUser ? [{
+                                userId: matchedUser.id,
+                                userName: matchedUser.name,
+                                download: parentAccess[matchedUser.id]?.download ?? true,
+                                upload: parentAccess[matchedUser.id]?.upload ?? true
+                              }] : [],
+                              parentFolderId: parentType
+                            }
+                          })
+                          generatedFolders = [...generatedFolders, ...mappedSubs]
+                        }
+                      }
+                    } catch (subErr) {
+                      console.error('[DRIVE] Subfolder creation error for', folderType, ':', subErr)
+                      // Don't fail the whole project — subfolders can be created later
+                      // via "Buat Ulang Folder Drive" if needed. The main folders exist.
+                    }
+                  }
+                }
+              }
+              console.log('[DRIVE] All folders created (main + stage + user subfolders):', generatedFolders.length)
             } else {
               // API returned success:false → GAGALKAN, jangan mock.
               const errMsg = driveData.error || 'Drive API mengembalikan success=false'
