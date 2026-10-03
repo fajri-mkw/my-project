@@ -131,6 +131,18 @@ export interface Project {
   tasks: Task[]
   // LIHUM integration: gallery ID di lihum.synclicen.workers.dev (null kalau belum dipublikasikan)
   lihumGalleryId?: string | null
+  // === AWARD MODULE: Objektif + Key Messages + Outcome ===
+  // Untuk Penghargaan Pengelolaan Komunikasi Publik Inovatif Kementerian Agama.
+  // Indikator: Objektif (20%), Key Messages (15%), Pengukuran (15%).
+  objective?: string | null              // Tujuan komunikasi + narasi
+  targetAudience?: string | null        // Target audiens (demografi, segment)
+  kpiTarget?: Array<{ metric: string; target: string; baseline: string }> | null  // KPI kuantitatif
+  mainMessage?: string | null           // Pesan kunci utama (1 kalimat)
+  supportingMessages?: string[] | null   // Pesan pendukung (3-5 poin)
+  toneManner?: string | null             // Tone & manner
+  outcomeMetrics?: { reach?: number; engagement?: number; sentiment?: string; feedback?: string; downloads?: number } | null
+  strategyLink?: string | null           // Link ke Renstra/Renhumas/Strategi
+  lessonsLearned?: string | null         // Evaluasi post-project
 }
 
 export interface Notification {
