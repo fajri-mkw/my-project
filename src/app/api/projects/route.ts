@@ -97,11 +97,7 @@ export const GET = withEdgeCache(async (request: NextRequest) => {
                    outputNeeds, customOutput, workerOutputs, workerCustomOutput,
                    currentStage, isFastTrack, isFastProduction,
                    enableFotoEditor, enableTemplateEditor, managerId,
-                   documents, lihumGalleryId,
-                   objective, targetAudience, kpiTarget,
-                   mainMessage, supportingMessages, toneManner,
-                   outcomeMetrics, strategyLink, lessonsLearned,
-                   createdAt, updatedAt
+                   documents, lihumGalleryId, createdAt, updatedAt
             FROM projects
             ORDER BY updatedAt DESC, createdAt DESC`,
       args: [],
@@ -178,16 +174,6 @@ export const GET = withEdgeCache(async (request: NextRequest) => {
         enableTemplateEditor: p.enableTemplateEditor === undefined ? true : toBool(p.enableTemplateEditor),
         managerId: String(p.managerId ?? ''),
         lihumGalleryId: p.lihumGalleryId != null ? String(p.lihumGalleryId) : null,
-        // === AWARD MODULE fields ===
-        objective: p.objective != null ? String(p.objective) : null,
-        targetAudience: p.targetAudience != null ? String(p.targetAudience) : null,
-        kpiTarget: parseJSON(p.kpiTarget, null),
-        mainMessage: p.mainMessage != null ? String(p.mainMessage) : null,
-        supportingMessages: parseJSON(p.supportingMessages, null),
-        toneManner: p.toneManner != null ? String(p.toneManner) : null,
-        outcomeMetrics: parseJSON(p.outcomeMetrics, null),
-        strategyLink: p.strategyLink != null ? String(p.strategyLink) : null,
-        lessonsLearned: p.lessonsLearned != null ? String(p.lessonsLearned) : null,
         createdAt: toDateISO(p.createdAt),
         updatedAt: toDateISO(p.updatedAt),
         tasks: tasks.map((t) => ({
@@ -276,13 +262,6 @@ export async function POST(request: NextRequest) {
       isFastProduction,
       enableFotoEditor = true,
       enableTemplateEditor = true,
-      // === AWARD MODULE fields ===
-      objective,
-      targetAudience,
-      mainMessage,
-      supportingMessages,
-      toneManner,
-      strategyLink,
     } = body
 
     const projectId = `PRJ-${Date.now().toString().slice(-6)}`
@@ -429,12 +408,8 @@ export async function POST(request: NextRequest) {
              customOutput, workerOutputs, workerCustomOutput, currentStage,
              isFastTrack, isFastProduction,
              enableFotoEditor, enableTemplateEditor,
-             managerId, documents,
-             objective, targetAudience, mainMessage, supportingMessages, toneManner, strategyLink,
-             createdAt, updatedAt)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '[]',
-                    ?, ?, ?, ?, ?, ?,
-                    ?, ?)`,
+             managerId, documents, createdAt, updatedAt)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '[]', ?, ?)`,
       args: [
         projectId,
         title,
@@ -456,13 +431,6 @@ export async function POST(request: NextRequest) {
         enableFotoEditor ? 1 : 0,
         enableTemplateEditor ? 1 : 0,
         managerId,
-        // AWARD MODULE fields
-        bind(objective || null),
-        bind(targetAudience || null),
-        bind(mainMessage || null),
-        bind(supportingMessages ? JSON.stringify(supportingMessages) : null),
-        bind(toneManner || null),
-        bind(strategyLink || null),
         ts,
         ts,
       ],
@@ -635,15 +603,6 @@ export async function POST(request: NextRequest) {
       enableFotoEditor: enableFotoEditor !== false,
       enableTemplateEditor: enableTemplateEditor !== false,
       managerId,
-      // AWARD MODULE fields
-      objective: objective || null,
-      targetAudience: targetAudience || null,
-      mainMessage: mainMessage || null,
-      supportingMessages: supportingMessages || null,
-      toneManner: toneManner || null,
-      strategyLink: strategyLink || null,
-      outcomeMetrics: null,
-      lessonsLearned: null,
       createdAt: new Date(ts).toISOString(),
       tasks: taskRecords.map((t) => ({
         id: t.id,

@@ -216,17 +216,6 @@ export function CreateProjectView() {
   const [newFolderName, setNewFolderName] = useState('')
   const [newFolderDesc, setNewFolderDesc] = useState('')
 
-  // === AWARD MODULE state ===
-  // Modul Objektif + Key Messages untuk Penghargaan Komunikasi Publik Inovatif.
-  // Indikator: Objektif (20%) + Key Messages (15%).
-  // Field ini optional — manager bisa isi sekarang atau nanti via Edit Proyek.
-  const [objective, setObjective] = useState('')
-  const [targetAudience, setTargetAudience] = useState('')
-  const [mainMessage, setMainMessage] = useState('')
-  const [supportingMessages, setSupportingMessages] = useState<string[]>([''])
-  const [toneManner, setToneManner] = useState('')
-  const [strategyLink, setStrategyLink] = useState('')
-
   // Track source for post-creation linking
   const [preFillSource, setPreFillSource] = useState<{ type: 'surat' | 'permohonan'; id: string } | null>(null)
 
@@ -1214,13 +1203,6 @@ export function CreateProjectView() {
           isFastProduction,
           enableFotoEditor,
           enableTemplateEditor,
-          // === AWARD MODULE fields ===
-          objective: objective.trim() || null,
-          targetAudience: targetAudience.trim() || null,
-          mainMessage: mainMessage.trim() || null,
-          supportingMessages: supportingMessages.filter(m => m.trim()).length > 0 ? supportingMessages.filter(m => m.trim()) : null,
-          toneManner: toneManner || null,
-          strategyLink: strategyLink.trim() || null,
           ...(preFillFromSurat ? { suratId: preFillFromSurat.id } : {})
         })
       })
@@ -2997,131 +2979,6 @@ export function CreateProjectView() {
                   <span>+</span> Buat Folder Baru
                 </Button>
               )}
-            </div>
-          </div>
-
-          {/* === AWARD MODULE: Objektif & Key Messages === */}
-          {/* Untuk Penghargaan Pengelolaan Komunikasi Publik Inovatif Kementerian Agama.
-              Indikator: Objektif (20%) + Key Messages (15%).
-              Optional — manager bisa isi sekarang atau nanti via Edit Proyek. */}
-          <div className="space-y-4 p-4 rounded-xl bg-gradient-to-br from-amber-50 to-yellow-50 border border-amber-200">
-            <div className="flex items-center gap-2 pb-2 border-b border-amber-200">
-              <div className="w-8 h-8 rounded-lg bg-amber-500 flex items-center justify-center text-white text-xs font-bold">
-                🏆
-              </div>
-              <div>
-                <h3 className="text-sm font-bold text-amber-900">Modul Penghargaan: Objektif & Key Messages</h3>
-                <p className="text-[10px] text-amber-700">Untuk Penghargaan Komunikasi Publik Inovatif Kementerian Agama (bobot 35%)</p>
-              </div>
-            </div>
-
-            {/* Objektif */}
-            <div className="space-y-2">
-              <Label className="text-xs font-semibold text-amber-900">
-                Tujuan Komunikasi (Objektif) <span className="text-stone-400 font-normal">(20% bobot)</span>
-              </Label>
-              <Textarea
-                placeholder="Contoh: Menginformasikan program beasiswa UIN Antasari kepada 5000 mahasiswa Banjarmasin melalui konten visual yang menarik, agar meningkatkan jumlah pendaftar beasiswa sebanyak 30%."
-                rows={3}
-                value={objective}
-                onChange={e => setObjective(e.target.value)}
-                className="text-sm bg-white"
-              />
-              <p className="text-[10px] text-amber-600">Gunakan pola SMART: Specific, Measurable, Achievable, Relevant, Time-bound</p>
-            </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <div className="space-y-1.5">
-                <Label className="text-xs font-semibold text-amber-900">Target Audiens</Label>
-                <Input
-                  placeholder="Contoh: Mahasiswa S1 UIN Antasari, semester 1-4"
-                  value={targetAudience}
-                  onChange={e => setTargetAudience(e.target.value)}
-                  className="text-sm bg-white"
-                />
-              </div>
-              <div className="space-y-1.5">
-                <Label className="text-xs font-semibold text-amber-900">Tone & Manner</Label>
-                <Select value={toneManner || 'none'} onValueChange={v => setToneManner(v === 'none' ? '' : v)}>
-                  <SelectTrigger className="text-sm bg-white"><SelectValue placeholder="Pilih tone" /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="none">— Tidak dipilih —</SelectItem>
-                    <SelectItem value="formal">Formal</SelectItem>
-                    <SelectItem value="akrab">Akrab / Santai</SelectItem>
-                    <SelectItem value="edukatif">Edukatif</SelectItem>
-                    <SelectItem value="inspiratif">Inspiratif</SelectItem>
-                    <SelectItem value="persuasif">Persuasif</SelectItem>
-                    <SelectItem value="informatif">Informatif</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-
-            <div className="space-y-1.5">
-              <Label className="text-xs font-semibold text-amber-900">Link Strategi (Renstra/Renhumas)</Label>
-              <Input
-                type="url"
-                placeholder="https://uin-antasari.ac.id/renstra atau link Renhumas"
-                value={strategyLink}
-                onChange={e => setStrategyLink(e.target.value)}
-                className="text-sm bg-white"
-              />
-              <p className="text-[10px] text-amber-600">Alignment ke tujuan strategis organisasi</p>
-            </div>
-
-            {/* Key Messages */}
-            <div className="space-y-2 pt-2 border-t border-amber-200">
-              <Label className="text-xs font-semibold text-amber-900">
-                Pesan Kunci Utama (Key Message) <span className="text-stone-400 font-normal">(15% bobot)</span>
-              </Label>
-              <Input
-                placeholder="Contoh: UIN Antasari hadir membantu mahasiswa meraih cita-cita melalui beasiswa."
-                value={mainMessage}
-                onChange={e => setMainMessage(e.target.value)}
-                className="text-sm bg-white font-medium"
-              />
-              <p className="text-[10px] text-amber-600">Satu kalimat kuat yang ingin disampaikan ke audiens</p>
-            </div>
-
-            <div className="space-y-1.5">
-              <Label className="text-xs font-semibold text-amber-900">Pesan Pendukung (Supporting Messages)</Label>
-              {supportingMessages.map((msg, idx) => (
-                <div key={idx} className="flex gap-2">
-                  <Input
-                    placeholder={`Poin ${idx + 1}`}
-                    value={msg}
-                    onChange={e => {
-                      const next = [...supportingMessages]
-                      next[idx] = e.target.value
-                      setSupportingMessages(next)
-                    }}
-                    className="text-sm bg-white flex-1"
-                  />
-                  {supportingMessages.length > 1 && (
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="sm"
-                      className="text-red-600 h-9 w-9 p-0"
-                      onClick={() => setSupportingMessages(supportingMessages.filter((_, i) => i !== idx))}
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </Button>
-                  )}
-                </div>
-              ))}
-              {supportingMessages.length < 5 && (
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  className="text-xs text-amber-700 border-amber-300 hover:bg-amber-100"
-                  onClick={() => setSupportingMessages([...supportingMessages, ''])}
-                >
-                  <Plus className="w-3 h-3 mr-1" /> Tambah Poin
-                </Button>
-              )}
-              <p className="text-[10px] text-amber-600">3-5 poin pendukung yang memperkuat pesan utama</p>
             </div>
           </div>
 
