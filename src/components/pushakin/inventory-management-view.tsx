@@ -217,6 +217,8 @@ export function InventoryManagementView() {
   const loanPhotoRef = useRef<{ url: string; fileId: string }>({ url: '', fileId: '' })
   const [loanTemplates, setLoanTemplates] = useState<string[]>([])
   const [showTemplateDropdown, setShowTemplateDropdown] = useState(false)
+  // Photo popup state — klik foto di tabel untuk tampil besar
+  const [photoPopup, setPhotoPopup] = useState<{ url: string; title: string } | null>(null)
   const [printLoanGroupId, setPrintLoanGroupId] = useState<string | null>(null)
   const [selectedHistoryIds, setSelectedHistoryIds] = useState<Set<string>>(new Set())
   const [isDeletingHistory, setIsDeletingHistory] = useState(false)
@@ -661,7 +663,7 @@ export function InventoryManagementView() {
                   <tbody>
                     {items.map(item => (
                       <tr key={item.id} className="border-b border-stone-100 hover:bg-stone-50">
-                        <td className="p-3">{item.imageUrl ? <img src={driveImageUrl(item.imageUrl) || undefined} alt={item.namaBarang} className="w-10 h-10 rounded-lg object-cover border border-stone-200" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }} /> : <div className="w-10 h-10 rounded-lg bg-stone-100 flex items-center justify-center"><Package className="w-5 h-5 text-stone-300" /></div>}</td>
+                        <td className="p-3">{item.imageUrl ? <button type="button" onClick={() => setPhotoPopup({ url: driveImageUrl(item.imageUrl) || item.imageUrl!, title: item.namaBarang })} className="block cursor-zoom-in transition-transform hover:scale-110" title="Klik untuk perbesar"><img src={driveImageUrl(item.imageUrl) || undefined} alt={item.namaBarang} className="w-10 h-10 rounded-lg object-cover border border-stone-200" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }} /></button> : <div className="w-10 h-10 rounded-lg bg-stone-100 flex items-center justify-center"><Package className="w-5 h-5 text-stone-300" /></div>}</td>
                         <td className="p-3 font-mono text-xs">{item.kodeBarang}</td><td className="p-3 font-medium">{item.namaBarang}</td>
                         <td className="p-3 hidden md:table-cell"><Badge variant="outline" className="text-xs">{item.kategori}</Badge></td>
                         <td className="p-3 text-center font-semibold">{item.jumlahTotal}</td>
@@ -1367,6 +1369,32 @@ export function InventoryManagementView() {
           <DialogFooter className="gap-2"><Button variant="outline" onClick={() => setIsDistDialogOpen(false)} disabled={isDistSaving}>Batal</Button><Button onClick={handleDistSubmit} disabled={isDistSaving}>{isDistSaving ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : null}Bagikan</Button></DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* ===== PHOTO POPUP (klik foto di tabel untuk perbesar) ===== */}
+      {photoPopup && (
+        <Dialog open={true} onOpenChange={() => setPhotoPopup(null)}>
+          <DialogContent className="max-w-2xl p-0 overflow-hidden">
+            <DialogHeader className="p-4 pb-2">
+              <DialogTitle>{photoPopup.title}</DialogTitle>
+            </DialogHeader>
+            <div className="flex items-center justify-center bg-stone-900 p-4 max-h-[70vh] overflow-hidden">
+              <img
+                src={photoPopup.url}
+                alt={photoPopup.title}
+                className="max-w-full max-h-[60vh] object-contain rounded-lg"
+                onError={(e) => {
+                  const t = e.target as HTMLImageElement
+                  t.style.display = 'none'
+                  t.parentElement!.innerHTML = '<div class="text-stone-400 text-center p-8"><svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="mx-auto mb-2"><path d="M21 10V8a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h6"/><path d="m16 19 2 2 4-4"/></svg><p class="text-sm">Foto tidak dapat dimuat</p></div>'
+                }}
+              />
+            </div>
+            <div className="p-4 pt-2 flex justify-center">
+              <Button variant="outline" onClick={() => setPhotoPopup(null)}>Tutup</Button>
+            </div>
+          </DialogContent>
+        </Dialog>
+      )}
     </div>
   )
 }
