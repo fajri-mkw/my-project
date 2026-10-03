@@ -128,6 +128,12 @@ export function ProjectDetailView() {
   const [revisionTaskId, setRevisionTaskId] = useState<string | null>(null)
   const [isRegeneratingDrive, setIsRegeneratingDrive] = useState(false)
   
+  // === LIHUM integration state ===
+  // Manager bisa klik "Publikasikan ke LIHUM" untuk buat gallery publik
+  // dari folder PUBLIC project. Lihat /api/lihum/publish untuk detail.
+  const [isPublishingLihum, setIsPublishingLihum] = useState(false)
+  const [lihumUrl, setLihumUrl] = useState<string | null>(null)
+  
   // State for multiple publish links per task
   const [taskPublishLinks, setTaskPublishLinks] = useState<Record<string, PublishLink[]>>({})
 
@@ -676,6 +682,36 @@ Pushakin Flows — Sistem Manajemen Produksi`
         }
       }
     )
+  }
+
+  // === LIHUM publish handler ===
+  // POST /api/lihum/publish → buat gallery publik di LIHUM dari folder PUBLIC project
+  const handlePublishToLihum = async () => {
+    if (!project) return
+    setIsPublishingLihum(true)
+    try {
+      const r = await fetch('/api/lihum/publish', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ projectId: project.id, visibility: 'public' }),
+      })
+      const d = await r.json()
+      if (r.ok && d.success) {
+        setLihumUrl(d.lihumUrl)
+        // Update project di store supaya tombol berubah jadi "Lihat di LIHUM"
+        updateProject({ ...project, lihumGalleryId: d.lihumGalleryId })
+        const msg = d.alreadyPublished
+          ? `Project sudah pernah dipublikasikan ke LIHUM.`
+          : `Gallery berhasil dibuat di LIHUM! Foto dari folder PUBLIC project kini bisa dilihat & diunduh publik.`
+        showAlert(`${msg}\n\nLink: ${d.lihumUrl}\n\nAnda bisa embed link ini di web resmi atau bagikan via WA/QR.`)
+      } else {
+        showAlert(d.error || 'Gagal mempublikasikan ke LIHUM')
+      }
+    } catch {
+      showAlert('Gagal terhubung ke server LIHUM')
+    } finally {
+      setIsPublishingLihum(false)
+    }
   }
 
   const handleTaskComplete = async (taskId: string, taskData: { link?: string; publishLinks?: PublishLink[] }) => {
@@ -1412,7 +1448,7 @@ Pushakin Flows — Sistem Manajemen Produksi`
         </Button>
         
         {canManageProject && (
-          <div className="flex gap-2 sm:gap-3">
+          <div className="flex gap-2 sm:gap-3 flex-wrap">
             <Button
               variant="outline"
               onClick={() => { setEditProjectData(project); setIsEditProjectModalOpen(true); }}
@@ -1429,6 +1465,34 @@ Pushakin Flows — Sistem Manajemen Produksi`
               <Trash2 className="w-4 h-4" />
               <span className="hidden sm:inline">Hapus Proyek</span>
             </Button>
+            {/* LIHUM: Publikasikan folder PUBLIC ke galeri publik LIHUM
+                Sekali klik → gallery otomatis dibuat di lihum.synclicen.workers.dev
+                Link bisa di-embed di web resmi atau dibagi via WA/QR.
+                Idempotent: kalau sudah publish, tombol jadi "Lihat di LIHUM". */}
+            {project.lihumGalleryId || lihumUrl ? (
+              <a
+                href={lihumUrl || `https://lihum.synclicen.workers.dev/?gallery=${project.lihumGalleryId}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-green-300 bg-green-50 text-green-700 hover:bg-green-100 hover:border-green-400 transition-colors text-sm font-medium"
+                title="Buka galeri LIHUM di tab baru"
+              >
+                <ExternalLink className="w-4 h-4" />
+                <span>Lihat di LIHUM</span>
+              </a>
+            ) : (
+              <Button
+                variant="outline"
+                onClick={handlePublishToLihum}
+                disabled={isPublishingLihum}
+                className="gap-2 text-green-700 hover:text-green-800 hover:bg-green-50 border-green-300"
+                title="Buat galeri publik di LIHUM dari folder PUBLIC project ini"
+              >
+                <ExternalLink className="w-4 h-4" />
+                <span className="hidden sm:inline">{isPublishingLihum ? 'Memproses...' : 'Publikasikan ke LIHUM'}</span>
+                <span className="sm:hidden">{isPublishingLihum ? '...' : 'LIHUM'}</span>
+              </Button>
+            )}
           </div>
         )}
       </div>

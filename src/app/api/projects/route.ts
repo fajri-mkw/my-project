@@ -97,7 +97,7 @@ export const GET = withEdgeCache(async (request: NextRequest) => {
                    outputNeeds, customOutput, workerOutputs, workerCustomOutput,
                    currentStage, isFastTrack, isFastProduction,
                    enableFotoEditor, enableTemplateEditor, managerId,
-                   documents, createdAt, updatedAt
+                   documents, lihumGalleryId, createdAt, updatedAt
             FROM projects
             ORDER BY updatedAt DESC, createdAt DESC`,
       args: [],
@@ -173,6 +173,7 @@ export const GET = withEdgeCache(async (request: NextRequest) => {
         enableFotoEditor: p.enableFotoEditor === undefined ? true : toBool(p.enableFotoEditor),
         enableTemplateEditor: p.enableTemplateEditor === undefined ? true : toBool(p.enableTemplateEditor),
         managerId: String(p.managerId ?? ''),
+        lihumGalleryId: p.lihumGalleryId != null ? String(p.lihumGalleryId) : null,
         createdAt: toDateISO(p.createdAt),
         updatedAt: toDateISO(p.updatedAt),
         tasks: tasks.map((t) => ({

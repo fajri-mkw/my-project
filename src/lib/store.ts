@@ -129,6 +129,8 @@ export interface Project {
   }>
   driveFolders: DriveFolder[]
   tasks: Task[]
+  // LIHUM integration: gallery ID di lihum.synclicen.workers.dev (null kalau belum dipublikasikan)
+  lihumGalleryId?: string | null
 }
 
 export interface Notification {
