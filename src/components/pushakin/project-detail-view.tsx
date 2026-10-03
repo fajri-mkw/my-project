@@ -685,7 +685,8 @@ Pushakin Flows — Sistem Manajemen Produksi`
   }
 
   // === LIHUM publish handler ===
-  // POST /api/lihum/publish → buat gallery publik di LIHUM dari folder PUBLIC project
+  // POST /api/lihum/publish → buat gallery publik di LIHUM dari folder 3 (PUBLIC/UMUM)
+  // Folder 4 (PRIVATE/RAHASIA) TIDAK PERNAH di-share — hanya folder PUBLIC.
   const handlePublishToLihum = async () => {
     if (!project) return
     setIsPublishingLihum(true)
@@ -693,7 +694,7 @@ Pushakin Flows — Sistem Manajemen Produksi`
       const r = await fetch('/api/lihum/publish', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ projectId: project.id, visibility: 'public' }),
+        body: JSON.stringify({ projectId: project.id }),
       })
       const d = await r.json()
       if (r.ok && d.success) {
@@ -1465,8 +1466,10 @@ Pushakin Flows — Sistem Manajemen Produksi`
               <Trash2 className="w-4 h-4" />
               <span className="hidden sm:inline">Hapus Proyek</span>
             </Button>
-            {/* LIHUM: Publikasikan folder PUBLIC ke galeri publik LIHUM
+            {/* LIHUM: Publikasikan folder 3 (PUBLIC/UMUM) ke galeri publik LIHUM
                 Sekali klik → gallery otomatis dibuat di lihum.synclicen.workers.dev
+                HANYA folder 3 (PUBLIC/UMUM) yang di-share. Folder 4 (PRIVATE/RAHASIA)
+                tetap aman di Drive, tidak pernah tampil di LIHUM.
                 Link bisa di-embed di web resmi atau dibagi via WA/QR.
                 Idempotent: kalau sudah publish, tombol jadi "Lihat di LIHUM". */}
             {project.lihumGalleryId || lihumUrl ? (
@@ -1475,7 +1478,7 @@ Pushakin Flows — Sistem Manajemen Produksi`
                 target="_blank"
                 rel="noopener noreferrer"
                 className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-green-300 bg-green-50 text-green-700 hover:bg-green-100 hover:border-green-400 transition-colors text-sm font-medium"
-                title="Buka galeri LIHUM di tab baru"
+                title="Buka galeri LIHUM di tab baru (folder PUBLIC/UMUM)"
               >
                 <ExternalLink className="w-4 h-4" />
                 <span>Lihat di LIHUM</span>
@@ -1486,7 +1489,7 @@ Pushakin Flows — Sistem Manajemen Produksi`
                 onClick={handlePublishToLihum}
                 disabled={isPublishingLihum}
                 className="gap-2 text-green-700 hover:text-green-800 hover:bg-green-50 border-green-300"
-                title="Buat galeri publik di LIHUM dari folder PUBLIC project ini"
+                title="Buat galeri publik di LIHUM dari folder 3 (PUBLIC/UMUM) project ini. Foto di folder 4 (PRIVATE/RAHASIA) tidak akan di-share."
               >
                 <ExternalLink className="w-4 h-4" />
                 <span className="hidden sm:inline">{isPublishingLihum ? 'Memproses...' : 'Publikasikan ke LIHUM'}</span>

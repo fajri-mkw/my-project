@@ -3,26 +3,30 @@ import { getLibsql, bind } from '@/lib/libsql-client'
 import { invalidateCache, deferToBackground } from '@/lib/edge-cache'
 
 // ============================================================================
-// POST /api/lihum/publish — Publikasikan folder PUBLIC project ke galeri LIHUM
+// POST /api/lihum/publish — Publikasikan folder 3 (PUBLIC/UMUM) project ke galeri LIHUM
 //
 // Membuat gallery baru di LIHUM (https://lihum.synclicen.workers.dev) yang
-// menampilkan foto dari folder PUBLIC project Pushakin Flows. Pengunjung LIHUM
-// bisa lihat & unduh foto tanpa perlu akun Google.
+// menampilkan foto dari folder 3 (PUBLIC/UMUM) project Pushakin Flows.
 //
-// WHY THIS EXISTS:
-// Manager Pushakin Flows sudah buat folder PUBLIC/UMUM per project. Petugas
-// Tahap 1 upload foto ke folder PUBLIC. Manager tinggal klik "Publikasikan ke
-// LIHUM" → gallery otomatis dibuat → link bisa dibagikan / di-embed di web
-// resmi uin-antasari.ac.id.
+// PENTING: HANYA folder 3 (PUBLIC/UMUM) yang dipublikasikan ke LIHUM.
+// Folder 4 (PRIVATE/RAHASIA) TIDAK PERNAK di-share ke LIHUM — itu tujuan
+// folder tersebut: foto rahasia yang hanya simpan di Drive, tidak untuk publik.
+//
+// Petugas Tahap 1 bertanggung jawab memfilter foto saat upload:
+//   - Foto yang BOLEH dibagi publik → upload ke folder 3 (PUBLIC/UMUM)
+//   - Foto yang TIDAK boleh dibagi → upload ke folder 4 (PRIVATE/RAHASIA)
+//
+// Manager klik "Publikasikan ke LIHUM" → gallery otomatis dibuat dari folder 3.
+// Foto di folder 4 tetap aman di Drive, tidak pernah tampil di LIHUM.
 //
 // FLOW:
 // 1. Manager klik "Publikasikan ke LIHUM" di project detail
-// 2. Frontend POST /api/lihum/publish { projectId, visibility }
-// 3. Backend cari folder PUBLIC project di drive_folders table
+// 2. Frontend POST /api/lihum/publish { projectId }
+// 3. Backend cari folder 3 (folderId='public') di drive_folders table
 // 4. Backend POST ke LIHUM API /api/projects dengan:
 //    - name = project.title
-//    - driveFolderUrl = folder PUBLIC webViewLink
-//    - visibility = "public" (atau "private" kalau manager pilih)
+//    - driveFolderUrl = folder 3 (PUBLIC/UMUM) webViewLink
+//    - visibility = "public" (selalu — folder 4 tidak pernah dikirim)
 // 5. Backend simpan lihumGalleryId di projects table untuk tracking
 // 6. Return lihumGalleryId + share URL ke frontend
 //
@@ -34,7 +38,7 @@ import { invalidateCache, deferToBackground } from '@/lib/edge-cache'
 //
 // LIMIT SAFETY:
 // - 1 HTTP request ke LIHUM API (subrequest rendah — aman dari Error 1102)
-// - 1 DB query untuk cari folder PUBLIC
+// - 1 DB query untuk cari folder 3 (PUBLIC)
 // - 1 DB query untuk update lihumGalleryId
 // - Total: ~3 subrequests, jauh di bawah 50 limit
 // ============================================================================
@@ -67,7 +71,7 @@ export async function POST(request: NextRequest) {
 
   try {
     const body = await request.json()
-    const { projectId, visibility } = body as { projectId?: string; visibility?: string }
+    const { projectId } = body as { projectId?: string }
 
     if (!projectId) {
       return NextResponse.json({ error: 'projectId wajib diisi' }, { status: 400 })
@@ -168,7 +172,9 @@ export async function POST(request: NextRequest) {
         description: String(project.description || ''),
         driveFolderUrl,
         displayMode: 'all',
-        visibility: visibility === 'private' ? 'private' : 'public',
+        // Selalu 'public' — gallery LIHUM hanya untuk folder 3 (PUBLIC/UMUM).
+        // Folder 4 (PRIVATE/RAHASIA) tidak pernah di-share ke LIHUM.
+        visibility: 'public',
       }),
     })
 
