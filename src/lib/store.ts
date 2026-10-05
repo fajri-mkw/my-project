@@ -326,6 +326,7 @@ export type ViewType =
   | 'surat'
   | 'kegiatan'
   | 'inventory'
+  | 'relasi'
 
 export interface DialogState {
   isOpen: boolean

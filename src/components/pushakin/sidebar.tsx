@@ -140,6 +140,7 @@ export function Sidebar({ isOpen = false, onNavigate, onClose }: SidebarProps) {
     ...(canViewReports ? [{ id: 'reports', label: 'Laporan Kegiatan', icon: FileText, badge: myCompletedCount > 0 ? myCompletedCount : undefined }] : []),
     { id: 'profile', label: 'Profil Saya', icon: UserCircle },
     ...(['Admin', 'Administrator', 'Manager'].includes(currentUser?.role || '') ? [{ id: 'inventory', label: 'Manajemen Inventaris', icon: Package }] : []),
+    ...(currentUser?.role === 'Admin' ? [{ id: 'relasi', label: 'Manajemen Relasi', icon: Users }] : []),
     ...(canManageUsers ? [{ id: 'users', label: 'Manajemen User', icon: Users }] : []),
     ...(canManageUsers || showReviewerSettings ? [{ id: 'settings', label: 'Pengaturan', icon: Settings }] : []),
   ]
@@ -158,7 +159,7 @@ export function Sidebar({ isOpen = false, onNavigate, onClose }: SidebarProps) {
       return // browser will follow the href naturally
     }
     e.preventDefault()
-    setActiveView(viewId as 'dashboard' | 'overview' | 'reports' | 'profile' | 'users' | 'settings' | 'inbox' | 'announcements' | 'permohonan' | 'surat' | 'kegiatan' | 'inventory')
+    setActiveView(viewId as 'dashboard' | 'overview' | 'reports' | 'profile' | 'users' | 'settings' | 'inbox' | 'announcements' | 'permohonan' | 'surat' | 'kegiatan' | 'inventory' | 'relasi')
     // Keep URL in sync (so address bar reflects current view)
     router.push(viewUrl(viewId), { scroll: false })
     onNavigate?.(viewId)

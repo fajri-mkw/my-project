@@ -21,12 +21,14 @@ const UserManagementView = dynamic(() => import('@/components/pushakin/user-mana
 const ProfileView = dynamic(() => import('@/components/pushakin/profile-view').then(m => ({ default: m.ProfileView })), { ssr: false })
 const SettingsView = dynamic(() => import('@/components/pushakin/settings-view').then(m => ({ default: m.SettingsView })), { ssr: false })
 const InventoryManagementView = dynamic(() => import('@/components/pushakin/inventory-management-view').then(m => ({ default: m.InventoryManagementView })), { ssr: false })
+const RelasiManagementView = dynamic(() => import('@/components/pushakin/relasi-management-view').then(m => ({ default: m.RelasiManagementView })), { ssr: false })
 const InboxView = dynamic(() => import('@/components/pushakin/inbox-view').then(m => ({ default: m.InboxView })), { ssr: false })
 const AnnouncementView = dynamic(() => import('@/components/pushakin/announcement-view').then(m => ({ default: m.AnnouncementView })), { ssr: false })
 const PermohonanView = dynamic(() => import('@/components/pushakin/permohonan-view').then(m => ({ default: m.PermohonanView })), { ssr: false })
 const SuratManagementView = dynamic(() => import('@/components/pushakin/surat-management-view').then(m => ({ default: m.SuratManagementView })), { ssr: false })
 const ProgramKegiatanView = dynamic(() => import('@/components/pushakin/program-kegiatan-view').then(m => ({ default: m.ProgramKegiatanView })), { ssr: false })
 const PublicTrackerView = dynamic(() => import('@/components/pushakin/public-tracker-view').then(m => ({ default: m.PublicTrackerView })), { ssr: false })
+const RelasiPublicView = dynamic(() => import('@/components/pushakin/relasi-public-view').then(m => ({ default: m.RelasiPublicView })), { ssr: false })
 
 function LoadingSpinner() {
   return (
@@ -194,12 +196,13 @@ function AppContent() {
   const router = useRouter()
   const pathname = usePathname()
   const isPublicView = searchParams.get('public') === 'tracker'
+  const isRelasiView = searchParams.get('relasi')
 
   // Valid app views that can be addressed via ?view=xxx
   // (excludes 'login', 'create', 'project_detail' which are reached via in-app actions)
   const validUrlViews = [
     'dashboard', 'overview', 'surat', 'kegiatan', 'inbox',
-    'announcements', 'reports', 'profile', 'users', 'settings'
+    'announcements', 'reports', 'profile', 'users', 'settings', 'relasi'
   ] as const
 
   const [isLoading, setIsLoading] = useState(true)
@@ -599,6 +602,11 @@ function AppContent() {
     return <PublicTrackerView onBack={handleBackFromPublic} />
   }
 
+  // Relasi public form view - No authentication required
+  if (isRelasiView) {
+    return <RelasiPublicView token={isRelasiView} />
+  }
+
   // Still loading (data fetch or hydration)
   if (isLoading || maintenanceData === null || isHydrating) {
     return <LoadingSpinner />
@@ -655,6 +663,7 @@ function AppContent() {
       case 'profile': return <ProfileView />
       case 'settings': return <SettingsView />
       case 'inventory': return <InventoryManagementView />
+      case 'relasi': return <RelasiManagementView />
       case 'announcements': return <AnnouncementView />
       case 'permohonan': return <PermohonanView />
       case 'surat': return <SuratManagementView />
