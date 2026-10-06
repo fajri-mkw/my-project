@@ -6,7 +6,7 @@ import { Card, CardContent } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
-import { Loader2, CheckCircle2, Upload, AlertCircle } from 'lucide-react'
+import { Loader2, CheckCircle2, Upload, AlertCircle, FileText } from 'lucide-react'
 
 interface FormField {
   id: string
@@ -23,6 +23,7 @@ interface FormData {
   title: string
   description: string
   fields: FormField[]
+  exampleFile?: { name: string; url: string } | null
 }
 
 interface UploadedFile {
@@ -205,6 +206,19 @@ export function RelasiPublicView({ token }: { token: string }) {
           <CardContent className="p-6 bg-gradient-to-br from-indigo-600 to-purple-700 text-white">
             <h1 className="text-2xl font-bold mb-2">{formData.title}</h1>
             {formData.description && <p className="text-sm text-indigo-100">{formData.description}</p>}
+            {formData.exampleFile && (
+              <div className="mt-4 p-3 bg-white/10 rounded-lg flex items-center gap-3">
+                <FileText className="w-5 h-5 text-white flex-shrink-0" />
+                <div className="flex-1 min-w-0">
+                  <p className="text-xs text-indigo-100 font-medium">📄 File Contoh:</p>
+                  <p className="text-sm text-white truncate">{formData.exampleFile.name}</p>
+                </div>
+                <a href={formData.exampleFile.url} target="_blank" rel="noopener noreferrer"
+                   className="flex-shrink-0 px-3 py-1.5 bg-white text-indigo-700 rounded-lg text-xs font-medium hover:bg-indigo-50 transition-colors">
+                  📥 Lihat / Unduh Contoh
+                </a>
+              </div>
+            )}
           </CardContent>
         </Card>
 

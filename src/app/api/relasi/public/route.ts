@@ -10,7 +10,9 @@ export async function GET(request: NextRequest) {
 
     const client = getLibsql()
     const res = await client.execute({
-      sql: `SELECT id, title, description, fields, status FROM relasi_forms WHERE publicToken = ? LIMIT 1`,
+      sql: `SELECT id, title, description, fields, status,
+            exampleFileId, exampleFileName, exampleFileUrl
+            FROM relasi_forms WHERE publicToken = ? LIMIT 1`,
       args: [bind(token)],
     })
 
@@ -30,6 +32,10 @@ export async function GET(request: NextRequest) {
       title: String(row.title || ''),
       description: String(row.description || ''),
       fields: JSON.parse(String(row.fields || '[]')),
+      exampleFile: row.exampleFileId != null ? {
+        name: String(row.exampleFileName || ''),
+        url: String(row.exampleFileUrl || ''),
+      } : null,
     })
   } catch (error) {
     console.error('[RELASI PUBLIC GET] Error:', error)

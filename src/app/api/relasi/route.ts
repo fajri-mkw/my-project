@@ -10,7 +10,8 @@ export async function GET(request: NextRequest) {
   try {
     const client = getLibsql()
     const res = await client.execute({
-      sql: `SELECT id, title, description, fields, publicToken, driveFolderId, status, createdAt, updatedAt
+      sql: `SELECT id, title, description, fields, publicToken, driveFolderId, status,
+            exampleFileId, exampleFileName, exampleFileUrl, createdAt, updatedAt
             FROM relasi_forms ORDER BY createdAt DESC`,
       args: [],
     })
@@ -27,6 +28,9 @@ export async function GET(request: NextRequest) {
         status: String(row.status || 'active'),
         createdAt: Number(row.createdAt || 0),
         updatedAt: Number(row.updatedAt || 0),
+        exampleFileId: row.exampleFileId != null ? String(row.exampleFileId) : null,
+        exampleFileName: row.exampleFileName != null ? String(row.exampleFileName) : null,
+        exampleFileUrl: row.exampleFileUrl != null ? String(row.exampleFileUrl) : null,
         // URL halaman publik (bukan API) — ?relasi=TOKEN
         publicUrl: token ? `/?relasi=${token}` : null,
       }
@@ -47,17 +51,13 @@ export async function POST(request: NextRequest) {
   }
   try {
     const body = await request.json()
-    const { title, description, fields } = body as {
+    const { title, description, fields, exampleFileId, exampleFileName, exampleFileUrl } = body as {
       title?: string
       description?: string
-      fields?: Array<{
-        id: string
-        type: 'text' | 'textarea' | 'email' | 'phone' | 'file' | 'select' | 'date' | 'number'
-        label: string
-        required: boolean
-        placeholder?: string
-        options?: string[]
-      }>
+      fields?: Array<Record<string, unknown>>
+      exampleFileId?: string | null
+      exampleFileName?: string | null
+      exampleFileUrl?: string | null
     }
 
     if (!title) return NextResponse.json({ error: 'title wajib diisi' }, { status: 400 })
@@ -68,12 +68,15 @@ export async function POST(request: NextRequest) {
 
     const client = getLibsql()
     await client.execute({
-      sql: `INSERT INTO relasi_forms (id, title, description, fields, publicToken, status, createdBy, createdAt, updatedAt)
-            VALUES (?, ?, ?, ?, ?, 'active', ?, ?, ?)`,
+      sql: `INSERT INTO relasi_forms (id, title, description, fields, publicToken, status, createdBy,
+            exampleFileId, exampleFileName, exampleFileUrl, createdAt, updatedAt)
+            VALUES (?, ?, ?, ?, ?, 'active', ?, ?, ?, ?, ?, ?)`,
       args: [
         bind(id), bind(title), bind(description || ''),
         bind(JSON.stringify(fields || [])),
-        bind(token), bind(userId || ''), bind(ts), bind(ts),
+        bind(token), bind(userId || ''),
+        bind(exampleFileId || null), bind(exampleFileName || null), bind(exampleFileUrl || null),
+        bind(ts), bind(ts),
       ],
     })
 
@@ -102,7 +105,7 @@ export async function PUT(request: NextRequest) {
     if (!id) return NextResponse.json({ error: 'id wajib diisi' }, { status: 400 })
 
     const body = await request.json()
-    const { title, description, fields, status } = body as Record<string, unknown>
+    const { title, description, fields, status, exampleFileId, exampleFileName, exampleFileUrl } = body as Record<string, unknown>
 
     const updates: string[] = []
     const args: unknown[] = []
@@ -111,6 +114,9 @@ export async function PUT(request: NextRequest) {
     if (description !== undefined) { updates.push('"description" = ?'); args.push(bind(String(description))) }
     if (fields !== undefined) { updates.push('"fields" = ?'); args.push(bind(JSON.stringify(fields))) }
     if (status !== undefined) { updates.push('"status" = ?'); args.push(bind(String(status))) }
+    if (exampleFileId !== undefined) { updates.push('"exampleFileId" = ?'); args.push(bind(exampleFileId as string | null)) }
+    if (exampleFileName !== undefined) { updates.push('"exampleFileName" = ?'); args.push(bind(exampleFileName as string | null)) }
+    if (exampleFileUrl !== undefined) { updates.push('"exampleFileUrl" = ?'); args.push(bind(exampleFileUrl as string | null)) }
 
     if (updates.length === 0) return NextResponse.json({ success: true, message: 'Tidak ada perubahan' })
 

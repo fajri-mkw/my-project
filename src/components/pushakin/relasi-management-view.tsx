@@ -10,7 +10,7 @@ import { Badge } from '@/components/ui/badge'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
 import { useAppStore } from '@/lib/store'
 import { cn } from '@/lib/utils'
-import { Users, Plus, Trash2, Pencil, ExternalLink, Copy, Eye, Loader2, FileText, Check, X, ChevronDown, ChevronUp, Settings2, QrCode } from 'lucide-react'
+import { Users, Plus, Trash2, Pencil, ExternalLink, Copy, Eye, Loader2, FileText, Check, X, ChevronDown, ChevronUp, Settings2, QrCode, Upload } from 'lucide-react'
 
 interface FormField {
   id: string
@@ -32,6 +32,9 @@ interface RelasiForm {
   status: string
   createdAt: number
   updatedAt: number
+  exampleFileId?: string | null
+  exampleFileName?: string | null
+  exampleFileUrl?: string | null
 }
 
 interface Submission {
@@ -68,6 +71,8 @@ export function RelasiManagementView() {
   const [submissions, setSubmissions] = useState<Submission[]>([])
   const [isLoadingSubmissions, setIsLoadingSubmissions] = useState(false)
   const [shareDialog, setShareDialog] = useState<{ url: string; title: string } | null>(null)
+  const [isUploadingExample, setIsUploadingExample] = useState(false)
+  const [exampleFile, setExampleFile] = useState<{ fileId: string; name: string; url: string } | null>(null)
 
   // Form builder state
   const [formTitle, setFormTitle] = useState('')
@@ -89,6 +94,7 @@ export function RelasiManagementView() {
     setFormTitle('')
     setFormDescription('')
     setFormFields([])
+    setExampleFile(null)
     setIsDialogOpen(true)
   }
 
@@ -97,7 +103,27 @@ export function RelasiManagementView() {
     setFormTitle(form.title)
     setFormDescription(form.description)
     setFormFields(form.fields)
+    setExampleFile(form.exampleFileId ? { fileId: form.exampleFileId, name: form.exampleFileName || '', url: form.exampleFileUrl || '' } : null)
     setIsDialogOpen(true)
+  }
+
+  const handleExampleUpload = async (file: File) => {
+    if (file.size > 20 * 1024 * 1024) { showAlert('Maksimal 20MB'); return }
+    setIsUploadingExample(true)
+    try {
+      const fd = new FormData()
+      fd.append('file', file)
+      fd.append('formId', editingForm?.id || 'new')
+      fd.append('isExample', 'true')
+      const r = await fetch('/api/relasi/upload', { method: 'POST', body: fd })
+      const d = await r.json()
+      if (r.ok && d.success) {
+        setExampleFile({ fileId: d.fileId, name: d.name, url: d.url })
+        showAlert('File contoh berhasil diupload')
+      } else {
+        showAlert(d.error || 'Gagal upload contoh')
+      }
+    } catch { showAlert('Gagal upload') } finally { setIsUploadingExample(false) }
   }
 
   const addField = (type: FormField['type']) => {
@@ -129,7 +155,7 @@ export function RelasiManagementView() {
 
     setIsSaving(true)
     try {
-      const payload = { title: formTitle, description: formDescription, fields: formFields }
+      const payload = { title: formTitle, description: formDescription, fields: formFields, exampleFileId: exampleFile?.fileId || null, exampleFileName: exampleFile?.name || null, exampleFileUrl: exampleFile?.url || null }
       const url = editingForm ? `/api/relasi?id=${editingForm.id}` : '/api/relasi'
       const method = editingForm ? 'PUT' : 'POST'
       const r = await fetch(url, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
@@ -347,6 +373,44 @@ export function RelasiManagementView() {
               <div>
                 <Label className="text-sm font-semibold">Deskripsi (opsional)</Label>
                 <Textarea value={formDescription} onChange={e => setFormDescription(e.target.value)} placeholder="Penjelasan untuk pengunjung yang akan mengisi form ini" rows={2} className="mt-1" />
+              </div>
+
+              {/* Upload file contoh */}
+              <div>
+                <Label className="text-sm font-semibold">File Contoh (opsional)</Label>
+                <p className="text-xs text-stone-500 mt-0.5 mb-2">Upload file contoh (format, template, panduan) yang bisa dilihat/diunduh pengunjung sebelum mengisi</p>
+                {exampleFile ? (
+                  <div className="flex items-center gap-2 p-3 bg-green-50 border border-green-200 rounded-lg">
+                    <FileText className="w-5 h-5 text-green-600 flex-shrink-0" />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium text-stone-700 truncate">{exampleFile.name}</p>
+                      <a href={exampleFile.url} target="_blank" rel="noopener noreferrer" className="text-xs text-blue-600 hover:underline">Lihat file</a>
+                    </div>
+                    <Button type="button" variant="ghost" size="sm" className="text-red-600 h-8 w-8 p-0" onClick={() => setExampleFile(null)}>
+                      <Trash2 className="w-4 h-4" />
+                    </Button>
+                  </div>
+                ) : (
+                  <label className="flex flex-col items-center justify-center border-2 border-dashed border-stone-300 rounded-xl p-4 cursor-pointer hover:border-indigo-400 hover:bg-indigo-50 transition-colors">
+                    {isUploadingExample ? (
+                      <Loader2 className="w-6 h-6 animate-spin text-indigo-500 mb-2" />
+                    ) : (
+                      <Upload className="w-6 h-6 text-stone-400 mb-2" />
+                    )}
+                    <span className="text-sm text-stone-600">
+                      {isUploadingExample ? 'Mengupload...' : 'Klik untuk upload file contoh'}
+                    </span>
+                    <span className="text-xs text-stone-400 mt-1">Maks. 20MB — PDF, DOCX, XLSX, JPG, PNG, dll</span>
+                    <input
+                      type="file"
+                      className="hidden"
+                      onChange={e => {
+                        const file = e.target.files?.[0]
+                        if (file) handleExampleUpload(file)
+                      }}
+                    />
+                  </label>
+                )}
               </div>
             </div>
 

@@ -11,10 +11,14 @@ export async function POST(request: NextRequest) {
     const formData = await request.formData()
     const file = formData.get('file') as File | null
     const formId = formData.get('formId') as string | null
+    const isExample = formData.get('isExample') === 'true'
 
     if (!file) return NextResponse.json({ error: 'File wajib diisi' }, { status: 400 })
-    if (!file.type.startsWith('image/')) return NextResponse.json({ error: 'Hanya file gambar' }, { status: 400 })
-    if (file.size > 10 * 1024 * 1024) return NextResponse.json({ error: 'Maksimal 10MB' }, { status: 400 })
+    // Example files bisa semua tipe (PDF, DOCX, dll), upload foto hanya image
+    if (!isExample && !file.type.startsWith('image/')) return NextResponse.json({ error: 'Hanya file gambar' }, { status: 400 })
+    // Example files max 20MB, foto max 10MB
+    const maxSize = isExample ? 20 * 1024 * 1024 : 10 * 1024 * 1024
+    if (file.size > maxSize) return NextResponse.json({ error: `Maksimal ${isExample ? '20' : '10'}MB` }, { status: 400 })
     if (!formId) return NextResponse.json({ error: 'formId wajib diisi' }, { status: 400 })
 
     // Cek form exists dan active
