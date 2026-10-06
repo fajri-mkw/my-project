@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getCachedAccessToken, resolveDriveTarget } from '@/lib/drive-service'
-import { readDriveSettings } from '@/lib/drive-helpers'
+import { getCachedAccessToken, resolveDriveTarget, listFoldersByParent } from '@/lib/drive-service'
+import { readDriveSettings, findOrCreateYearMonthCategoryFolder } from '@/lib/drive-helpers'
 import { getLibsql, bind, nowMs } from '@/lib/libsql-client'
 
 // POST /api/relasi/upload — upload foto dari publik ke Drive (tanpa login)
@@ -48,13 +48,17 @@ export async function POST(request: NextRequest) {
     if (!target) return NextResponse.json({ error: 'Drive target tidak dikonfigurasi' }, { status: 400 })
 
     // Buat folder untuk form kalau belum ada
+    // Struktur: Year > Month > RELASI > {nama-form} — konsisten dengan sistem lain
+    // (Inventory pakai: Year > Month > INVENTORY)
+    // (Projects pakai: Year > Month > PROJECT)
     let folderId = form.driveFolderId != null ? String(form.driveFolderId) : null
     if (!folderId) {
-      // Buat folder "RELASI" di root Drive, lalu folder dengan nama form
       const now = new Date()
-      const monthFolder = await findOrCreateFolder(accessToken, target, 'RELASI')
+      // Buat folder RELASI di dalam Year > Month (sama seperti INVENTORY)
+      const relasiCategoryFolderId = await findOrCreateYearMonthCategoryFolder(settings, 'RELASI', now)
+      // Buat subfolder dengan nama form di dalam folder RELASI
       const formFolderName = String(form.title || formId).substring(0, 50).replace(/[^a-zA-Z0-9 _-]/g, '_')
-      folderId = await findOrCreateFolder(accessToken, { ...target, rootId: monthFolder, isSharedDrive: false }, formFolderName)
+      folderId = await findOrCreateSubFolder(accessToken, relasiCategoryFolderId, formFolderName, target)
       // Simpan folderId
       await client.execute({
         sql: `UPDATE relasi_forms SET driveFolderId = ?, updatedAt = ? WHERE id = ?`,
@@ -127,23 +131,23 @@ export async function POST(request: NextRequest) {
   }
 }
 
-// Helper: find or create folder
-async function findOrCreateFolder(accessToken: string, target: { rootId: string; isSharedDrive: boolean }, folderName: string): Promise<string> {
-  // Search existing
-  const q = `mimeType='application/vnd.google-apps.folder' and name='${folderName.replace(/'/g, "\\'")}' and trashed=false`
-  const searchResp = await fetch(`https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(q)}&fields=files(id,name)&supportsAllDrives=true&includeItemsFromAllDrives=true`, {
-    headers: { Authorization: `Bearer ${accessToken}` },
-  })
-  if (searchResp.ok) {
-    const searchData = await searchResp.json() as { files: Array<{ id: string }> }
-    if (searchData.files && searchData.files.length > 0) return searchData.files[0].id
-  }
+// Helper: find or create subfolder inside a parent folder
+// Pakai listFoldersByParent dari drive-service — sama seperti sistem lain
+async function findOrCreateSubFolder(
+  accessToken: string,
+  parentFolderId: string,
+  folderName: string,
+  target: { rootId: string; isSharedDrive: boolean }
+): Promise<string> {
+  // Search existing folder
+  const folders = await listFoldersByParent(accessToken, parentFolderId, folderName)
+  if (folders.length > 0 && folders[0].id) return folders[0].id
 
-  // Create new
+  // Create new folder
   const metadata: Record<string, unknown> = {
     name: folderName,
     mimeType: 'application/vnd.google-apps.folder',
-    parents: [target.rootId],
+    parents: [parentFolderId],
   }
   if (target.isSharedDrive) metadata.driveId = target.rootId
 
@@ -155,7 +159,7 @@ async function findOrCreateFolder(accessToken: string, target: { rootId: string;
     },
     body: JSON.stringify(metadata),
   })
-  if (!createResp.ok) throw new Error('Gagal buat folder')
+  if (!createResp.ok) throw new Error('Gagal buat subfolder')
   const createData = await createResp.json() as { id: string }
   return createData.id
 }
