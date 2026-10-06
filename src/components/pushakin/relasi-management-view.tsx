@@ -10,7 +10,7 @@ import { Badge } from '@/components/ui/badge'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
 import { useAppStore } from '@/lib/store'
 import { cn } from '@/lib/utils'
-import { Users, Plus, Trash2, Pencil, ExternalLink, Copy, Eye, Loader2, FileText, Check, X, ChevronDown, ChevronUp, Settings2 } from 'lucide-react'
+import { Users, Plus, Trash2, Pencil, ExternalLink, Copy, Eye, Loader2, FileText, Check, X, ChevronDown, ChevronUp, Settings2, QrCode } from 'lucide-react'
 
 interface FormField {
   id: string
@@ -65,6 +65,7 @@ export function RelasiManagementView() {
   const [viewingSubmissions, setViewingSubmissions] = useState<string | null>(null)
   const [submissions, setSubmissions] = useState<Submission[]>([])
   const [isLoadingSubmissions, setIsLoadingSubmissions] = useState(false)
+  const [shareDialog, setShareDialog] = useState<{ url: string; title: string } | null>(null)
 
   // Form builder state
   const [formTitle, setFormTitle] = useState('')
@@ -158,10 +159,14 @@ export function RelasiManagementView() {
     } catch { showAlert('Gagal update status') }
   }
 
-  const copyLink = (url: string | null) => {
+  const copyLink = (url: string | null, title?: string) => {
     if (!url) return
     const fullUrl = `${window.location.origin}${url}`
-    navigator.clipboard.writeText(fullUrl).then(() => showAlert('Link publik disalin: ' + fullUrl))
+    setShareDialog({ url: fullUrl, title: title || 'Form Publik' })
+  }
+
+  const copyToClipboard = (text: string) => {
+    navigator.clipboard.writeText(text).then(() => showAlert('Link disalin ke clipboard: ' + text))
   }
 
   const fetchSubmissions = async (formId: string) => {
@@ -299,8 +304,8 @@ export function RelasiManagementView() {
                     <FileText className="w-3 h-3" /> Isian
                   </Button>
                   {form.publicUrl && (
-                    <Button size="sm" variant="outline" className="h-7 text-xs gap-1 text-blue-600" onClick={() => copyLink(form.publicUrl)}>
-                      <Copy className="w-3 h-3" /> Copy Link
+                    <Button size="sm" variant="outline" className="h-7 text-xs gap-1 text-blue-600" onClick={() => copyLink(form.publicUrl, form.title)}>
+                      <QrCode className="w-3 h-3" /> Bagikan
                     </Button>
                   )}
                   {form.publicUrl && (
@@ -437,6 +442,68 @@ export function RelasiManagementView() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* === SHARE DIALOG (QR Code + Link) === */}
+      {shareDialog && (
+        <Dialog open={true} onOpenChange={() => setShareDialog(null)}>
+          <DialogContent className="max-w-md">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <QrCode className="w-5 h-5 text-indigo-600" /> Bagikan Form: {shareDialog.title}
+              </DialogTitle>
+            </DialogHeader>
+            <div className="py-4 space-y-4">
+              {/* QR Code — pakai Google Chart API (gratis, no install) */}
+              <div className="flex justify-center">
+                <div className="p-4 bg-white border-2 border-stone-200 rounded-xl">
+                  <img
+                    src={`https://api.qrserver.com/v1/create-qr-code/?size=240x240&data=${encodeURIComponent(shareDialog.url)}`}
+                    alt="QR Code"
+                    width={240}
+                    height={240}
+                    className="rounded-lg"
+                  />
+                </div>
+              </div>
+
+              {/* Link */}
+              <div className="space-y-2">
+                <Label className="text-xs font-semibold text-stone-500 uppercase tracking-wider">Link Publik</Label>
+                <div className="flex gap-2">
+                  <Input
+                    value={shareDialog.url}
+                    readOnly
+                    className="text-sm font-mono bg-stone-50 flex-1"
+                  />
+                  <Button
+                    size="sm"
+                    className="gap-1 bg-indigo-600 hover:bg-indigo-700"
+                    onClick={() => copyToClipboard(shareDialog.url)}
+                  >
+                    <Copy className="w-3.5 h-3.5" /> Salin
+                  </Button>
+                </div>
+              </div>
+
+              {/* Tombol Buka */}
+              <a href={shareDialog.url} target="_blank" rel="noopener noreferrer" className="block">
+                <Button className="w-full gap-2 text-green-700 hover:text-green-800 hover:bg-green-50 border-green-300" variant="outline">
+                  <ExternalLink className="w-4 h-4" /> Buka Halaman Form
+                </Button>
+              </a>
+
+              {/* Petunjuk */}
+              <div className="p-3 rounded-lg bg-indigo-50 border border-indigo-100">
+                <p className="text-xs text-indigo-700">
+                  📱 Scan QR Code dengan kamera HP untuk membuka form langsung.<br />
+                  📋 Atau salin link dan bagikan via WhatsApp / email.<br />
+                  🔗 Pengunjung tidak perlu login untuk mengisi form.
+                </p>
+              </div>
+            </div>
+          </DialogContent>
+        </Dialog>
+      )}
     </div>
   )
 }
