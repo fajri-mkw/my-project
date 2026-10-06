@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { withEdgeCache, invalidateCache, deferToBackground } from '@/lib/edge-cache'
 import { getLibsql, bind, nowMs, genId } from '@/lib/libsql-client'
 
-// GET /api/relasi — list semua form (Admin only)
-export async function GET(request: NextRequest) {
+// GET /api/relasi — list semua form (Admin only, cached 30s)
+export const GET = withEdgeCache(async (request: NextRequest) => {
   const userRole = request.headers.get('X-User-Role')
   if (userRole !== 'Admin') {
     return NextResponse.json({ error: 'Hanya Super Admin' }, { status: 403 })
@@ -40,7 +41,7 @@ export async function GET(request: NextRequest) {
     console.error('[RELASI GET] Error:', error)
     return NextResponse.json([])
   }
-}
+}, { ttl: 30 })
 
 // POST /api/relasi — buat form baru (Admin only)
 export async function POST(request: NextRequest) {
@@ -87,6 +88,7 @@ export async function POST(request: NextRequest) {
       publicUrl: `/?relasi=${token}`,
       message: 'Form berhasil dibuat. Bagikan link publik ke pengunjung.',
     })
+    deferToBackground(invalidateCache('/api/relasi'))
   } catch (error) {
     console.error('[RELASI POST] Error:', error)
     return NextResponse.json({ error: 'Gagal membuat form' }, { status: 500 })
@@ -130,6 +132,7 @@ export async function PUT(request: NextRequest) {
       args,
     })
 
+    deferToBackground(invalidateCache('/api/relasi'))
     return NextResponse.json({ success: true, message: 'Form berhasil diupdate' })
   } catch (error) {
     console.error('[RELASI PUT] Error:', error)
@@ -153,6 +156,7 @@ export async function DELETE(request: NextRequest) {
     await client.execute({ sql: `DELETE FROM relasi_submissions WHERE formId = ?`, args: [bind(id)] })
     await client.execute({ sql: `DELETE FROM relasi_forms WHERE id = ?`, args: [bind(id)] })
 
+    deferToBackground(invalidateCache('/api/relasi'))
     return NextResponse.json({ success: true, message: 'Form dan semua isian berhasil dihapus' })
   } catch (error) {
     console.error('[RELASI DELETE] Error:', error)
