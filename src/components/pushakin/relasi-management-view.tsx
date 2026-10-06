@@ -14,11 +14,12 @@ import { Users, Plus, Trash2, Pencil, ExternalLink, Copy, Eye, Loader2, FileText
 
 interface FormField {
   id: string
-  type: 'text' | 'textarea' | 'email' | 'phone' | 'file' | 'select' | 'date' | 'number'
+  type: 'text' | 'textarea' | 'email' | 'phone' | 'file' | 'select' | 'date' | 'number' | 'text+photo'
   label: string
   required: boolean
   placeholder?: string
   options?: string[]
+  maxPhotos?: number
 }
 
 interface RelasiForm {
@@ -52,6 +53,7 @@ const FIELD_TYPES: Array<{ type: FormField['type']; label: string; icon: string 
   { type: 'number', label: 'Angka', icon: '🔢' },
   { type: 'date', label: 'Tanggal', icon: '📅' },
   { type: 'file', label: 'Upload Foto', icon: '📸' },
+  { type: 'text+photo', label: 'Teks + Foto (Gabungan)', icon: '📝📸' },
   { type: 'select', label: 'Pilihan Ganda', icon: '☑️' },
 ]
 
@@ -105,6 +107,7 @@ export function RelasiManagementView() {
       label: '',
       required: false,
       ...(type === 'select' ? { options: [''] } : {}),
+      ...((type === 'file' || type === 'text+photo') ? { maxPhotos: 3 } : {}),
     }
     setFormFields([...formFields, newField])
   }
@@ -414,6 +417,20 @@ export function RelasiManagementView() {
                         <Button type="button" variant="outline" size="sm" className="text-xs" onClick={() => updateField(idx, { options: [...(field.options || []), ''] })}>
                           <Plus className="w-3 h-3 mr-1" /> Tambah Pilihan
                         </Button>
+                      </div>
+                    )}
+                    {(field.type === 'file' || field.type === 'text+photo') && (
+                      <div className="flex items-center gap-2">
+                        <Label className="text-xs text-stone-500">Maks. foto:</Label>
+                        <Input
+                          type="number"
+                          min={1}
+                          max={10}
+                          value={field.maxPhotos || 1}
+                          onChange={e => updateField(idx, { maxPhotos: Number(e.target.value) })}
+                          className="w-20 text-sm"
+                        />
+                        <span className="text-xs text-stone-400">foto per pertanyaan ini</span>
                       </div>
                     )}
                   </div>

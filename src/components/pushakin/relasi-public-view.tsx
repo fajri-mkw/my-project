@@ -10,11 +10,12 @@ import { Loader2, CheckCircle2, Upload, AlertCircle } from 'lucide-react'
 
 interface FormField {
   id: string
-  type: 'text' | 'textarea' | 'email' | 'phone' | 'file' | 'select' | 'date' | 'number'
+  type: 'text' | 'textarea' | 'email' | 'phone' | 'file' | 'select' | 'date' | 'number' | 'text+photo'
   label: string
   required: boolean
   placeholder?: string
   options?: string[]
+  maxPhotos?: number
 }
 
 interface FormData {
@@ -30,12 +31,15 @@ interface UploadedFile {
   url: string
 }
 
+// Key: fieldId, Value: array of uploaded files (untuk multiple upload)
+type UploadedFilesMap = Record<string, UploadedFile[]>
+
 export function RelasiPublicView({ token }: { token: string }) {
   const [formData, setFormData] = useState<FormData | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [answers, setAnswers] = useState<Record<string, string>>({})
-  const [uploadedFiles, setUploadedFiles] = useState<Record<string, UploadedFile>>({})
+  const [uploadedFiles, setUploadedFiles] = useState<UploadedFilesMap>({})
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [isUploading, setIsUploading] = useState<string | null>(null)
   const [submitted, setSubmitted] = useState(false)
@@ -60,13 +64,19 @@ export function RelasiPublicView({ token }: { token: string }) {
     fetchForm()
   }, [token])
 
-  const handleUpload = async (fieldId: string, file: File) => {
+  const handleUpload = async (fieldId: string, file: File, maxPhotos: number) => {
     if (!file.type.startsWith('image/')) {
       alert('Hanya file gambar yang diperbolehkan')
       return
     }
     if (file.size > 10 * 1024 * 1024) {
       alert('Maksimal 10MB')
+      return
+    }
+    // Cek limit
+    const current = uploadedFiles[fieldId] || []
+    if (current.length >= maxPhotos) {
+      alert(`Maksimal ${maxPhotos} foto untuk pertanyaan ini`)
       return
     }
     setIsUploading(fieldId)
@@ -77,7 +87,10 @@ export function RelasiPublicView({ token }: { token: string }) {
       const r = await fetch('/api/relasi/upload', { method: 'POST', body: fd })
       const d = await r.json()
       if (r.ok && d.success) {
-        setUploadedFiles(prev => ({ ...prev, [fieldId]: { name: d.name, fileId: d.fileId, url: d.url } }))
+        setUploadedFiles(prev => ({
+          ...prev,
+          [fieldId]: [...(prev[fieldId] || []), { name: d.name, fileId: d.fileId, url: d.url }],
+        }))
       } else {
         alert(d.error || 'Gagal upload')
       }
@@ -88,16 +101,26 @@ export function RelasiPublicView({ token }: { token: string }) {
     }
   }
 
+  const removeUpload = (fieldId: string, idx: number) => {
+    setUploadedFiles(prev => ({
+      ...prev,
+      [fieldId]: (prev[fieldId] || []).filter((_, i) => i !== idx),
+    }))
+  }
+
   const handleSubmit = async () => {
     if (!formData) return
     // Validate required fields
     for (const field of formData.fields) {
       if (field.required) {
-        if (field.type === 'file') {
-          if (!uploadedFiles[field.id]) {
+        if (field.type === 'file' || field.type === 'text+photo') {
+          if (!uploadedFiles[field.id] || uploadedFiles[field.id].length === 0) {
             alert(`"${field.label}" wajib diisi`)
             return
           }
+        } else if (field.type === 'text+photo' && !answers[field.id]?.trim()) {
+          alert(`"${field.label}" wajib diisi`)
+          return
         } else if (!answers[field.id]?.trim()) {
           alert(`"${field.label}" wajib diisi`)
           return
@@ -107,7 +130,13 @@ export function RelasiPublicView({ token }: { token: string }) {
 
     setIsSubmitting(true)
     try {
-      const files = Object.entries(uploadedFiles).map(([fieldId, file]) => ({ fieldId, ...file }))
+      // Flatten uploaded files: per fieldId → array of { name, fileId, url, fieldId }
+      const files: Array<{ fieldId: string; name: string; fileId: string; url: string }> = []
+      for (const [fieldId, fileArr] of Object.entries(uploadedFiles)) {
+        for (const f of fileArr) {
+          files.push({ fieldId, ...f })
+        }
+      }
       const r = await fetch('/api/relasi/public', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -255,28 +284,81 @@ export function RelasiPublicView({ token }: { token: string }) {
                 )}
 
                 {field.type === 'file' && (
-                  <div>
-                    <label className="flex flex-col items-center justify-center border-2 border-dashed border-stone-300 rounded-xl p-6 cursor-pointer hover:border-indigo-400 hover:bg-indigo-50 transition-colors">
-                      {isUploading === field.id ? (
-                        <Loader2 className="w-8 h-8 animate-spin text-indigo-500 mb-2" />
-                      ) : uploadedFiles[field.id] ? (
-                        <CheckCircle2 className="w-8 h-8 text-green-500 mb-2" />
-                      ) : (
-                        <Upload className="w-8 h-8 text-stone-400 mb-2" />
+                  <div className="space-y-2">
+                    {/* Foto sudah upload — tampilkan thumbnail */}
+                    {(uploadedFiles[field.id] || []).map((f, fi) => (
+                      <div key={fi} className="flex items-center gap-2 p-2 bg-green-50 border border-green-200 rounded-lg">
+                        <CheckCircle2 className="w-4 h-4 text-green-500 flex-shrink-0" />
+                        <span className="text-xs text-stone-600 truncate flex-1">{f.name}</span>
+                        <button type="button" onClick={() => removeUpload(field.id, fi)} className="text-red-500 text-xs hover:text-red-700">Hapus</button>
+                      </div>
+                    ))}
+                    {/* Upload button — hanya tampil kalau belum capai maxPhotos */}
+                    {(!uploadedFiles[field.id] || uploadedFiles[field.id].length < (field.maxPhotos || 1)) && (
+                      <label className="flex flex-col items-center justify-center border-2 border-dashed border-stone-300 rounded-xl p-6 cursor-pointer hover:border-indigo-400 hover:bg-indigo-50 transition-colors">
+                        {isUploading === field.id ? (
+                          <Loader2 className="w-8 h-8 animate-spin text-indigo-500 mb-2" />
+                        ) : (
+                          <Upload className="w-8 h-8 text-stone-400 mb-2" />
+                        )}
+                        <span className="text-sm text-stone-600">
+                          {isUploading === field.id ? 'Mengupload...' : `Upload Foto ${uploadedFiles[field.id]?.length || 0}/${field.maxPhotos || 1}`}
+                        </span>
+                        <input
+                          type="file"
+                          accept="image/*"
+                          className="hidden"
+                          onChange={e => {
+                            const file = e.target.files?.[0]
+                            if (file) handleUpload(field.id, file, field.maxPhotos || 1)
+                          }}
+                        />
+                      </label>
+                    )}
+                  </div>
+                )}
+
+                {field.type === 'text+photo' && (
+                  <div className="space-y-3">
+                    {/* Bagian teks */}
+                    <Textarea
+                      value={answers[field.id] || ''}
+                      onChange={e => setAnswers(prev => ({ ...prev, [field.id]: e.target.value }))}
+                      placeholder={field.placeholder || 'Tulis jawaban teks di sini...'}
+                      rows={3}
+                    />
+                    {/* Bagian foto */}
+                    <div className="space-y-2">
+                      <p className="text-xs text-stone-500 font-medium">Upload Foto (maks. {field.maxPhotos || 1}):</p>
+                      {(uploadedFiles[field.id] || []).map((f, fi) => (
+                        <div key={fi} className="flex items-center gap-2 p-2 bg-green-50 border border-green-200 rounded-lg">
+                          <CheckCircle2 className="w-4 h-4 text-green-500 flex-shrink-0" />
+                          <span className="text-xs text-stone-600 truncate flex-1">{f.name}</span>
+                          <button type="button" onClick={() => removeUpload(field.id, fi)} className="text-red-500 text-xs hover:text-red-700">Hapus</button>
+                        </div>
+                      ))}
+                      {(!uploadedFiles[field.id] || uploadedFiles[field.id].length < (field.maxPhotos || 1)) && (
+                        <label className="flex flex-col items-center justify-center border-2 border-dashed border-stone-300 rounded-xl p-4 cursor-pointer hover:border-indigo-400 hover:bg-indigo-50 transition-colors">
+                          {isUploading === field.id ? (
+                            <Loader2 className="w-6 h-6 animate-spin text-indigo-500 mb-2" />
+                          ) : (
+                            <Upload className="w-6 h-6 text-stone-400 mb-2" />
+                          )}
+                          <span className="text-xs text-stone-600">
+                            {isUploading === field.id ? 'Mengupload...' : `Foto ${uploadedFiles[field.id]?.length || 0}/${field.maxPhotos || 1}`}
+                          </span>
+                          <input
+                            type="file"
+                            accept="image/*"
+                            className="hidden"
+                            onChange={e => {
+                              const file = e.target.files?.[0]
+                              if (file) handleUpload(field.id, file, field.maxPhotos || 1)
+                            }}
+                          />
+                        </label>
                       )}
-                      <span className="text-sm text-stone-600">
-                        {uploadedFiles[field.id] ? uploadedFiles[field.id].name : 'Klik untuk upload foto'}
-                      </span>
-                      <input
-                        type="file"
-                        accept="image/*"
-                        className="hidden"
-                        onChange={e => {
-                          const file = e.target.files?.[0]
-                          if (file) handleUpload(field.id, file)
-                        }}
-                      />
-                    </label>
+                    </div>
                   </div>
                 )}
               </div>
