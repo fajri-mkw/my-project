@@ -198,7 +198,7 @@ export function RelasiManagementView() {
         <Button variant="ghost" onClick={() => setViewingSubmissions(null)} className="gap-2 text-stone-500">
           ← Kembali ke Daftar Form
         </Button>
-        <h2 className="text-xl font-bold text-stone-800">Isian untuk: {form?.title || '...'}</h2>
+        <h2 className="text-xl font-bold text-stone-800">Respond untuk: {form?.title || '...'}</h2>
         {isLoadingSubmissions ? (
           <div className="flex items-center justify-center p-12"><Loader2 className="w-8 h-8 animate-spin text-stone-300" /></div>
         ) : submissions.length === 0 ? (
@@ -301,7 +301,7 @@ export function RelasiManagementView() {
                     <Pencil className="w-3 h-3" /> Edit
                   </Button>
                   <Button size="sm" variant="outline" className="h-7 text-xs gap-1" onClick={() => fetchSubmissions(form.id)}>
-                    <FileText className="w-3 h-3" /> Isian
+                    <FileText className="w-3 h-3" /> Respond
                   </Button>
                   {form.publicUrl && (
                     <Button size="sm" variant="outline" className="h-7 text-xs gap-1 text-blue-600" onClick={() => copyLink(form.publicUrl, form.title)}>
