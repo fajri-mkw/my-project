@@ -5,7 +5,7 @@ import { getLibsql, bind, nowMs, genId } from '@/lib/libsql-client'
 // GET /api/relasi — list semua form (Admin only, cached 30s)
 export const GET = withEdgeCache(async (request: NextRequest) => {
   const userRole = request.headers.get('X-User-Role')
-  if (userRole !== 'Admin') {
+  if (!['Admin', 'Manager', 'PublisherWeb', 'PublisherSocialMedia'].includes(userRole || '')) {
     return NextResponse.json({ error: 'Hanya Super Admin' }, { status: 403 })
   }
   try {
@@ -47,7 +47,7 @@ export const GET = withEdgeCache(async (request: NextRequest) => {
 export async function POST(request: NextRequest) {
   const userRole = request.headers.get('X-User-Role')
   const userId = request.headers.get('X-User-Id')
-  if (userRole !== 'Admin') {
+  if (!['Admin', 'Manager', 'PublisherWeb', 'PublisherSocialMedia'].includes(userRole || '')) {
     return NextResponse.json({ error: 'Hanya Super Admin' }, { status: 403 })
   }
   try {
@@ -98,7 +98,7 @@ export async function POST(request: NextRequest) {
 // PUT /api/relasi?id=XXX — update form (Admin only)
 export async function PUT(request: NextRequest) {
   const userRole = request.headers.get('X-User-Role')
-  if (userRole !== 'Admin') {
+  if (!['Admin', 'Manager', 'PublisherWeb', 'PublisherSocialMedia'].includes(userRole || '')) {
     return NextResponse.json({ error: 'Hanya Super Admin' }, { status: 403 })
   }
   try {
@@ -143,7 +143,7 @@ export async function PUT(request: NextRequest) {
 // DELETE /api/relasi?id=XXX — hapus form (Admin only)
 export async function DELETE(request: NextRequest) {
   const userRole = request.headers.get('X-User-Role')
-  if (userRole !== 'Admin') {
+  if (!['Admin', 'Manager', 'PublisherWeb', 'PublisherSocialMedia'].includes(userRole || '')) {
     return NextResponse.json({ error: 'Hanya Super Admin' }, { status: 403 })
   }
   try {

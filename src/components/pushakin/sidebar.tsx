@@ -140,7 +140,7 @@ export function Sidebar({ isOpen = false, onNavigate, onClose }: SidebarProps) {
     ...(canViewReports ? [{ id: 'reports', label: 'Laporan Kegiatan', icon: FileText, badge: myCompletedCount > 0 ? myCompletedCount : undefined }] : []),
     { id: 'profile', label: 'Profil Saya', icon: UserCircle },
     ...(['Admin', 'Administrator', 'Manager'].includes(currentUser?.role || '') ? [{ id: 'inventory', label: 'Manajemen Inventaris', icon: Package }] : []),
-    ...(currentUser?.role === 'Admin' ? [{ id: 'relasi', label: 'Manajemen Relasi', icon: Users }] : []),
+    ...(['Admin', 'Manager', 'PublisherWeb', 'PublisherSocialMedia'].includes(currentUser?.role || '') ? [{ id: 'relasi', label: 'Manajemen Relasi', icon: Users }] : []),
     ...(canManageUsers ? [{ id: 'users', label: 'Manajemen User', icon: Users }] : []),
     ...(canManageUsers || showReviewerSettings ? [{ id: 'settings', label: 'Pengaturan', icon: Settings }] : []),
   ]

@@ -4,7 +4,7 @@ import { getLibsql, bind } from '@/lib/libsql-client'
 // GET /api/relasi/submissions?formId=XXX — list submissions (Admin only)
 export async function GET(request: NextRequest) {
   const userRole = request.headers.get('X-User-Role')
-  if (userRole !== 'Admin') {
+  if (!['Admin', 'Manager', 'PublisherWeb', 'PublisherSocialMedia'].includes(userRole || '')) {
     return NextResponse.json({ error: 'Hanya Super Admin' }, { status: 403 })
   }
   try {
@@ -43,7 +43,7 @@ export async function GET(request: NextRequest) {
 // PUT /api/relasi/submissions?id=XXX — update submission status (Admin only)
 export async function PUT(request: NextRequest) {
   const userRole = request.headers.get('X-User-Role')
-  if (userRole !== 'Admin') {
+  if (!['Admin', 'Manager', 'PublisherWeb', 'PublisherSocialMedia'].includes(userRole || '')) {
     return NextResponse.json({ error: 'Hanya Super Admin' }, { status: 403 })
   }
   try {
