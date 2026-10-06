@@ -16,17 +16,19 @@ export async function GET(request: NextRequest) {
     })
     const forms = res.rows.map(r => {
       const row = r as Record<string, unknown>
+      const token = row.publicToken != null ? String(row.publicToken) : null
       return {
         id: String(row.id),
         title: String(row.title || ''),
         description: String(row.description || ''),
         fields: JSON.parse(String(row.fields || '[]')),
-        publicToken: row.publicToken != null ? String(row.publicToken) : null,
+        publicToken: token,
         driveFolderId: row.driveFolderId != null ? String(row.driveFolderId) : null,
         status: String(row.status || 'active'),
         createdAt: Number(row.createdAt || 0),
         updatedAt: Number(row.updatedAt || 0),
-        publicUrl: row.publicToken != null ? `/api/relasi/public?token=${row.publicToken}` : null,
+        // URL halaman publik (bukan API) — ?relasi=TOKEN
+        publicUrl: token ? `/?relasi=${token}` : null,
       }
     })
     return NextResponse.json(forms)
@@ -79,7 +81,7 @@ export async function POST(request: NextRequest) {
       success: true,
       id,
       publicToken: token,
-      publicUrl: `/api/relasi/public?token=${token}`,
+      publicUrl: `/?relasi=${token}`,
       message: 'Form berhasil dibuat. Bagikan link publik ke pengunjung.',
     })
   } catch (error) {
