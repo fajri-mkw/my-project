@@ -15,33 +15,30 @@ Tag cache does not need populating
 🌀 Building list of assets...
 ✨ Read 276 files from the assets directory /home/z/my-project/.open-next/assets
 🌀 Starting asset upload...
-🌀 Found 10 new or modified static assets to upload. Proceeding with upload...
+🌀 Found 7 new or modified static assets to upload. Proceeding with upload...
 + /BUILD_ID
-+ /award-v2-slides/v2-slide-6.png
-+ /award-v2-slides/v2-slide-3.png
++ /award-v2-slides/v2-slide-4.png
 + /Pushakin-Flows-Award-2026-v2.pdf
 + /Pushakin-Flows-Award-2026-v2.html
-+ /award-v2-slides/v2-slide-4.png
 + /award-v2-slides/v2-slide-5.png
-+ /award-v2-slides/v2-slide-2.png
-+ /award-v2-slides/v2-slide-7.png
-+ /award-v2-slides/v2-slide-1.png
-Uploaded 3 of 10 assets
-Uploaded 7 of 10 assets
-Uploaded 10 of 10 assets
-✨ Success! Uploaded 10 files (174 already uploaded) (1.54 sec)
++ /award-v2-slides/v2-slide-6.png
++ /award-v2-slides/v2-slide-3.png
+Uploaded 2 of 7 assets
+Uploaded 4 of 7 assets
+Uploaded 7 of 7 assets
+✨ Success! Uploaded 7 files (177 already uploaded) (1.77 sec)
 
-Total Upload: 27474.45 KiB / gzip: 2882.78 KiB
-Worker Startup Time: 17 ms
+Total Upload: 27474.45 KiB / gzip: 2881.80 KiB
+Worker Startup Time: 15 ms
 Your Worker has access to the following bindings:
 Binding                                          Resource                  
 env.DB (pushakin-db)                             D1 Database               
 env.ASSETS                                       Assets                    
 env.NEXT_PUBLIC_APP_NAME ("Pushakin Flows")      Environment Variable      
 
-Uploaded app (9.84 sec)
-Deployed app triggers (0.53 sec)
+Uploaded app (9.76 sec)
+Deployed app triggers (0.59 sec)
   https://app.pushakin-flows.workers.dev
-Current Version ID: d38c6001-e939-4410-894f-ec29ed37b5fc
-(node:9510) [DEP0190] DeprecationWarning: Passing args to a child process with shell option true can lead to security vulnerabilities, as the arguments are not escaped, only concatenated.
+Current Version ID: a2b86f19-8e1f-4dcd-a68f-fa600c7a8c02
+(node:11849) [DEP0190] DeprecationWarning: Passing args to a child process with shell option true can lead to security vulnerabilities, as the arguments are not escaped, only concatenated.
 (Use `node --trace-deprecation ...` to show where the warning was created)
