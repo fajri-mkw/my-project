@@ -17,31 +17,31 @@ Tag cache does not need populating
 🌀 Starting asset upload...
 🌀 Found 10 new or modified static assets to upload. Proceeding with upload...
 + /BUILD_ID
++ /award-v2-slides/v2-slide-6.png
 + /award-v2-slides/v2-slide-3.png
-+ /award-v2-slides/v2-slide-5.png
 + /Pushakin-Flows-Award-2026-v2.pdf
 + /Pushakin-Flows-Award-2026-v2.html
 + /award-v2-slides/v2-slide-4.png
-+ /award-v2-slides/v2-slide-7.png
++ /award-v2-slides/v2-slide-5.png
 + /award-v2-slides/v2-slide-2.png
-+ /award-v2-slides/v2-slide-6.png
++ /award-v2-slides/v2-slide-7.png
 + /award-v2-slides/v2-slide-1.png
 Uploaded 3 of 10 assets
-Uploaded 6 of 10 assets
+Uploaded 7 of 10 assets
 Uploaded 10 of 10 assets
-✨ Success! Uploaded 10 files (174 already uploaded) (2.31 sec)
+✨ Success! Uploaded 10 files (174 already uploaded) (1.54 sec)
 
-Total Upload: 27474.45 KiB / gzip: 2883.03 KiB
-Worker Startup Time: 14 ms
+Total Upload: 27474.45 KiB / gzip: 2882.78 KiB
+Worker Startup Time: 17 ms
 Your Worker has access to the following bindings:
 Binding                                          Resource                  
 env.DB (pushakin-db)                             D1 Database               
 env.ASSETS                                       Assets                    
 env.NEXT_PUBLIC_APP_NAME ("Pushakin Flows")      Environment Variable      
 
-Uploaded app (10.10 sec)
-Deployed app triggers (0.57 sec)
+Uploaded app (9.84 sec)
+Deployed app triggers (0.53 sec)
   https://app.pushakin-flows.workers.dev
-Current Version ID: 6cc3cb64-91c7-46ad-8e72-5a43e4289d09
-(node:7038) [DEP0190] DeprecationWarning: Passing args to a child process with shell option true can lead to security vulnerabilities, as the arguments are not escaped, only concatenated.
+Current Version ID: d38c6001-e939-4410-894f-ec29ed37b5fc
+(node:9510) [DEP0190] DeprecationWarning: Passing args to a child process with shell option true can lead to security vulnerabilities, as the arguments are not escaped, only concatenated.
 (Use `node --trace-deprecation ...` to show where the warning was created)
