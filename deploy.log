@@ -12,30 +12,41 @@ Tag cache does not need populating
 
  ⛅️ wrangler 4.149.0
 ────────────────────
-🌀 Building list of assets...
-✨ Read 252 files from the assets directory /home/z/my-project/.open-next/assets
-🌀 Starting asset upload...
-🌀 Found 4 new or modified static assets to upload. Proceeding with upload...
-+ /BUILD_ID
-+ /_next/static/css/dc2009b5bb6f9b1c.css
-+ /_next/static/chunks/webpack-5ae20667de212e07.js
-+ /_next/static/chunks/6719.7480eed9ba43343a.js
-Uploaded 1 of 4 assets
-Uploaded 2 of 4 assets
-Uploaded 4 of 4 assets
-✨ Success! Uploaded 4 files (160 already uploaded) (1.63 sec)
 
-Total Upload: 27427.06 KiB / gzip: 2880.28 KiB
-Worker Startup Time: 14 ms
+Cloudflare collects anonymous telemetry about your usage of Wrangler. Learn more at https://github.com/cloudflare/workers-sdk/tree/main/packages/wrangler/telemetry.md
+🌀 Building list of assets...
+✨ Read 266 files from the assets directory /home/z/my-project/.open-next/assets
+🌀 Starting asset upload...
+🌀 Found 13 new or modified static assets to upload. Proceeding with upload...
++ /BUILD_ID
++ /Pushakin-Flows-Award-2026.html
++ /_next/static/css/398dc2515081ba4d.css
++ /award-slides/preview-slide-7.png
++ /award-slides/preview-slide-1.png
++ /_next/static/chunks/app/api/route-c771ed481f56fff2.js
++ /award-slides/preview-slide-3.png
++ /award-slides/preview-slide-6.png
++ /Pushakin-Flows-Award-2026.pdf
++ /_next/static/cJDMebPdRjHCMnb2tdyvX/_buildManifest.js
++ /award-slides/preview-slide-5.png
++ /award-slides/preview-slide-4.png
++ /award-slides/preview-slide-2.png
+Uploaded 4 of 13 assets
+Uploaded 9 of 13 assets
+Uploaded 13 of 13 assets
+✨ Success! Uploaded 13 files (162 already uploaded) (2.00 sec)
+
+Total Upload: 27474.45 KiB / gzip: 2880.89 KiB
+Worker Startup Time: 33 ms
 Your Worker has access to the following bindings:
 Binding                                          Resource                  
 env.DB (pushakin-db)                             D1 Database               
 env.ASSETS                                       Assets                    
 env.NEXT_PUBLIC_APP_NAME ("Pushakin Flows")      Environment Variable      
 
-Uploaded app (9.96 sec)
+Uploaded app (11.84 sec)
 Deployed app triggers (0.71 sec)
   https://app.pushakin-flows.workers.dev
-Current Version ID: 49116155-2c60-47e3-b909-c01f13182935
-(node:18515) [DEP0190] DeprecationWarning: Passing args to a child process with shell option true can lead to security vulnerabilities, as the arguments are not escaped, only concatenated.
+Current Version ID: b1bc3cb2-c05e-4337-af04-5b882fed76e6
+(node:3800) [DEP0190] DeprecationWarning: Passing args to a child process with shell option true can lead to security vulnerabilities, as the arguments are not escaped, only concatenated.
 (Use `node --trace-deprecation ...` to show where the warning was created)
