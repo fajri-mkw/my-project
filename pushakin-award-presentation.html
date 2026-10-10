@@ -1,0 +1,1388 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<title>Pushakin Flows — Penghargaan Komunikasi Inovatif</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=Playfair+Display:ital,wght@0,400;0,700;0,900;1,400&display=swap" rel="stylesheet">
+<style>
+  @page {
+    size: 1280px 720px;
+    margin: 0;
+  }
+  :root {
+    --primary: #6d28d9;
+    --primary-dark: #4c1d95;
+    --primary-light: #8b5cf6;
+    --accent: #f59e0b;
+    --bg-dark: #1e1b4b;
+    --bg-light: #faf5ff;
+    --stone-50: #fafaf9;
+    --stone-100: #f5f5f4;
+    --stone-200: #e7e5e4;
+    --stone-300: #d6d3d1;
+    --stone-400: #a8a29e;
+    --stone-500: #78716c;
+    --stone-600: #57534e;
+    --stone-700: #44403c;
+    --stone-800: #292524;
+    --stone-900: #1c1917;
+    --emerald-50: #ecfdf5;
+    --emerald-100: #d1fae5;
+    --emerald-600: #059669;
+    --emerald-700: #047857;
+    --rose-50: #fff1f2;
+    --rose-100: #ffe4e6;
+    --rose-600: #e11d48;
+    --amber-50: #fffbeb;
+    --amber-100: #fef3c7;
+    --amber-600: #d97706;
+    --sky-50: #f0f9ff;
+    --sky-100: #e0f2fe;
+    --sky-600: #0284c7;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body {
+    margin: 0; padding: 0;
+    background: var(--bg-light);
+    font-family: 'Inter', 'Noto Sans SC', sans-serif;
+    color: var(--stone-800);
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+  .page {
+    width: 1280px;
+    height: 720px;
+    page-break-after: always;
+    page-break-inside: avoid;
+    position: relative;
+    overflow: hidden;
+  }
+  .page:last-child { page-break-after: auto; }
+
+  /* ============ SLIDE 1 — COVER ============ */
+  .cover {
+    background: linear-gradient(135deg, #4c1d95 0%, #6d28d9 50%, #1e1b4b 100%);
+    color: white;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    padding: 60px 80px;
+    position: relative;
+  }
+  .cover::before {
+    content: '';
+    position: absolute;
+    top: -100px; right: -100px;
+    width: 400px; height: 400px;
+    background: radial-gradient(circle, rgba(245, 158, 11, 0.25) 0%, transparent 70%);
+    border-radius: 50%;
+  }
+  .cover::after {
+    content: '';
+    position: absolute;
+    bottom: -150px; left: -150px;
+    width: 500px; height: 500px;
+    background: radial-gradient(circle, rgba(139, 92, 246, 0.3) 0%, transparent 70%);
+    border-radius: 50%;
+  }
+  .cover-header {
+    display: flex; justify-content: space-between; align-items: flex-start;
+    position: relative; z-index: 2;
+  }
+  .cover-badge {
+    display: inline-flex; align-items: center; gap: 8px;
+    background: rgba(255, 255, 255, 0.1);
+    backdrop-filter: blur(10px);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    padding: 8px 16px;
+    border-radius: 999px;
+    font-size: 12px;
+    letter-spacing: 0.1em;
+    font-weight: 600;
+  }
+  .cover-badge-dot {
+    width: 8px; height: 8px; border-radius: 50%;
+    background: var(--accent);
+    box-shadow: 0 0 12px var(--accent);
+  }
+  .cover-year {
+    font-family: 'Playfair Display', serif;
+    font-size: 48px;
+    font-weight: 900;
+    color: var(--accent);
+    line-height: 1;
+  }
+  .cover-main {
+    position: relative; z-index: 2;
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+  }
+  .cover-eyebrow {
+    font-size: 14px;
+    letter-spacing: 0.3em;
+    font-weight: 600;
+    color: var(--accent);
+    margin-bottom: 24px;
+    text-transform: uppercase;
+  }
+  .cover-title {
+    font-family: 'Playfair Display', serif;
+    font-size: 96px;
+    font-weight: 900;
+    line-height: 0.95;
+    letter-spacing: -0.02em;
+    margin-bottom: 20px;
+  }
+  .cover-title .accent {
+    color: var(--accent);
+    font-style: italic;
+  }
+  .cover-subtitle {
+    font-size: 22px;
+    font-weight: 400;
+    color: rgba(255, 255, 255, 0.85);
+    max-width: 720px;
+    line-height: 1.5;
+    margin-bottom: 32px;
+  }
+  .cover-award-name {
+    font-size: 18px;
+    font-weight: 600;
+    color: white;
+    padding: 12px 20px;
+    background: rgba(245, 158, 11, 0.15);
+    border-left: 3px solid var(--accent);
+    border-radius: 4px;
+    max-width: fit-content;
+  }
+  .cover-footer {
+    position: relative; z-index: 2;
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-end;
+    border-top: 1px solid rgba(255, 255, 255, 0.2);
+    padding-top: 20px;
+  }
+  .cover-org {
+    font-size: 14px;
+    color: rgba(255, 255, 255, 0.7);
+    line-height: 1.5;
+  }
+  .cover-org strong {
+    color: white;
+    font-weight: 700;
+    display: block;
+    margin-bottom: 4px;
+    font-size: 16px;
+  }
+  .cover-url {
+    font-family: 'Liberation Mono', monospace;
+    font-size: 11px;
+    color: rgba(255, 255, 255, 0.5);
+    letter-spacing: 0.05em;
+  }
+
+  /* ============ SLIDE 2-7 SHARED ============ */
+  .content-slide {
+    background: white;
+    padding: 50px 70px;
+    display: flex;
+    flex-direction: column;
+  }
+  .slide-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-end;
+    margin-bottom: 28px;
+    padding-bottom: 16px;
+    border-bottom: 2px solid var(--stone-200);
+  }
+  .slide-title-group { flex: 1; }
+  .slide-eyebrow {
+    font-size: 11px;
+    letter-spacing: 0.25em;
+    font-weight: 700;
+    color: var(--primary);
+    text-transform: uppercase;
+    margin-bottom: 6px;
+  }
+  .slide-title {
+    font-family: 'Playfair Display', serif;
+    font-size: 38px;
+    font-weight: 900;
+    color: var(--stone-900);
+    line-height: 1.1;
+    letter-spacing: -0.01em;
+  }
+  .slide-weight {
+    font-family: 'Playfair Display', serif;
+    font-size: 56px;
+    font-weight: 900;
+    color: var(--primary);
+    line-height: 1;
+  }
+  .slide-weight-label {
+    font-size: 10px;
+    color: var(--stone-500);
+    letter-spacing: 0.15em;
+    text-align: right;
+    margin-top: 4px;
+  }
+
+  /* ============ SLIDE 2 — OBJEKTIF ============ */
+  .objektif-grid {
+    display: grid;
+    grid-template-columns: 1.1fr 1fr;
+    gap: 28px;
+    flex: 1;
+  }
+  .objektif-left { display: flex; flex-direction: column; gap: 16px; }
+  .problem-card {
+    background: linear-gradient(135deg, #fef3c7 0%, #fffbeb 100%);
+    border: 1px solid var(--amber-100);
+    border-left: 4px solid var(--amber-600);
+    padding: 18px 22px;
+    border-radius: 8px;
+  }
+  .problem-label {
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.15em;
+    color: var(--amber-600);
+    text-transform: uppercase;
+    margin-bottom: 6px;
+  }
+  .problem-text {
+    font-size: 14px;
+    color: var(--stone-700);
+    line-height: 1.5;
+  }
+  .problem-text strong { color: var(--stone-900); }
+  .solution-card {
+    background: linear-gradient(135deg, var(--emerald-50) 0%, white 100%);
+    border: 1px solid var(--emerald-100);
+    border-left: 4px solid var(--emerald-600);
+    padding: 18px 22px;
+    border-radius: 8px;
+  }
+  .solution-label {
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.15em;
+    color: var(--emerald-600);
+    text-transform: uppercase;
+    margin-bottom: 6px;
+  }
+  .solution-text {
+    font-size: 14px;
+    color: var(--stone-700);
+    line-height: 1.5;
+  }
+  .solution-text strong { color: var(--emerald-700); }
+  .objektif-stats {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 12px;
+    margin-top: 4px;
+  }
+  .stat-card {
+    background: var(--bg-light);
+    border: 1px solid var(--stone-200);
+    padding: 14px 12px;
+    border-radius: 8px;
+    text-align: center;
+  }
+  .stat-number {
+    font-family: 'Playfair Display', serif;
+    font-size: 32px;
+    font-weight: 900;
+    color: var(--primary);
+    line-height: 1;
+  }
+  .stat-label {
+    font-size: 10px;
+    color: var(--stone-500);
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    margin-top: 4px;
+    line-height: 1.3;
+  }
+  .objektif-right {
+    background: linear-gradient(135deg, #4c1d95 0%, #6d28d9 100%);
+    border-radius: 12px;
+    padding: 28px;
+    color: white;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+  }
+  .objektif-right h3 {
+    font-size: 14px;
+    font-weight: 600;
+    letter-spacing: 0.2em;
+    color: var(--accent);
+    text-transform: uppercase;
+    margin-bottom: 20px;
+  }
+  .objektif-layer {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    margin-bottom: 14px;
+    padding: 10px 0;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.15);
+  }
+  .objektif-layer:last-child { border-bottom: none; margin-bottom: 0; }
+  .layer-num {
+    width: 32px; height: 32px;
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.1);
+    border: 1px solid rgba(255, 255, 255, 0.3);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 14px;
+    font-weight: 700;
+    color: var(--accent);
+    flex-shrink: 0;
+  }
+  .layer-text { flex: 1; }
+  .layer-title {
+    font-size: 14px;
+    font-weight: 700;
+    color: white;
+    margin-bottom: 2px;
+  }
+  .layer-desc {
+    font-size: 11px;
+    color: rgba(255, 255, 255, 0.7);
+    line-height: 1.4;
+  }
+
+  /* ============ SLIDE 3 — STRATEGI ============ */
+  .strategi-content {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+  }
+  .workflow-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    background: var(--bg-light);
+    padding: 16px;
+    border-radius: 10px;
+    border: 1px solid var(--stone-200);
+  }
+  .workflow-stage {
+    flex: 1;
+    text-align: center;
+    padding: 8px 4px;
+    background: white;
+    border-radius: 6px;
+    border: 1px solid var(--stone-200);
+  }
+  .workflow-stage.highlight {
+    background: linear-gradient(135deg, var(--primary) 0%, var(--primary-dark) 100%);
+    color: white;
+    border-color: var(--primary);
+  }
+  .workflow-stage-num {
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--stone-500);
+    letter-spacing: 0.1em;
+  }
+  .workflow-stage.highlight .workflow-stage-num { color: var(--accent); }
+  .workflow-stage-name {
+    font-size: 14px;
+    font-weight: 700;
+    color: var(--stone-800);
+    margin-top: 2px;
+  }
+  .workflow-stage.highlight .workflow-stage-name { color: white; }
+  .workflow-arrow {
+    color: var(--stone-400);
+    font-size: 14px;
+    font-weight: 900;
+    flex-shrink: 0;
+  }
+  .mode-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 14px;
+  }
+  .mode-card {
+    padding: 14px 16px;
+    border-radius: 8px;
+    border: 1px solid var(--stone-200);
+    background: white;
+  }
+  .mode-card.normal { border-top: 3px solid var(--primary); }
+  .mode-card.fast { border-top: 3px solid var(--rose-600); background: linear-gradient(180deg, var(--rose-50) 0%, white 100%); }
+  .mode-card.production { border-top: 3px solid var(--emerald-600); background: linear-gradient(180deg, var(--emerald-50) 0%, white 100%); }
+  .mode-label {
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    color: var(--stone-500);
+    margin-bottom: 4px;
+  }
+  .mode-card.normal .mode-label { color: var(--primary); }
+  .mode-card.fast .mode-label { color: var(--rose-600); }
+  .mode-card.production .mode-label { color: var(--emerald-600); }
+  .mode-name {
+    font-size: 16px;
+    font-weight: 800;
+    color: var(--stone-900);
+    margin-bottom: 6px;
+  }
+  .mode-desc {
+    font-size: 12px;
+    color: var(--stone-600);
+    line-height: 1.5;
+  }
+  .strategi-features {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 10px;
+  }
+  .feature-pill {
+    background: var(--bg-light);
+    border: 1px solid var(--stone-200);
+    padding: 10px 12px;
+    border-radius: 6px;
+    text-align: center;
+  }
+  .feature-pill-icon {
+    font-size: 18px;
+    margin-bottom: 4px;
+  }
+  .feature-pill-title {
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--stone-800);
+    margin-bottom: 2px;
+  }
+  .feature-pill-desc {
+    font-size: 10px;
+    color: var(--stone-500);
+    line-height: 1.3;
+  }
+
+  /* ============ SLIDE 4 — TAKTIK/SALURAN ============ */
+  .taktik-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 14px;
+    flex: 1;
+  }
+  .channel-card {
+    background: white;
+    border: 1px solid var(--stone-200);
+    border-radius: 10px;
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+  }
+  .channel-card.featured {
+    background: linear-gradient(135deg, var(--primary) 0%, var(--primary-dark) 100%);
+    color: white;
+    border-color: var(--primary);
+    grid-row: span 2;
+  }
+  .channel-icon {
+    width: 36px; height: 36px;
+    border-radius: 8px;
+    background: var(--bg-light);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 18px;
+    margin-bottom: 10px;
+  }
+  .channel-card.featured .channel-icon {
+    background: rgba(255, 255, 255, 0.15);
+  }
+  .channel-title {
+    font-size: 14px;
+    font-weight: 800;
+    color: var(--stone-900);
+    margin-bottom: 6px;
+  }
+  .channel-card.featured .channel-title { color: white; }
+  .channel-desc {
+    font-size: 11px;
+    color: var(--stone-600);
+    line-height: 1.5;
+    flex: 1;
+  }
+  .channel-card.featured .channel-desc { color: rgba(255, 255, 255, 0.85); }
+  .channel-badge {
+    display: inline-block;
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    padding: 2px 6px;
+    border-radius: 4px;
+    background: var(--emerald-100);
+    color: var(--emerald-700);
+    margin-top: 8px;
+    text-transform: uppercase;
+    width: fit-content;
+  }
+  .channel-card.featured .channel-badge {
+    background: var(--accent);
+    color: var(--primary-dark);
+  }
+
+  /* ============ SLIDE 5 — KEY MESSAGES ============ */
+  .km-content {
+    flex: 1;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 24px;
+  }
+  .km-left h3, .km-right h3 {
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.2em;
+    color: var(--primary);
+    text-transform: uppercase;
+    margin-bottom: 14px;
+  }
+  .km-layers {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .km-layer {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    padding: 8px 10px;
+    background: var(--bg-light);
+    border-left: 3px solid var(--primary);
+    border-radius: 4px;
+  }
+  .km-layer-num {
+    font-family: 'Playfair Display', serif;
+    font-size: 18px;
+    font-weight: 900;
+    color: var(--primary);
+    line-height: 1;
+    width: 22px;
+    flex-shrink: 0;
+  }
+  .km-layer-content { flex: 1; }
+  .km-layer-title {
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--stone-800);
+    margin-bottom: 2px;
+  }
+  .km-layer-desc {
+    font-size: 10px;
+    color: var(--stone-500);
+    line-height: 1.4;
+  }
+  .km-triggers {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .km-trigger {
+    padding: 12px 14px;
+    background: white;
+    border: 1px solid var(--stone-200);
+    border-radius: 8px;
+    border-left: 3px solid var(--emerald-600);
+  }
+  .km-trigger-tag {
+    display: inline-block;
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    padding: 2px 6px;
+    background: var(--emerald-100);
+    color: var(--emerald-700);
+    border-radius: 3px;
+    margin-bottom: 6px;
+    text-transform: uppercase;
+  }
+  .km-trigger-title {
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--stone-900);
+    margin-bottom: 4px;
+  }
+  .km-trigger-quote {
+    font-size: 10px;
+    color: var(--stone-600);
+    line-height: 1.4;
+    font-style: italic;
+  }
+  .km-digest {
+    margin-top: 12px;
+    padding: 12px 14px;
+    background: linear-gradient(135deg, #fef3c7 0%, #fffbeb 100%);
+    border-left: 3px solid var(--amber-600);
+    border-radius: 6px;
+    font-size: 11px;
+    color: var(--stone-700);
+    line-height: 1.5;
+  }
+  .km-digest strong { color: var(--amber-600); }
+
+  /* ============ SLIDE 6 — EKSEKUSI ============ */
+  .eksekusi-grid {
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    grid-template-rows: repeat(3, 1fr);
+    gap: 10px;
+    flex: 1;
+  }
+  .ex-card {
+    background: white;
+    border: 1px solid var(--stone-200);
+    border-radius: 8px;
+    padding: 12px;
+    display: flex;
+    flex-direction: column;
+  }
+  .ex-card.highlight {
+    background: linear-gradient(135deg, var(--primary) 0%, var(--primary-dark) 100%);
+    color: white;
+    border-color: var(--primary);
+  }
+  .ex-card.highlight .ex-card-title { color: white; }
+  .ex-card.highlight .ex-card-desc { color: rgba(255, 255, 255, 0.85); }
+  .ex-card-num {
+    font-family: 'Playfair Display', serif;
+    font-size: 22px;
+    font-weight: 900;
+    color: var(--stone-300);
+    line-height: 1;
+    margin-bottom: 6px;
+  }
+  .ex-card.highlight .ex-card-num { color: var(--accent); }
+  .ex-card-title {
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--stone-900);
+    margin-bottom: 4px;
+    line-height: 1.2;
+  }
+  .ex-card-desc {
+    font-size: 10px;
+    color: var(--stone-600);
+    line-height: 1.4;
+    flex: 1;
+  }
+  .eksekusi-footer {
+    margin-top: 12px;
+    padding: 10px 16px;
+    background: var(--bg-light);
+    border-radius: 6px;
+    display: flex;
+    justify-content: space-around;
+    align-items: center;
+  }
+  .eksekusi-footer-stat {
+    text-align: center;
+  }
+  .ef-num {
+    font-family: 'Playfair Display', serif;
+    font-size: 22px;
+    font-weight: 900;
+    color: var(--primary);
+    line-height: 1;
+  }
+  .ef-label {
+    font-size: 9px;
+    color: var(--stone-500);
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    margin-top: 2px;
+  }
+
+  /* ============ SLIDE 7 — PENGUKURAN ============ */
+  .pengukuran-content {
+    flex: 1;
+    display: grid;
+    grid-template-columns: 1.3fr 1fr;
+    gap: 20px;
+  }
+  .pengukuran-left h3, .pengukuran-right h3 {
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.2em;
+    color: var(--primary);
+    text-transform: uppercase;
+    margin-bottom: 12px;
+  }
+  .pengukuran-sections {
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    gap: 6px;
+    margin-bottom: 14px;
+  }
+  .pm-section {
+    background: var(--bg-light);
+    border: 1px solid var(--stone-200);
+    border-top: 3px solid var(--primary);
+    padding: 10px 8px;
+    border-radius: 6px;
+    text-align: center;
+  }
+  .pm-section-title {
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--stone-800);
+    margin-bottom: 4px;
+  }
+  .pm-section-features {
+    font-size: 9px;
+    color: var(--stone-500);
+    line-height: 1.4;
+  }
+  .pm-innovation {
+    padding: 12px 14px;
+    background: linear-gradient(135deg, var(--emerald-50) 0%, white 100%);
+    border: 1px solid var(--emerald-100);
+    border-left: 3px solid var(--emerald-600);
+    border-radius: 6px;
+    margin-bottom: 10px;
+  }
+  .pm-innovation-title {
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--emerald-700);
+    margin-bottom: 4px;
+  }
+  .pm-innovation-desc {
+    font-size: 10px;
+    color: var(--stone-600);
+    line-height: 1.4;
+  }
+  .pm-reports {
+    padding: 12px 14px;
+    background: var(--bg-light);
+    border-radius: 6px;
+  }
+  .pm-reports-title {
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--stone-800);
+    margin-bottom: 4px;
+  }
+  .pm-reports-desc {
+    font-size: 10px;
+    color: var(--stone-600);
+    line-height: 1.4;
+  }
+  .tujuan-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+  }
+  .tujuan-card {
+    padding: 14px;
+    border-radius: 8px;
+    color: white;
+  }
+  .tujuan-card.inovatif { background: linear-gradient(135deg, #6d28d9 0%, #4c1d95 100%); }
+  .tujuan-card.efektif { background: linear-gradient(135deg, #059669 0%, #047857 100%); }
+  .tujuan-card.transparan { background: linear-gradient(135deg, #0284c7 0%, #0369a1 100%); }
+  .tujuan-card.partisipatif { background: linear-gradient(135deg, #d97706 0%, #b45309 100%); }
+  .tujuan-icon {
+    font-size: 18px;
+    margin-bottom: 4px;
+  }
+  .tujuan-title {
+    font-size: 13px;
+    font-weight: 800;
+    margin-bottom: 4px;
+  }
+  .tujuan-desc {
+    font-size: 10px;
+    line-height: 1.4;
+    color: rgba(255, 255, 255, 0.9);
+  }
+  .pengukuran-final {
+    grid-column: 1 / -1;
+    margin-top: 6px;
+    padding: 12px 18px;
+    background: linear-gradient(135deg, #1e1b4b 0%, #4c1d95 100%);
+    border-radius: 8px;
+    color: white;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  .pf-text {
+    font-size: 13px;
+    font-weight: 600;
+  }
+  .pf-stats {
+    display: flex;
+    gap: 24px;
+  }
+  .pf-stat {
+    text-align: center;
+  }
+  .pf-stat-num {
+    font-family: 'Playfair Display', serif;
+    font-size: 22px;
+    font-weight: 900;
+    color: var(--accent);
+    line-height: 1;
+  }
+  .pf-stat-label {
+    font-size: 9px;
+    color: rgba(255, 255, 255, 0.7);
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    margin-top: 2px;
+  }
+</style>
+</head>
+<body>
+
+<!-- ====================== SLIDE 1 — COVER ====================== -->
+<div class="page cover">
+  <div class="cover-header">
+    <div class="cover-badge">
+      <span class="cover-badge-dot"></span>
+      HUMAS KEMAG AWARD 2026
+    </div>
+    <div class="cover-year">2026</div>
+  </div>
+
+  <div class="cover-main">
+    <div class="cover-eyebrow">Pengelolaan Komunikasi Publik Inovatif</div>
+    <h1 class="cover-title">
+      Pushakin <span class="accent">Flows</span>
+    </h1>
+    <p class="cover-subtitle">
+      Sistem Manajemen Produksi Kehumasan Terpadu — Dari Permohonan hingga Publikasi, dalam Satu Alur Kerja Inovatif, Efektif, Transparan, dan Partisipatif.
+    </p>
+    <div class="cover-award-name">
+      Penghargaan Komunikasi Inovatif — Kementerian Agama RI
+    </div>
+  </div>
+
+  <div class="cover-footer">
+    <div class="cover-org">
+      <strong>Pusat Hubungan Masyarakat</strong>
+      UIN Antasari Banjarmasin
+    </div>
+    <div class="cover-url">app.pushakin-flows.workers.dev</div>
+  </div>
+</div>
+
+<!-- ====================== SLIDE 2 — OBJEKTIF (20%) ====================== -->
+<div class="page content-slide">
+  <div class="slide-header">
+    <div class="slide-title-group">
+      <div class="slide-eyebrow">Indikator 1 dari 6</div>
+      <h2 class="slide-title">Objektif — Tujuan &amp; Masalah yang Dipecahkan</h2>
+    </div>
+    <div>
+      <div class="slide-weight">20%</div>
+      <div class="slide-weight-label">BOBOT</div>
+    </div>
+  </div>
+
+  <div class="objektif-grid">
+    <div class="objektif-left">
+      <div class="problem-card">
+        <div class="problem-label">⚠ Masalah</div>
+        <div class="problem-text">
+          Komunikasi kehumasan terfragmentasi: <strong>surat fisik di lemari</strong>, koordinasi via <strong>chat WA tersebar</strong>, file di <strong>Drive pribadi</strong>, publish via akun individu — <strong>tanpa audit trail</strong>, tanpa surat tugas bernomor, tanpa pemetaan output per petugas.
+        </div>
+      </div>
+      <div class="solution-card">
+        <div class="solution-label">✓ Solusi</div>
+        <div class="solution-text">
+          <strong>Workflow formal 3-lapis</strong> dengan Surat Tugas bernomor resmi (audit-ready SKP), instruksi tertulis mandatori, output per petugas di-validasi, dan <strong>pre-fill otomatis</strong> dari surat permohonan ke form inisiasi proyek — eliminasi double-entry.
+        </div>
+      </div>
+      <div class="objektif-stats">
+        <div class="stat-card">
+          <div class="stat-number">149</div>
+          <div class="stat-label">Proyek<br/>Tracked</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-number">529</div>
+          <div class="stat-label">Surat Tugas<br/>Auto</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-number">15</div>
+          <div class="stat-label">Role<br/>Terlibat</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="objektif-right">
+      <h3>Dokumentasi 3-Lapis</h3>
+      <div class="objektif-layer">
+        <div class="layer-num">1</div>
+        <div class="layer-text">
+          <div class="layer-title">Surat Masuk/Keluar</div>
+          <div class="layer-desc">Permohonan, undangan, pemberitahuan, laporan — dengan kategori dan status transisi</div>
+        </div>
+      </div>
+      <div class="objektif-layer">
+        <div class="layer-num">2</div>
+        <div class="layer-text">
+          <div class="layer-title">Program Kegiatan</div>
+          <div class="layer-desc">Nomor kegiatan, jenis, penyelenggara, status Direncanakan/Berlangsung/Selesai</div>
+        </div>
+      </div>
+      <div class="objektif-layer">
+        <div class="layer-num">3</div>
+        <div class="layer-text">
+          <div class="layer-title">Inisiasi Proyek</div>
+          <div class="layer-desc">Field mandatori: judul, deskripsi, unit, lokasi, waktu, PIC, WA, kebutuhan output</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ====================== SLIDE 3 — STRATEGI (20%) ====================== -->
+<div class="page content-slide">
+  <div class="slide-header">
+    <div class="slide-title-group">
+      <div class="slide-eyebrow">Indikator 2 dari 6</div>
+      <h2 class="slide-title">Strategi — 5-Tahap Workflow &amp; 3 Mode Adaptif</h2>
+    </div>
+    <div>
+      <div class="slide-weight">20%</div>
+      <div class="slide-weight-label">BOBOT</div>
+    </div>
+  </div>
+
+  <div class="strategi-content">
+    <div class="workflow-row">
+      <div class="workflow-stage">
+        <div class="workflow-stage-num">TAHAP 0</div>
+        <div class="workflow-stage-name">Perencanaan</div>
+      </div>
+      <div class="workflow-arrow">→</div>
+      <div class="workflow-stage highlight">
+        <div class="workflow-stage-num">TAHAP 1</div>
+        <div class="workflow-stage-name">Produksi</div>
+      </div>
+      <div class="workflow-arrow">→</div>
+      <div class="workflow-stage">
+        <div class="workflow-stage-num">TAHAP 2</div>
+        <div class="workflow-stage-name">Pasca Produksi</div>
+      </div>
+      <div class="workflow-arrow">→</div>
+      <div class="workflow-stage">
+        <div class="workflow-stage-num">TAHAP 3</div>
+        <div class="workflow-stage-name">Review</div>
+      </div>
+      <div class="workflow-arrow">→</div>
+      <div class="workflow-stage">
+        <div class="workflow-stage-num">TAHAP 4</div>
+        <div class="workflow-stage-name">Publikasi</div>
+      </div>
+      <div class="workflow-arrow">→</div>
+      <div class="workflow-stage">
+        <div class="workflow-stage-num">TAHAP 5</div>
+        <div class="workflow-stage-name">Selesai</div>
+      </div>
+    </div>
+
+    <div class="mode-grid">
+      <div class="mode-card normal">
+        <div class="mode-label">Mode 1</div>
+        <div class="mode-name">Normal Flow</div>
+        <div class="mode-desc">5-tahap berurutan dengan gating. Project advance hanya saat semua task di currentStage selesai. Cocok untuk liputan standar.</div>
+      </div>
+      <div class="mode-card fast">
+        <div class="mode-label">Mode 2</div>
+        <div class="mode-name">Fast Track</div>
+        <div class="mode-desc">Skip Tahap 1-3 langsung ke Publikasi untuk breaking news. Publisher langsung publish tanpa produksi formal.</div>
+      </div>
+      <div class="mode-card production">
+        <div class="mode-label">Mode 3</div>
+        <div class="mode-name">Fast Production</div>
+        <div class="mode-desc">Paralel semua task untuk produksi kecil. Tahap advance saat semua task selesai (tidak berurutan).</div>
+      </div>
+    </div>
+
+    <div class="strategi-features">
+      <div class="feature-pill">
+        <div class="feature-pill-icon">🔗</div>
+        <div class="feature-pill-title">Intra-Stage Dependency</div>
+        <div class="feature-pill-desc">Editor Template Sosmed menunggu Editor Foto selesai di Tahap 2</div>
+      </div>
+      <div class="feature-pill">
+        <div class="feature-pill-icon">📅</div>
+        <div class="feature-pill-title">Konflik Jadwal ±3 Jam</div>
+        <div class="feature-pill-desc">Deteksi otomatis petugas double-book sebelum save</div>
+      </div>
+      <div class="feature-pill">
+        <div class="feature-pill-icon">⚡</div>
+        <div class="feature-pill-title">Auto-Approve Opt-in</div>
+        <div class="feature-pill-desc">Reviewer toggle sendiri untuk auto-complete review</div>
+      </div>
+      <div class="feature-pill">
+        <div class="feature-pill-icon">🛠</div>
+        <div class="feature-pill-title">Auto-Repair Stuck</div>
+        <div class="feature-pill-desc">Fix proyek stuck di intermediate stage; throttle 10 menit</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ====================== SLIDE 4 — TAKTIK/SALURAN (10%) ====================== -->
+<div class="page content-slide">
+  <div class="slide-header">
+    <div class="slide-title-group">
+      <div class="slide-eyebrow">Indikator 3 dari 6</div>
+      <h2 class="slide-title">Taktik &amp; Saluran — 12+ Channel Terintegrasi</h2>
+    </div>
+    <div>
+      <div class="slide-weight">10%</div>
+      <div class="slide-weight-label">BOBOT</div>
+    </div>
+  </div>
+
+  <div class="taktik-grid">
+    <div class="channel-card featured">
+      <div class="channel-icon">💬</div>
+      <div class="channel-title">WhatsApp Otomatis — 3 Provider</div>
+      <div class="channel-desc">
+        <strong style="color: var(--accent);">UltraMsg (GRATIS, REKOMENDASI)</strong> — admin daftar sekali, kirim ke siapa saja tanpa per-recipient registration. CallMeBot (GRATIS, tiap user daftar). Fonnte (berbayar, massal).<br/><br/>
+        <strong style="color: white;">3 Trigger Otomatis:</strong> Tugas Baru, Stage Advance, Review Rejection. Format siap pakai dengan brand Pushakin Flows.
+      </div>
+      <div class="channel-badge">GRATIS · REKOMENDASI</div>
+    </div>
+    <div class="channel-card">
+      <div class="channel-icon">📺</div>
+      <div class="channel-title">Public Tracker</div>
+      <div class="channel-desc">URL <code>?public=tracker</code> no-auth, 11 grid layout (1×1→4×4) untuk TV lobby. Auto-refresh 30 min, auto-pagination 8s, dark/light theme.</div>
+    </div>
+    <div class="channel-card">
+      <div class="channel-icon">📸</div>
+      <div class="channel-title">LIHUM Gallery</div>
+      <div class="channel-desc">1-klik publish folder PUBLIC ke gallery publik lihum.synclicen.workers.dev. Hanya folder PUBLIC; PRIVATE tidak pernah di-share.</div>
+    </div>
+    <div class="channel-card">
+      <div class="channel-icon">🌐</div>
+      <div class="channel-title">14 Platform Publikasi</div>
+      <div class="channel-desc">Website, Instagram, Facebook, Twitter/X, YouTube, TikTok, LinkedIn, Newsletter, Portal Berita, Spotify, Anchor, Podcast, Streaming, Lainnya.</div>
+    </div>
+    <div class="channel-card">
+      <div class="channel-icon">📧</div>
+      <div class="channel-title">Email SMTP Branded</div>
+      <div class="channel-desc">HTML template gradient purple "Pushakin Flows". Nodemailer dynamic import, fallback Gmail SMTP gratis 500 email/hari.</div>
+    </div>
+    <div class="channel-card">
+      <div class="channel-icon">📝</div>
+      <div class="channel-title">Relasi Public Form</div>
+      <div class="channel-desc">Token-based, no-auth untuk mitra eksternal kontribusi tanpa akun. Rate limit 10 submission/IP/jam, 10MB file max.</div>
+    </div>
+    <div class="channel-card">
+      <div class="channel-icon">📋</div>
+      <div class="channel-title">Salinan WA Digest</div>
+      <div class="channel-desc">Manager-only, 1-klik generate digest proyek belum selesai → salin ke clipboard → paste ke grup WA tim.</div>
+    </div>
+  </div>
+</div>
+
+<!-- ====================== SLIDE 5 — KEY MESSAGES (15%) ====================== -->
+<div class="page content-slide">
+  <div class="slide-header">
+    <div class="slide-title-group">
+      <div class="slide-eyebrow">Indikator 4 dari 6</div>
+      <h2 class="slide-title">Key Messages — 5-Lapis Pesan Terstruktur</h2>
+    </div>
+    <div>
+      <div class="slide-weight">15%</div>
+      <div class="slide-weight-label">BOBOT</div>
+    </div>
+  </div>
+
+  <div class="km-content">
+    <div class="km-left">
+      <h3>5-Lapis Pesan Terstruktur</h3>
+      <div class="km-layers">
+        <div class="km-layer">
+          <div class="km-layer-num">1</div>
+          <div class="km-layer-content">
+            <div class="km-layer-title">Surat Masuk/Keluar</div>
+            <div class="km-layer-desc">Perihal, deskripsi, catatan, status transisi</div>
+          </div>
+        </div>
+        <div class="km-layer">
+          <div class="km-layer-num">2</div>
+          <div class="km-layer-content">
+            <div class="km-layer-title">Program Kegiatan</div>
+            <div class="km-layer-desc">Nomor kegiatan, jenis, penyelenggara, status</div>
+          </div>
+        </div>
+        <div class="km-layer">
+          <div class="km-layer-num">3</div>
+          <div class="km-layer-content">
+            <div class="km-layer-title">Inisiasi Proyek</div>
+            <div class="km-layer-desc">Instruksi tertulis Manager + customActivity + customOutput</div>
+          </div>
+        </div>
+        <div class="km-layer">
+          <div class="km-layer-num">4</div>
+          <div class="km-layer-content">
+            <div class="km-layer-title">Catatan per Task</div>
+            <div class="km-layer-desc">Catatan petugas saat selesai (link hasil, kendala)</div>
+          </div>
+        </div>
+        <div class="km-layer">
+          <div class="km-layer-num">5</div>
+          <div class="km-layer-content">
+            <div class="km-layer-title">Publish Links</div>
+            <div class="km-layer-desc">14 platform dengan label + URL, auto-ekstrak ke Laporan</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="km-right">
+      <h3>3-Trigger Notifikasi Otomatis</h3>
+      <div class="km-triggers">
+        <div class="km-trigger">
+          <span class="km-trigger-tag">Trigger 1</span>
+          <div class="km-trigger-title">Tugas Baru Diberikan</div>
+          <div class="km-trigger-quote">"Halo [nama], Anda menerima tugas baru sebagai [role] untuk proyek [judul]…"</div>
+        </div>
+        <div class="km-trigger">
+          <span class="km-trigger-tag">Trigger 2</span>
+          <div class="km-trigger-title">Stage Advance</div>
+          <div class="km-trigger-quote">"Proyek [judul] telah maju ke [Tahap X]. Giliran Anda untuk mengerjakan tugas!"</div>
+        </div>
+        <div class="km-trigger">
+          <span class="km-trigger-tag">Trigger 3</span>
+          <div class="km-trigger-title">Review Rejection</div>
+          <div class="km-trigger-quote">"Proyek [judul] ditolak oleh Reviewer. Silakan perbaiki karya Anda. Alasan: [alasan]"</div>
+        </div>
+      </div>
+      <div class="km-digest">
+        <strong>WA Digest siap-tempel</strong> ke grup WA tim dengan emoji, daftar petugas belum selesai, closing: "Mohon segera kerjakan tugas masing-masing 🙏"
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ====================== SLIDE 6 — EKSEKUSI (20%) ====================== -->
+<div class="page content-slide">
+  <div class="slide-header">
+    <div class="slide-title-group">
+      <div class="slide-eyebrow">Indikator 5 dari 6</div>
+      <h2 class="slide-title">Eksekusi — 15 Fitur Kunci End-to-End</h2>
+    </div>
+    <div>
+      <div class="slide-weight">20%</div>
+      <div class="slide-weight-label">BOBOT</div>
+    </div>
+  </div>
+
+  <div class="eksekusi-grid">
+    <div class="ex-card highlight">
+      <div class="ex-card-num">01</div>
+      <div class="ex-card-title">Stage Gating</div>
+      <div class="ex-card-desc">Advance hanya saat semua task currentStage selesai</div>
+    </div>
+    <div class="ex-card">
+      <div class="ex-card-num">02</div>
+      <div class="ex-card-title">Auto-Notif + Surat Tugas</div>
+      <div class="ex-card-desc">Stage advance → WA + email + surat tugas ke nextStage</div>
+    </div>
+    <div class="ex-card">
+      <div class="ex-card-num">03</div>
+      <div class="ex-card-title">Retry 3x</div>
+      <div class="ex-card-desc">5xx/network retry; robust error extraction</div>
+    </div>
+    <div class="ex-card">
+      <div class="ex-card-num">04</div>
+      <div class="ex-card-title">Drive Auto-Create</div>
+      <div class="ex-card-desc">Subfolder per role + DL/UL policy otomatis</div>
+    </div>
+    <div class="ex-card">
+      <div class="ex-card-num">05</div>
+      <div class="ex-card-title">Chunked Upload</div>
+      <div class="ex-card-desc">Resumable, progress bar, retry per chunk</div>
+    </div>
+    <div class="ex-card">
+      <div class="ex-card-num">06</div>
+      <div class="ex-card-title">Tambah Petugas Mid-Project</div>
+      <div class="ex-card-desc">Manager tambah petugas ke tahap proyek berjalan</div>
+    </div>
+    <div class="ex-card highlight">
+      <div class="ex-card-num">07</div>
+      <div class="ex-card-title">Auto-Repair Stuck</div>
+      <div class="ex-card-desc">PASS 1+2 fix proyek stuck intermediate stage</div>
+    </div>
+    <div class="ex-card">
+      <div class="ex-card-num">08</div>
+      <div class="ex-card-title">Force Complete</div>
+      <div class="ex-card-desc">Super Admin override emergency; ter-log</div>
+    </div>
+    <div class="ex-card">
+      <div class="ex-card-num">09</div>
+      <div class="ex-card-title">Impersonate Debug</div>
+      <div class="ex-card-desc">Login sebagai user lain untuk troubleshooting</div>
+    </div>
+    <div class="ex-card">
+      <div class="ex-card-num">10</div>
+      <div class="ex-card-title">Review + Revisi</div>
+      <div class="ex-card-desc">Tolak → reset Tahap 2 + revisionCount tracking</div>
+    </div>
+    <div class="ex-card">
+      <div class="ex-card-num">11</div>
+      <div class="ex-card-title">Mode Override</div>
+      <div class="ex-card-desc">Super Admin & Manager full access semua folder</div>
+    </div>
+    <div class="ex-card">
+      <div class="ex-card-num">12</div>
+      <div class="ex-card-title">Maintenance Mode</div>
+      <div class="ex-card-desc">Branded UI, admin escape-hatch</div>
+    </div>
+    <div class="ex-card">
+      <div class="ex-card-num">13</div>
+      <div class="ex-card-title">Inventory Management</div>
+      <div class="ex-card-desc">CRUD + loan workflow + webcam + rekap Excel/PDF</div>
+    </div>
+    <div class="ex-card">
+      <div class="ex-card-num">14</div>
+      <div class="ex-card-title">Program Kegiatan</div>
+      <div class="ex-card-desc">Logging kegiatan terpisah, dokumentasi Drive auto</div>
+    </div>
+    <div class="ex-card highlight">
+      <div class="ex-card-num">15</div>
+      <div class="ex-card-title">Worker Optimization</div>
+      <div class="ex-card-desc">Bundle 500KB (vs 5MB), startup 26ms, no polling</div>
+    </div>
+  </div>
+
+  <div class="eksekusi-footer">
+    <div class="eksekusi-footer-stat">
+      <div class="ef-num">793</div>
+      <div class="ef-label">Task Dieksekusi</div>
+    </div>
+    <div class="eksekusi-footer-stat">
+      <div class="ef-num">1,361</div>
+      <div class="ef-label">Notifikasi Terkirim</div>
+    </div>
+    <div class="eksekusi-footer-stat">
+      <div class="ef-num">10+</div>
+      <div class="ef-label">Stuck Auto-Repaired</div>
+    </div>
+    <div class="eksekusi-footer-stat">
+      <div class="ef-num">0</div>
+      <div class="ef-label">Task Pending Permanen</div>
+    </div>
+  </div>
+</div>
+
+<!-- ====================== SLIDE 7 — PENGUKURAN (15%) + 4 TUJUAN ====================== -->
+<div class="page content-slide">
+  <div class="slide-header">
+    <div class="slide-title-group">
+      <div class="slide-eyebrow">Indikator 6 dari 6 — Penutup</div>
+      <h2 class="slide-title">Pengukuran &amp; 4 Tujuan Ekosistem Terpenuhi</h2>
+    </div>
+    <div>
+      <div class="slide-weight">15%</div>
+      <div class="slide-weight-label">BOBOT</div>
+    </div>
+  </div>
+
+  <div class="pengukuran-content">
+    <div class="pengukuran-left">
+      <h3>5-Section Dashboard Statistik Evaluasi</h3>
+      <div class="pengukuran-sections">
+        <div class="pm-section">
+          <div class="pm-section-title">Per User</div>
+          <div class="pm-section-features">Completion, revisions, duration (active)</div>
+        </div>
+        <div class="pm-section">
+          <div class="pm-section-title">Per Tahap</div>
+          <div class="pm-section-features">Avg hours/days, completion rate</div>
+        </div>
+        <div class="pm-section">
+          <div class="pm-section-title">Per Role</div>
+          <div class="pm-section-features">Unique users, completion, revisions</div>
+        </div>
+        <div class="pm-section">
+          <div class="pm-section-title">Tim</div>
+          <div class="pm-section-features">Stuck >7 hari, fastTrack rate, team size</div>
+        </div>
+        <div class="pm-section">
+          <div class="pm-section-title">Workflow</div>
+          <div class="pm-section-features">Stage & activity distribution</div>
+        </div>
+      </div>
+
+      <div class="pm-innovation">
+        <div class="pm-innovation-title">✓ Active Duration Calculation (Inovasi)</div>
+        <div class="pm-innovation-desc">Tahap 1 dari executionTime, Tahap 2+ dari MAX updatedAt task selesai tahap sebelumnya — adil per tahap, bukan wall-clock. Belum ada di workflow tool lain.</div>
+      </div>
+
+      <div class="pm-reports">
+        <div class="pm-reports-title">Laporan Kegiatan Auto-Generate saat Tahap 5</div>
+        <div class="pm-reports-desc">PDF branded + Excel multi-sheet, per-user staggered download. Self-service laporan semua role (Manager tidak jadi bottleneck).</div>
+      </div>
+    </div>
+
+    <div class="pengukuran-right">
+      <h3>4 Tujuan Ekosistem Terpenuhi</h3>
+      <div class="tujuan-grid">
+        <div class="tujuan-card inovatif">
+          <div class="tujuan-icon">💡</div>
+          <div class="tujuan-title">INOVATIF</div>
+          <div class="tujuan-desc">3 mode produksi, intra-stage dependency, 3 WA provider, public tracker 11 grid, LIHUM 1-click, active duration</div>
+        </div>
+        <div class="tujuan-card efektif">
+          <div class="tujuan-icon">⚡</div>
+          <div class="tujuan-title">EFEKTIF</div>
+          <div class="tujuan-desc">149 proyek tracked, 793 task, 529 surat tugas, 1.361 notif, 0 stuck permanen, Worker 26ms</div>
+        </div>
+        <div class="tujuan-card transparan">
+          <div class="tujuan-icon">🔍</div>
+          <div class="tujuan-title">TRANSPARAN</div>
+          <div class="tujuan-desc">Public Tracker no-auth, LIHUM gallery publik, audit trail lengkap, statistik stuck rate, maintenance mode</div>
+        </div>
+        <div class="tujuan-card partisipatif">
+          <div class="tujuan-icon">🤝</div>
+          <div class="tujuan-title">PARTISIPATIF</div>
+          <div class="tujuan-desc">15 role kontribusi, Reviewer opt-in auto-approve, self-service laporan, Relasi public form, 3 WA budget tiers</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="pengukuran-final">
+      <div class="pf-text">Total Bobot Terpenuhi: 6/6 Indikator — 100%</div>
+      <div class="pf-stats">
+        <div class="pf-stat">
+          <div class="pf-stat-num">6/6</div>
+          <div class="pf-stat-label">Indikator</div>
+        </div>
+        <div class="pf-stat">
+          <div class="pf-stat-num">100%</div>
+          <div class="pf-stat-label">Bobot</div>
+        </div>
+        <div class="pf-stat">
+          <div class="pf-stat-num">4/4</div>
+          <div class="pf-stat-label">Tujuan</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+</body>
+</html>
