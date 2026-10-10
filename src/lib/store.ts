@@ -26,8 +26,13 @@ export const ROLE_DISPLAY_NAMES: Record<string, string> = {
   'Administrator': 'Administrator',
   'Manager': 'Manager',
   'Reporter': 'Reporter',
+  // NOTE: 'ContentCreator' was merged INTO 'PhotographerVideographerAudio'
+  // (display name updated to include "Content Creator"). The ContentCreator
+  // entry is kept here ONLY so any legacy rows that haven't been migrated
+  // by db-sync yet still display with a sensible label. db-sync Version 13
+  // renames all ContentCreator DB rows → PhotographerVideographerAudio.
   'ContentCreator': 'Content Creator',
-  'PhotographerVideographerAudio': 'Photographer, Videographer, dan Audio',
+  'PhotographerVideographerAudio': 'Photographer, Videographer, Content Creator, dan Audio',
   'EditorVideo': 'Editor (Video)',
   'EditorWebArticle': 'Editor (Web Article/Author)',
   'EditorFoto': 'Editor (Foto)',
@@ -327,6 +332,7 @@ export type ViewType =
   | 'kegiatan'
   | 'inventory'
   | 'relasi'
+  | 'statistik'
 
 export interface DialogState {
   isOpen: boolean
@@ -346,16 +352,24 @@ export const STAGES: Record<number, string> = {
 }
 
 export const ROLES: Role[] = [
-  'Admin', 'Administrator', 'Manager', 'Reporter', 'ContentCreator', 'PhotographerVideographerAudio',
+  // NOTE: 'ContentCreator' was merged INTO 'PhotographerVideographerAudio'
+  // (display name: "Photographer, Videographer, Content Creator, dan Audio").
+  // It is intentionally NOT in this array so it won't appear as a separate
+  // selectable role for new project assignments. Existing ContentCreator rows
+  // in the DB are auto-migrated to PhotographerVideographerAudio by db-sync.
+  'Admin', 'Administrator', 'Manager', 'Reporter', 'PhotographerVideographerAudio',
   'EditorVideo', 'EditorWebArticle', 'EditorFoto', 'EditorTemplateSosialMedia', 'GraphicDesigner',
   'StreamingOperator', 'PodcastOperator', 'Reviewer', 'PublisherWeb', 'PublisherSocialMedia'
 ]
 
 export const ROLE_CONFIG: Record<string, { stage: number; type: string; icon: string }> = {
   'Reporter': { stage: 1, type: 'upload', icon: 'FileText' },
-  'ContentCreator': { stage: 1, type: 'upload', icon: 'PenTool' },
   'PhotographerVideographerAudio': { stage: 1, type: 'upload', icon: 'FileImage' },
   'GraphicDesigner': { stage: 1, type: 'upload', icon: 'FileImage' },
+  // NOTE: 'ContentCreator' was merged INTO 'PhotographerVideographerAudio'.
+  // It is intentionally NOT in ROLE_CONFIG so it doesn't show as a separate
+  // role card in the create-project view. Any legacy ContentCreator rows in
+  // the DB are auto-migrated to PhotographerVideographerAudio by db-sync.
   
   'EditorVideo': { stage: 2, type: 'download_upload', icon: 'FileVideo' },
   'EditorWebArticle': { stage: 2, type: 'download_upload', icon: 'FileText' },
@@ -424,7 +438,7 @@ export function getStage2Dependency(
 }
 
 export const FOLDER_OPTIONS = [
-  { id: 'raw', title: '1. FOLDER', name: 'PRODUKSI (Berkas Mentah)', desc: 'Untuk upload mentahan: Reporter, Fotografer, Videografer, Desain Grafis. Untuk upload Petugas Tahap 1.', color: 'text-stone-600', bg: 'bg-stone-100', border: 'border-stone-200', accessHint: 'T1: UL | T2: DL' },
+  { id: 'raw', title: '1. FOLDER', name: 'PRODUKSI (Berkas Mentah)', desc: 'Untuk upload mentahan: Reporter, Photographer, Videographer, Content Creator, Audio, Desain Grafis. Untuk upload Petugas Tahap 1.', color: 'text-stone-600', bg: 'bg-stone-100', border: 'border-stone-200', accessHint: 'T1: UL | T2: DL' },
   { id: 'revised', title: '2. FOLDER', name: 'PASCA PRODUKSI (Draft & Editing)', desc: 'Untuk Editor, Reviewer, dan Publisher. Direview oleh QC.', color: 'text-orange-600', bg: 'bg-orange-50', border: 'border-orange-200', accessHint: 'T2: UL | T3: DL+UL | T4: DL+UL | T5: DL' },
   { id: 'public', title: '3. FOLDER', name: 'PUBLIC/UMUM (Untuk Dibagi)', desc: 'Foto/file yang sudah dipilih untuk dibagikan ke publik atau pihak eksternal. Petugas Tahap 1 dapat filter lebih awal foto mana yang boleh dibagikan.', color: 'text-green-600', bg: 'bg-green-50', border: 'border-green-200', accessHint: 'T1: UL' },
   { id: 'private', title: '4. FOLDER', name: 'PRIVATE/RAHASIA (Tidak untuk Dibagi)', desc: 'Foto/file yang TIDAK boleh dibagikan ke publik. Petugas Tahap 1 dapat filter lebih awal foto mana yang harus tetap rahasia.', color: 'text-red-600', bg: 'bg-red-50', border: 'border-red-200', accessHint: 'T1: UL' },

@@ -21,7 +21,7 @@ import {
 
 // Notification-related columns on the settings table (single row, id='main').
 const NOTIF_SETTINGS_COLUMNS = `id, notifWaEnabled, notifWaToken, notifWaDeviceId,
-  notifWaSenderNumber, notifEmailEnabled, notifEmailHost, notifEmailPort,
+  notifWaSenderNumber, waProvider, notifEmailEnabled, notifEmailHost, notifEmailPort,
   notifEmailUser, notifEmailPass, notifEmailFromName, updatedAt`
 
 /** Boolean columns among notification settings (Prisma Boolean → SQLite 0/1). */
@@ -45,12 +45,17 @@ function formatNotifSettingsResponse(row: Record<string, unknown>) {
     row.notifEmailPass === null || row.notifEmailPass === undefined ? null : String(row.notifEmailPass)
   const notifEmailPort =
     row.notifEmailPort === null || row.notifEmailPort === undefined ? null : Number(row.notifEmailPort)
+  const waProvider =
+    row.waProvider === null || row.waProvider === undefined || row.waProvider === ''
+      ? 'fonnte'
+      : String(row.waProvider)
   return {
     notifWaEnabled: toBool(row.notifWaEnabled),
     hasNotifWaToken: !!notifWaToken,
     notifWaTokenMasked: maskSecret(notifWaToken),
     notifWaDeviceId: row.notifWaDeviceId === null || row.notifWaDeviceId === undefined ? '' : String(row.notifWaDeviceId),
     notifWaSenderNumber: row.notifWaSenderNumber === null || row.notifWaSenderNumber === undefined ? '' : String(row.notifWaSenderNumber),
+    waProvider,
     notifEmailEnabled: toBool(row.notifEmailEnabled),
     hasNotifEmailPass: !!notifEmailPass,
     notifEmailPassMasked: maskSecret(notifEmailPass),
@@ -124,6 +129,11 @@ export async function PUT(request: NextRequest) {
     if (body.notifWaToken !== undefined) updateData.notifWaToken = body.notifWaToken || null
     if (body.notifWaDeviceId !== undefined) updateData.notifWaDeviceId = body.notifWaDeviceId || null
     if (body.notifWaSenderNumber !== undefined) updateData.notifWaSenderNumber = body.notifWaSenderNumber || null
+    if (body.waProvider !== undefined) {
+      // Only accept known providers; default to 'fonnte' otherwise.
+      const p = String(body.waProvider)
+      updateData.waProvider = (p === 'callmebot' || p === 'fonnte' || p === 'ultramsg') ? p : 'fonnte'
+    }
     if (typeof body.notifEmailEnabled === 'boolean') updateData.notifEmailEnabled = body.notifEmailEnabled
     if (body.notifEmailHost !== undefined) updateData.notifEmailHost = body.notifEmailHost || null
     if (body.notifEmailPort !== undefined) updateData.notifEmailPort = body.notifEmailPort ? parseInt(body.notifEmailPort, 10) : null
@@ -236,6 +246,9 @@ export async function POST(request: NextRequest) {
       notifWaToken: notifWaToken,
       notifWaDeviceId: notifWaDeviceId,
       notifWaSenderNumber: notifWaSenderNumber,
+      waProvider: (settings.waProvider === null || settings.waProvider === undefined || settings.waProvider === '')
+        ? 'fonnte'
+        : String(settings.waProvider),
       notifEmailEnabled: toBool(settings.notifEmailEnabled),
       notifEmailHost: notifEmailHost,
       notifEmailPort: notifEmailPort,

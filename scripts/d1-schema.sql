@@ -123,6 +123,7 @@ CREATE TABLE "settings" (
     "notifWaToken" TEXT,
     "notifWaDeviceId" TEXT,
     "notifWaSenderNumber" TEXT,
+    "waProvider" TEXT,
     "notifEmailEnabled" BOOLEAN NOT NULL DEFAULT false,
     "notifEmailHost" TEXT,
     "notifEmailPort" INTEGER,

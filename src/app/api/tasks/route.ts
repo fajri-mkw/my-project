@@ -180,7 +180,7 @@ export async function PUT(request: NextRequest) {
 
           // Send WA/Email
           const settingsRes = await client.execute({
-            sql: `SELECT notifWaEnabled, notifWaToken, notifWaDeviceId, notifWaSenderNumber,
+            sql: `SELECT notifWaEnabled, notifWaToken, notifWaDeviceId, notifWaSenderNumber, waProvider,
                          notifEmailEnabled, notifEmailHost, notifEmailPort, notifEmailUser,
                          notifEmailPass, notifEmailFromName FROM settings WHERE id = 'main' LIMIT 1`,
             args: [],
@@ -200,6 +200,7 @@ export async function PUT(request: NextRequest) {
                 notifWaToken: s.notifWaToken as string | null,
                 notifWaDeviceId: s.notifWaDeviceId as string | null,
                 notifWaSenderNumber: s.notifWaSenderNumber as string | null,
+                waProvider: (s.waProvider as string | null) ?? null,
                 notifEmailEnabled: toBool(s.notifEmailEnabled),
                 notifEmailHost: s.notifEmailHost as string | null,
                 notifEmailPort: s.notifEmailPort ? Number(s.notifEmailPort) : null,
@@ -618,7 +619,7 @@ export async function PUT(request: NextRequest) {
             // Send WA/Email
             if (nextStageUserIds.length > 0) {
               const settingsRes = await client.execute({
-                sql: `SELECT notifWaEnabled, notifWaToken, notifWaDeviceId, notifWaSenderNumber,
+                sql: `SELECT notifWaEnabled, notifWaToken, notifWaDeviceId, notifWaSenderNumber, waProvider,
                              notifEmailEnabled, notifEmailHost, notifEmailPort, notifEmailUser,
                              notifEmailPass, notifEmailFromName FROM settings WHERE id = 'main' LIMIT 1`,
                 args: [],
@@ -638,6 +639,7 @@ export async function PUT(request: NextRequest) {
                     notifWaToken: s.notifWaToken as string | null,
                     notifWaDeviceId: s.notifWaDeviceId as string | null,
                     notifWaSenderNumber: s.notifWaSenderNumber as string | null,
+                    waProvider: (s.waProvider as string | null) ?? null,
                     notifEmailEnabled: toBool(s.notifEmailEnabled),
                     notifEmailHost: s.notifEmailHost as string | null,
                     notifEmailPort: s.notifEmailPort ? Number(s.notifEmailPort) : null,

@@ -29,6 +29,7 @@ const SuratManagementView = dynamic(() => import('@/components/pushakin/surat-ma
 const ProgramKegiatanView = dynamic(() => import('@/components/pushakin/program-kegiatan-view').then(m => ({ default: m.ProgramKegiatanView })), { ssr: false })
 const PublicTrackerView = dynamic(() => import('@/components/pushakin/public-tracker-view').then(m => ({ default: m.PublicTrackerView })), { ssr: false })
 const RelasiPublicView = dynamic(() => import('@/components/pushakin/relasi-public-view').then(m => ({ default: m.RelasiPublicView })), { ssr: false })
+const StatistikView = dynamic(() => import('@/components/pushakin/statistik-view').then(m => ({ default: m.StatistikView })), { ssr: false })
 
 function LoadingSpinner() {
   return (
@@ -202,7 +203,7 @@ function AppContent() {
   // (excludes 'login', 'create', 'project_detail' which are reached via in-app actions)
   const validUrlViews = [
     'dashboard', 'overview', 'surat', 'kegiatan', 'inbox',
-    'announcements', 'reports', 'profile', 'users', 'settings', 'relasi'
+    'announcements', 'reports', 'profile', 'users', 'settings', 'relasi', 'statistik'
   ] as const
 
   const [isLoading, setIsLoading] = useState(true)
@@ -664,6 +665,7 @@ function AppContent() {
       case 'settings': return <SettingsView />
       case 'inventory': return <InventoryManagementView />
       case 'relasi': return <RelasiManagementView />
+      case 'statistik': return <StatistikView />
       case 'announcements': return <AnnouncementView />
       case 'permohonan': return <PermohonanView />
       case 'surat': return <SuratManagementView />

@@ -28,7 +28,7 @@ import { db } from './db'
 import { getLibsql, bind } from './libsql-client'
 
 // Increment this when adding new migrations
-const SCHEMA_VERSION = 12
+const SCHEMA_VERSION = 14
 
 let syncPerformed = false
 let syncPromise: Promise<boolean> | null = null
@@ -160,6 +160,8 @@ async function syncSqlite(): Promise<void> {
     addSqliteColumnIfNotExists('users', 'notifEmailEnabled', 'BOOLEAN DEFAULT 1'),
     addSqliteColumnIfNotExists('tasks', 'revisionCount', 'INTEGER DEFAULT 0'),
     addSqliteColumnIfNotExists('users', 'autoApproveReview', 'BOOLEAN DEFAULT 0'),
+    // Version 14: WhatsApp provider column (fonnte | callmebot) for free WA option
+    addSqliteColumnIfNotExists('settings', 'waProvider', 'TEXT'),
   ])
 
   // Run role rename migrations in parallel per table
@@ -180,6 +182,20 @@ async function syncSqlite(): Promise<void> {
     renameSqliteRole('surat_tugas', 'role', 'VideographerAudio', 'PhotographerVideographerAudio'),
     renameSqliteRole('surat_tugas', 'role', 'EditorMedia', 'EditorVideo'),
     renameSqliteRole('surat_tugas', 'role', 'EditorWebSocialMedia', 'EditorWebArticle'),
+  ])
+
+  // === Version 13: Merge 'ContentCreator' INTO 'PhotographerVideographerAudio' ===
+  // User request: "tambahkan Content Creator ke Photographer, Videographer, Audio
+  // jadinya rol nya adalah Photographer, Videographer, Content Creator, dan Audio".
+  // The combined role's display name is updated in ROLE_DISPLAY_NAMES to reflect
+  // this. All existing ContentCreator rows in users / tasks / surat_tugas are
+  // renamed to PhotographerVideographerAudio so they continue to function under
+  // the merged role. ContentCreator is then removed from the ROLES array so it
+  // is no longer selectable for new project assignments.
+  await Promise.all([
+    renameSqliteRole('users', 'role', 'ContentCreator', 'PhotographerVideographerAudio'),
+    renameSqliteRole('tasks', 'role', 'ContentCreator', 'PhotographerVideographerAudio'),
+    renameSqliteRole('surat_tugas', 'role', 'ContentCreator', 'PhotographerVideographerAudio'),
   ])
 
   // Stage shift migrations — MUST be sequential (highest stage first to avoid conflicts)
@@ -495,6 +511,8 @@ async function syncPostgres(): Promise<void> {
     // Tasks table
     addPostgresColumnIfNotExists('tasks', 'revisionCount', 'INTEGER DEFAULT 0'),
     addPostgresColumnIfNotExists('users', 'autoApproveReview', 'BOOLEAN DEFAULT false'),
+    // Version 14: WhatsApp provider column (fonnte | callmebot) for free WA option
+    addPostgresColumnIfNotExists('settings', 'waProvider', 'TEXT'),
   ])
 
   // Run role rename migrations in parallel
@@ -514,6 +532,15 @@ async function syncPostgres(): Promise<void> {
     renamePostgresRole('surat_tugas', 'role', 'VideographerAudio', 'PhotographerVideographerAudio'),
     renamePostgresRole('surat_tugas', 'role', 'EditorMedia', 'EditorVideo'),
     renamePostgresRole('surat_tugas', 'role', 'EditorWebSocialMedia', 'EditorWebArticle'),
+  ])
+
+  // === Version 13: Merge 'ContentCreator' INTO 'PhotographerVideographerAudio' ===
+  // (See syncSqlite Version 13 for full context.) Renames all ContentCreator
+  // rows in users / tasks / surat_tugas to PhotographerVideographerAudio.
+  await Promise.all([
+    renamePostgresRole('users', 'role', 'ContentCreator', 'PhotographerVideographerAudio'),
+    renamePostgresRole('tasks', 'role', 'ContentCreator', 'PhotographerVideographerAudio'),
+    renamePostgresRole('surat_tugas', 'role', 'ContentCreator', 'PhotographerVideographerAudio'),
   ])
 
   // Stage shift migrations — sequential within table, parallel across tables

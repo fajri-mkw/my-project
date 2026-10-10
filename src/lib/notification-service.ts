@@ -50,6 +50,86 @@ export async function sendWhatsApp(phone: string, message: string, token: string
   }
 }
 
+// ---- WhatsApp via CallMeBot (FREE) ----
+// CallMeBot is a free WhatsApp API gateway. Each recipient must register
+// once with the bot (add the bot number to their WhatsApp contacts and send
+// "I allow callmebot to send me messages" to get an API key).
+// API docs: https://www.callmebot.com/blog/free-api-whatsapp-messages/
+//
+// Endpoint: GET https://api.callmebot.com/whatsapp.php?phone={phone}&text={text}&apikey={key}
+// The API key is the CallMeBot token (stored in settings.notifWaToken).
+// The phone must include country code, no '+', no spaces (e.g. "6281234567890").
+
+export async function sendWhatsAppCallMeBot(phone: string, message: string, apiKey: string): Promise<boolean> {
+  try {
+    // CallMeBot API uses GET with query params. URL-encode the message.
+    const url = `https://api.callmebot.com/whatsapp.php?phone=${encodeURIComponent(phone)}&text=${encodeURIComponent(message)}&apikey=${encodeURIComponent(apiKey)}`
+    const res = await fetch(url, { method: 'GET' })
+    const text = await res.text()
+    // CallMeBot returns plain text (not JSON). Success message contains "queued" or "Message sent"
+    if (!res.ok) {
+      console.error('CallMeBot WA error (HTTP ' + res.status + '):', text)
+      return false
+    }
+    // Check for error keywords in the response text
+    const lower = text.toLowerCase()
+    if (lower.includes('error') || lower.includes('invalid') || lower.includes('not authorized')) {
+      console.error('CallMeBot WA error (response):', text)
+      return false
+    }
+    return true
+  } catch (err) {
+    console.error('sendWhatsAppCallMeBot error:', err)
+    return false
+  }
+}
+
+// ---- WhatsApp via UltraMsg (FREE tier, admin registers once) ----
+// UltraMsg is a WhatsApp API gateway. Unlike CallMeBot, only the ADMIN needs
+// to register — they link their WhatsApp number once (scan QR), get an
+// instance_id + token, and can then send to ANY WhatsApp number without
+// requiring recipients to register. Free tier: ~50 messages/day (check
+// ultramsg.com for current limits).
+// API docs: https://docs.ultramsg.com/api/send-message
+//
+// Endpoint: POST https://api.ultramsg.com/{instance_id}/messages/chat
+// Body: { "token": "...", "to": "6281234567890", "body": "message" }
+//
+// Storage: settings.notifWaToken stores "instance_id:token" (combined).
+// settings.notifWaDeviceId is unused for UltraMsg.
+
+export async function sendWhatsAppUltraMsg(phone: string, message: string, credentials: string): Promise<boolean> {
+  try {
+    // credentials = "instance_id:token"
+    const parts = credentials.split(':')
+    if (parts.length < 2) {
+      console.error('UltraMsg credentials format invalid. Expected "instance_id:token"')
+      return false
+    }
+    const instanceId = parts[0]
+    const token = parts.slice(1).join(':')  // token may contain colons
+    const url = `https://api.ultramsg.com/${instanceId}/messages/chat`
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        token,
+        to: phone,
+        body: message,
+      }),
+    })
+    const data = await res.json().catch(() => ({}))
+    if (!res.ok || data.error || data.status === 'error') {
+      console.error('UltraMsg WA error:', data)
+      return false
+    }
+    return true
+  } catch (err) {
+    console.error('sendWhatsAppUltraMsg error:', err)
+    return false
+  }
+}
+
 // ---- Email via Nodemailer SMTP ----
 //
 // IMPORTANT: nodemailer is dynamically imported (not top-level imported)
@@ -100,6 +180,7 @@ interface NotifSettings {
   notifWaToken: string | null
   notifWaDeviceId: string | null
   notifWaSenderNumber: string | null
+  waProvider: string | null  // 'fonnte' (default) | 'callmebot' (free)
   notifEmailEnabled: boolean
   notifEmailHost: string | null
   notifEmailPort: number | null
@@ -116,7 +197,9 @@ export async function sendTaskNotification(
   message: string,
   settings: NotifSettings
 ): Promise<void> {
-  // WhatsApp
+  // WhatsApp — dispatch to the configured provider.
+  // Options: 'ultramsg' (free, admin registers once), 'callmebot' (free, each user registers),
+  //          'fonnte' (paid). When waProvider is null/unset, default to 'fonnte' for backward compat.
   if (
     settings.notifWaEnabled &&
     settings.notifWaToken &&
@@ -124,7 +207,18 @@ export async function sendTaskNotification(
     user.whatsapp
   ) {
     const waMessage = `*Pushakin Flows*\n\n${message}\n\n— ${title}`
-    await sendWhatsApp(user.whatsapp, waMessage, settings.notifWaToken)
+    const provider = settings.waProvider || 'fonnte'
+    const cleanPhone = user.whatsapp.replace(/[^\d]/g, '')
+    if (provider === 'ultramsg') {
+      // UltraMsg: admin registers once, sends to any number.
+      await sendWhatsAppUltraMsg(cleanPhone, waMessage, settings.notifWaToken)
+    } else if (provider === 'callmebot') {
+      // CallMeBot: each user must register with the bot individually.
+      await sendWhatsAppCallMeBot(cleanPhone, waMessage, settings.notifWaToken)
+    } else {
+      // Fonnte (default, paid)
+      await sendWhatsApp(user.whatsapp, waMessage, settings.notifWaToken)
+    }
   }
 
   // Email
@@ -209,12 +303,22 @@ export async function sendTestNotification(
   let waError: string | undefined
   let emailError: string | undefined
 
-  // Test WA
+  // Test WA — dispatch to the configured provider
   if (settings.notifWaEnabled && settings.notifWaToken) {
     const target = settings.notifWaSenderNumber || user.whatsapp
     if (target) {
-      waSuccess = await sendWhatsApp(target, testMessage, settings.notifWaToken)
-      if (!waSuccess) waError = 'Gagal mengirim WhatsApp. Periksa token dan nomor tujuan.'
+      const provider = settings.waProvider || 'fonnte'
+      const cleanPhone = target.replace(/[^\d]/g, '')
+      if (provider === 'ultramsg') {
+        waSuccess = await sendWhatsAppUltraMsg(cleanPhone, testMessage, settings.notifWaToken)
+        if (!waSuccess) waError = 'Gagal mengirim WhatsApp via UltraMsg. Periksa format "instance_id:token" dan pastikan nomor admin sudah scan QR di ultramsg.com.'
+      } else if (provider === 'callmebot') {
+        waSuccess = await sendWhatsAppCallMeBot(cleanPhone, testMessage, settings.notifWaToken)
+        if (!waSuccess) waError = 'Gagal mengirim WhatsApp via CallMeBot. Pastikan nomor tujuan sudah registrasi dengan bot CallMeBot dan API key benar.'
+      } else {
+        waSuccess = await sendWhatsApp(target, testMessage, settings.notifWaToken)
+        if (!waSuccess) waError = 'Gagal mengirim WhatsApp via Fonnte. Periksa token dan nomor tujuan.'
+      }
     } else {
       waError = 'Nomor WhatsApp tujuan belum diisi (Sender Number atau WhatsApp profil Anda kosong).'
     }

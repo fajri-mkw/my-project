@@ -179,6 +179,10 @@ model Settings {
   notifWaToken          String?
   notifWaDeviceId       String?
   notifWaSenderNumber   String?
+  // WhatsApp gateway provider: 'fonnte' (paid, default) | 'callmebot' (free).
+  // CallMeBot requires each recipient to register with the bot once and get
+  // an API key, but is completely free — see https://www.callmebot.com
+  waProvider            String?  // default 'fonnte' when null
   notifEmailEnabled     Boolean  @default(false)
   notifEmailHost        String?
   notifEmailPort        Int?

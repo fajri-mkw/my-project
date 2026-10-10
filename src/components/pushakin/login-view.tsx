@@ -34,6 +34,12 @@ const ROLE_CATEGORIES: Record<string, { label: string; roles: string[] }> = {
   },
   'produksi': {
     label: 'Produksi',
+    // NOTE: 'ContentCreator' was merged INTO 'PhotographerVideographerAudio'
+    // (whose display name is now "Photographer, Videographer, Content Creator,
+    // dan Audio"). ContentCreator is kept in this list for backward compat so
+    // any user rows that haven't been migrated by db-sync yet still appear in
+    // the correct category. After migration, all such users will have role
+    // 'PhotographerVideographerAudio'.
     roles: ['Reporter', 'ContentCreator', 'PhotographerVideographerAudio', 'GraphicDesigner']
   },
   'pasca-produksi': {

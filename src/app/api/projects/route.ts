@@ -26,8 +26,12 @@ const ROLE_DISPLAY_NAMES: Record<string, string> = {
   'Administrator': 'Administrator',
   'Manager': 'Manager',
   'Reporter': 'Reporter',
+  // NOTE: 'ContentCreator' was merged INTO 'PhotographerVideographerAudio'
+  // (display name updated to include "Content Creator"). The ContentCreator
+  // entry is kept here ONLY so any legacy rows that haven't been migrated
+  // by db-sync yet still display with a sensible label.
   'ContentCreator': 'Content Creator',
-  'PhotographerVideographerAudio': 'Photographer, Videographer, dan Audio',
+  'PhotographerVideographerAudio': 'Photographer, Videographer, Content Creator, dan Audio',
   'EditorVideo': 'Editor (Video)',
   'EditorWebArticle': 'Editor (Web Article/Author)',
   'EditorFoto': 'Editor (Foto)',
@@ -507,7 +511,7 @@ export async function POST(request: NextRequest) {
     // --- Send external notifications (WhatsApp/Email) — best-effort ---
     try {
       const settingsRes = await client.execute({
-        sql: `SELECT notifWaEnabled, notifWaToken, notifWaDeviceId, notifWaSenderNumber,
+        sql: `SELECT notifWaEnabled, notifWaToken, notifWaDeviceId, notifWaSenderNumber, waProvider,
                      notifEmailEnabled, notifEmailHost, notifEmailPort, notifEmailUser,
                      notifEmailPass, notifEmailFromName
               FROM settings WHERE id = 'main'`,
@@ -544,6 +548,7 @@ export async function POST(request: NextRequest) {
             notifWaToken: (s?.notifWaToken as string | null) ?? null,
             notifWaDeviceId: (s?.notifWaDeviceId as string | null) ?? null,
             notifWaSenderNumber: (s?.notifWaSenderNumber as string | null) ?? null,
+            waProvider: (s?.waProvider as string | null) ?? null,
             notifEmailEnabled: toBool(s?.notifEmailEnabled),
             notifEmailHost: (s?.notifEmailHost as string | null) ?? null,
             notifEmailPort: s?.notifEmailPort !== null && s?.notifEmailPort !== undefined

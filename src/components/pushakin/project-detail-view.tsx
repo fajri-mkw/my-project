@@ -515,7 +515,7 @@ Pushakin Flows — Sistem Manajemen Produksi`
 
           // 3) Map the new real folders to the driveFolder shape (mirrors create-project-view)
           const FOLDER_OPTION_MAP: Record<string, { color: string; bg: string; border: string; desc: string }> = {
-            raw: { color: 'text-stone-600', bg: 'bg-stone-100', border: 'border-stone-200', desc: 'Untuk upload mentahan: Reporter, Fotografer, Videografer, Desain Grafis.' },
+            raw: { color: 'text-stone-600', bg: 'bg-stone-100', border: 'border-stone-200', desc: 'Untuk upload mentahan: Reporter, Photographer, Videographer, Content Creator, Audio, Desain Grafis.' },
             revised: { color: 'text-orange-600', bg: 'bg-orange-50', border: 'border-orange-200', desc: 'Untuk Editor, Reviewer, dan Publisher. Direview oleh QC.' },
             desain: { color: 'text-blue-600', bg: 'bg-blue-50', border: 'border-blue-200', desc: 'Khusus untuk penyimpanan file project desain.' },
             lainnya: { color: 'text-purple-600', bg: 'bg-purple-50', border: 'border-purple-200', desc: 'Folder kustom tambahan.' },

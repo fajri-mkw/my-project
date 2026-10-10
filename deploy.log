@@ -1,99 +1,41 @@
-$ bash scripts/patch-libsql-cf.sh && prisma generate && bash scripts/patch-libsql-cf.sh && opennextjs-cloudflare build && wrangler2 deploy
-[patch-libsql] Starting patches...
-[patch-libsql] Found @libsql/client at: node_modules/@libsql/client
-[patch-libsql] Found @libsql/client at: node_modules/@prisma/adapter-libsql/node_modules/@libsql/client
-[patch-libsql] Found @libsql/isomorphic-ws at: node_modules/@libsql/isomorphic-ws
-[patch-libsql] Done.
-[patch-libsql] .prisma/client #main-entry-point → all → wasm.js
-[patch-libsql] .prisma/client/default.js → direct require wasm.js
-[patch-libsql] .prisma/client/index.js runtime → wasm-engine-edge.js
-[patch-libsql] node_modules/.prisma/client/index.js engineType → wasm
-[patch-libsql] node_modules/.prisma/client/wasm.js engineType → wasm
-[patch-libsql] Found node-fetch@? at: node_modules/node-fetch
-[patch-libsql]   ✓ lib/index.js → native fetch shim
-[patch-libsql]   ✓ lib/index.mjs → native fetch shim (ESM)
-[patch-libsql]   ✓ browser.js → native fetch shim
-[patch-libsql] Found node-fetch@? at: node_modules/@types/node-fetch
-[patch-libsql] Found node-fetch@? at: node_modules/gaxios/node_modules/node-fetch
-[patch-libsql] Found node-fetch@? at: node_modules/@prisma/adapter-libsql/node_modules/@libsql/client/node_modules/@libsql/hrana-client/node_modules/node-fetch
-[patch-libsql] Found https-proxy-agent at: node_modules/next/dist/compiled/https-proxy-agent
-[patch-libsql] Found https-proxy-agent at: node_modules/https-proxy-agent
-[patch-libsql]   ✓ dist/index.js → stub
-Environment variables loaded from .env
-Prisma schema loaded from prisma/schema.prisma
 
-✔ Generated Prisma Client (v6.19.2) to ./node_modules/@prisma/client in 159ms
+ ⛅️ wrangler 4.149.0
+────────────────────
+OpenNext project detected, calling `opennextjs-cloudflare deploy`
 
-Start by importing your Prisma Client (See: https://pris.ly/d/importing-client)
+┌──────────────────────────────┐
+│ OpenNext — Cloudflare deploy │
+└──────────────────────────────┘
 
-Tip: Need your database queries to be 1000x faster? Accelerate offers you that and more: https://pris.ly/tip-2-accelerate
+Incremental cache does not need populating
+Tag cache does not need populating
 
-[patch-libsql] Starting patches...
-[patch-libsql] Found @libsql/client at: node_modules/@libsql/client
-[patch-libsql] Found @libsql/client at: node_modules/@prisma/adapter-libsql/node_modules/@libsql/client
-[patch-libsql] Found @libsql/isomorphic-ws at: node_modules/@libsql/isomorphic-ws
-[patch-libsql] Done.
-[patch-libsql] .prisma/client #main-entry-point → all → wasm.js
-[patch-libsql] .prisma/client/default.js → direct require wasm.js
-[patch-libsql] .prisma/client/index.js runtime → wasm-engine-edge.js
-[patch-libsql] node_modules/.prisma/client/index.js engineType → wasm
-[patch-libsql] node_modules/.prisma/client/wasm.js engineType → wasm
-[patch-libsql] Found node-fetch@? at: node_modules/node-fetch
-[patch-libsql]   ✓ lib/index.js → native fetch shim
-[patch-libsql]   ✓ lib/index.mjs → native fetch shim (ESM)
-[patch-libsql]   ✓ browser.js → native fetch shim
-[patch-libsql] Found node-fetch@? at: node_modules/@types/node-fetch
-[patch-libsql] Found node-fetch@? at: node_modules/gaxios/node_modules/node-fetch
-[patch-libsql] Found node-fetch@? at: node_modules/@prisma/adapter-libsql/node_modules/@libsql/client/node_modules/@libsql/hrana-client/node_modules/node-fetch
-[patch-libsql] Found https-proxy-agent at: node_modules/next/dist/compiled/https-proxy-agent
-[patch-libsql] Found https-proxy-agent at: node_modules/https-proxy-agent
-[patch-libsql]   ✓ dist/index.js → stub
+ ⛅️ wrangler 4.149.0
+────────────────────
+🌀 Building list of assets...
+✨ Read 252 files from the assets directory /home/z/my-project/.open-next/assets
+🌀 Starting asset upload...
+🌀 Found 4 new or modified static assets to upload. Proceeding with upload...
++ /BUILD_ID
++ /_next/static/css/dc2009b5bb6f9b1c.css
++ /_next/static/chunks/webpack-5ae20667de212e07.js
++ /_next/static/chunks/6719.7480eed9ba43343a.js
+Uploaded 1 of 4 assets
+Uploaded 2 of 4 assets
+Uploaded 4 of 4 assets
+✨ Success! Uploaded 4 files (160 already uploaded) (1.63 sec)
 
-┌─────────────────────────────┐
-│ OpenNext — Cloudflare build │
-└─────────────────────────────┘
+Total Upload: 27427.06 KiB / gzip: 2880.28 KiB
+Worker Startup Time: 14 ms
+Your Worker has access to the following bindings:
+Binding                                          Resource                  
+env.DB (pushakin-db)                             D1 Database               
+env.ASSETS                                       Assets                    
+env.NEXT_PUBLIC_APP_NAME ("Pushakin Flows")      Environment Variable      
 
-App directory: /home/z/my-project
-Next.js version : 15.5.14
-@opennextjs/cloudflare version: 1.20.2
-@opennextjs/aws version: 4.1.0
-WARN workerd compatibility_date: 2024-09-23, consider updating your wrangler config to a more recent date to benefit from the latest features and fixes.
-
-┌─────────────────────────────────┐
-│ OpenNext — Building Next.js app │
-└─────────────────────────────────┘
-
-$ prisma generate && next build
-Environment variables loaded from .env
-Prisma schema loaded from prisma/schema.prisma
-
-✔ Generated Prisma Client (v6.19.2) to ./node_modules/@prisma/client in 176ms
-
-Start by importing your Prisma Client (See: https://pris.ly/d/importing-client)
-
-Tip: Interested in query caching in just a few lines of code? Try Accelerate today! https://pris.ly/tip-3-accelerate
-
-Attention: Next.js now collects completely anonymous telemetry regarding usage.
-This information is used to shape Next.js' roadmap and prioritize features.
-You can learn more, including how to opt-out if you'd not like to participate in this anonymous program, by visiting the following URL:
-https://nextjs.org/telemetry
-
-   ▲ Next.js 15.5.14
-   - Environments: .env
-
-   Creating an optimized production build ...
- ⚠ Compiled with warnings in 23.9s
-
-./src/lib/libsql-client.ts
-Critical dependency: require function is used in a way in which dependencies cannot be statically extracted
-
-Import trace for requested module:
-./src/lib/libsql-client.ts
-./src/app/api/drive/route.ts
-
- ✓ Compiled successfully in 32.2s
-   Skipping validation of types
-   Linting ...
- ⨯ ESLint: Invalid Options: - Unknown options: useEslintrc, extensions - 'extensions' has been removed.
-   Collecting page data ...
-   Generating static pages (0/55) ...
+Uploaded app (9.96 sec)
+Deployed app triggers (0.71 sec)
+  https://app.pushakin-flows.workers.dev
+Current Version ID: 49116155-2c60-47e3-b909-c01f13182935
+(node:18515) [DEP0190] DeprecationWarning: Passing args to a child process with shell option true can lead to security vulnerabilities, as the arguments are not escaped, only concatenated.
+(Use `node --trace-deprecation ...` to show where the warning was created)

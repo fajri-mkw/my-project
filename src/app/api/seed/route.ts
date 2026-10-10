@@ -3,7 +3,10 @@ import { NextResponse } from 'next/server'
 import bcrypt from 'bcryptjs'
 
 const ROLES: string[] = [
-  'Admin', 'Administrator', 'Manager', 'Reporter', 'ContentCreator', 'PhotographerVideographerAudio',
+  // NOTE: 'ContentCreator' was merged INTO 'PhotographerVideographerAudio'
+  // (display name: "Photographer, Videographer, Content Creator, dan Audio").
+  // It is intentionally NOT seeded as a separate demo user.
+  'Admin', 'Administrator', 'Manager', 'Reporter', 'PhotographerVideographerAudio',
   'EditorVideo', 'EditorWebArticle', 'EditorFoto', 'EditorTemplateSosialMedia', 'GraphicDesigner',
   'StreamingOperator', 'PodcastOperator', 'Reviewer', 'PublisherWeb', 'PublisherSocialMedia'
 ]
@@ -14,7 +17,7 @@ const ROLE_DISPLAY_NAMES: Record<string, string> = {
   'Manager': 'Manager',
   'Reporter': 'Reporter',
   'ContentCreator': 'Content Creator',
-  'PhotographerVideographerAudio': 'Photographer, Videographer, dan Audio',
+  'PhotographerVideographerAudio': 'Photographer, Videographer, Content Creator, dan Audio',
   'EditorVideo': 'Editor (Video)',
   'EditorWebArticle': 'Editor (Web Article/Author)',
   'EditorFoto': 'Editor (Foto)',

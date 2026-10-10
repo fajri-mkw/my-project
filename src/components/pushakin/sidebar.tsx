@@ -9,6 +9,7 @@ import {
   LogOut,
   PlayCircle,
   BarChart2,
+  BarChart3,
   FileText,
   LayoutDashboard,
   Settings,
@@ -141,6 +142,7 @@ export function Sidebar({ isOpen = false, onNavigate, onClose }: SidebarProps) {
     { id: 'profile', label: 'Profil Saya', icon: UserCircle },
     ...(['Admin', 'Administrator', 'Manager'].includes(currentUser?.role || '') ? [{ id: 'inventory', label: 'Manajemen Inventaris', icon: Package }] : []),
     ...(['Admin', 'Manager', 'PublisherWeb', 'PublisherSocialMedia'].includes(currentUser?.role || '') ? [{ id: 'relasi', label: 'Manajemen Relasi', icon: Users }] : []),
+    ...(['Admin', 'Manager'].includes(currentUser?.role || '') ? [{ id: 'statistik', label: 'Statistik Evaluasi', icon: BarChart3 }] : []),
     ...(canManageUsers ? [{ id: 'users', label: 'Manajemen User', icon: Users }] : []),
     ...(canManageUsers || showReviewerSettings ? [{ id: 'settings', label: 'Pengaturan', icon: Settings }] : []),
   ]
@@ -159,7 +161,7 @@ export function Sidebar({ isOpen = false, onNavigate, onClose }: SidebarProps) {
       return // browser will follow the href naturally
     }
     e.preventDefault()
-    setActiveView(viewId as 'dashboard' | 'overview' | 'reports' | 'profile' | 'users' | 'settings' | 'inbox' | 'announcements' | 'permohonan' | 'surat' | 'kegiatan' | 'inventory' | 'relasi')
+    setActiveView(viewId as 'dashboard' | 'overview' | 'reports' | 'profile' | 'users' | 'settings' | 'inbox' | 'announcements' | 'permohonan' | 'surat' | 'kegiatan' | 'inventory' | 'relasi' | 'statistik')
     // Keep URL in sync (so address bar reflects current view)
     router.push(viewUrl(viewId), { scroll: false })
     onNavigate?.(viewId)

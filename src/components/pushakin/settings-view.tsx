@@ -88,6 +88,7 @@ export function SettingsView() {
     notifWaTokenMasked: '',
     notifWaDeviceId: '',
     notifWaSenderNumber: '',
+    waProvider: 'fonnte' as 'fonnte' | 'callmebot' | 'ultramsg',
     notifEmailEnabled: false,
     hasNotifEmailPass: false,
     notifEmailPassMasked: '',
@@ -154,6 +155,7 @@ export function SettingsView() {
             notifWaTokenMasked: notifData.notifWaTokenMasked || '',
             notifWaDeviceId: notifData.notifWaDeviceId || '',
             notifWaSenderNumber: notifData.notifWaSenderNumber || '',
+            waProvider: (notifData.waProvider === 'callmebot' ? 'callmebot' : notifData.waProvider === 'ultramsg' ? 'ultramsg' : 'fonnte'),
             notifEmailEnabled: notifData.notifEmailEnabled || false,
             hasNotifEmailPass: notifData.hasNotifEmailPass || false,
             notifEmailPassMasked: notifData.notifEmailPassMasked || '',
@@ -663,7 +665,13 @@ export function SettingsView() {
                 <MessageCircle className="w-5 h-5 text-green-600" />
                 <div>
                   <Label className="text-base font-semibold text-green-900">WhatsApp</Label>
-                  <p className="text-sm text-stone-500">Notifikasi via Fonnte API</p>
+                  <p className="text-sm text-stone-500">
+                    Notifikasi via {
+                      notifSettings.waProvider === 'ultramsg' ? 'UltraMsg (GRATIS, admin daftar sekali)' :
+                      notifSettings.waProvider === 'callmebot' ? 'CallMeBot (GRATIS, tiap user daftar)' :
+                      'Fonnte API (berbayar)'
+                    }
+                  </p>
                 </div>
               </div>
               <Switch
@@ -676,8 +684,125 @@ export function SettingsView() {
 
             {notifSettings.notifWaEnabled && (
               <div className="space-y-3">
+                {/* Provider selector */}
                 <div className="space-y-2">
-                  <Label htmlFor="notifWaToken">API Token Fonnte</Label>
+                  <Label>Provider WhatsApp</Label>
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                    {/* UltraMsg — RECOMMENDED FREE */}
+                    <button
+                      type="button"
+                      onClick={() => setNotifSettings(prev => ({ ...prev, waProvider: 'ultramsg' }))}
+                      className={cn(
+                        "p-3 rounded-lg border-2 text-left transition-all",
+                        notifSettings.waProvider === 'ultramsg'
+                          ? "bg-emerald-50 border-emerald-400 ring-2 ring-emerald-200"
+                          : "bg-white border-stone-200 hover:border-stone-300"
+                      )}
+                    >
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <span className="text-xs font-bold px-2 py-0.5 rounded bg-emerald-100 text-emerald-700">GRATIS</span>
+                        <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-rose-100 text-rose-700">REKOMENDASI</span>
+                        <span className="text-sm font-semibold text-stone-800">UltraMsg</span>
+                      </div>
+                      <p className="text-xs text-stone-500 mt-1">Admin daftar sekali, kirim ke siapa saja</p>
+                    </button>
+                    {/* CallMeBot */}
+                    <button
+                      type="button"
+                      onClick={() => setNotifSettings(prev => ({ ...prev, waProvider: 'callmebot' }))}
+                      className={cn(
+                        "p-3 rounded-lg border-2 text-left transition-all",
+                        notifSettings.waProvider === 'callmebot'
+                          ? "bg-sky-50 border-sky-400 ring-2 ring-sky-200"
+                          : "bg-white border-stone-200 hover:border-stone-300"
+                      )}
+                    >
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs font-bold px-2 py-0.5 rounded bg-emerald-100 text-emerald-700">GRATIS</span>
+                        <span className="text-sm font-semibold text-stone-800">CallMeBot</span>
+                      </div>
+                      <p className="text-xs text-stone-500 mt-1">Gratis, tapi tiap user harus daftar</p>
+                    </button>
+                    {/* Fonnte */}
+                    <button
+                      type="button"
+                      onClick={() => setNotifSettings(prev => ({ ...prev, waProvider: 'fonnte' }))}
+                      className={cn(
+                        "p-3 rounded-lg border-2 text-left transition-all",
+                        notifSettings.waProvider === 'fonnte'
+                          ? "bg-amber-50 border-amber-400 ring-2 ring-amber-200"
+                          : "bg-white border-stone-200 hover:border-stone-300"
+                      )}
+                    >
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs font-bold px-2 py-0.5 rounded bg-amber-100 text-amber-700">BERBAYAR</span>
+                        <span className="text-sm font-semibold text-stone-800">Fonnte</span>
+                      </div>
+                      <p className="text-xs text-stone-500 mt-1">Berbayar, kirim massal</p>
+                    </button>
+                  </div>
+                </div>
+
+                {/* UltraMsg instructions */}
+                {notifSettings.waProvider === 'ultramsg' && (
+                  <div className="space-y-3 p-3 bg-emerald-50 border border-emerald-200 rounded-lg">
+                    <div className="flex items-start gap-2">
+                      <AlertCircle className="w-4 h-4 text-emerald-600 flex-shrink-0 mt-0.5" />
+                      <div className="text-xs text-emerald-800 space-y-2">
+                        <p className="font-semibold">Cara Setup UltraMsg (GRATIS, admin daftar sekali):</p>
+                        <ol className="list-decimal list-inside space-y-1">
+                          <li>Buka <a href="https://ultramsg.com" target="_blank" rel="noopener noreferrer" className="underline font-semibold">ultramsg.com</a> → daftar akun gratis</li>
+                          <li>Buat instance baru, lalu scan QR code dengan WhatsApp Anda (nomor admin)</li>
+                          <li>Setelah scan, instance status jadi "authenticated"</li>
+                          <li>Copy <b>Instance ID</b> dan <b>Token</b> dari dashboard UltraMsg</li>
+                          <li>Paste ke field di bawah dengan format: <code className="bg-emerald-100 px-1 rounded">instance_id:token</code> (contoh: <code className="bg-emerald-100 px-1 rounded">instance123:abc123xyz</code>)</li>
+                          <li>Pastikan nomor WA user di profil sudah format internasional (contoh: 6281234567890)</li>
+                        </ol>
+                        <p className="text-emerald-700 font-semibold">✓ User penerima TIDAK perlu daftar — pesan terkirim ke nomor WA mereka langsung.</p>
+                        <p className="text-emerald-700">Limit gratis: ~50 pesan/hari. Cukup untuk notifikasi tim harian.</p>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* CallMeBot instructions */}
+                {notifSettings.waProvider === 'callmebot' && (
+                  <div className="space-y-3 p-3 bg-sky-50 border border-sky-200 rounded-lg">
+                    <div className="flex items-start gap-2">
+                      <AlertCircle className="w-4 h-4 text-sky-600 flex-shrink-0 mt-0.5" />
+                      <div className="text-xs text-sky-800 space-y-2">
+                        <p className="font-semibold">Cara Setup CallMeBot (GRATIS, tiap user daftar):</p>
+                        <ol className="list-decimal list-inside space-y-1">
+                          <li>Buka WhatsApp, tambahkan kontak bot CallMeBot (lihat nomor di <a href="https://www.callmebot.com/blog/free-api-whatsapp-messages/" target="_blank" rel="noopener noreferrer" className="underline font-semibold">callmebot.com</a>)</li>
+                          <li>Kirim pesan ke bot: <code className="bg-sky-100 px-1 rounded">I allow callmebot to send me messages</code></li>
+                          <li>Bot akan balas dengan API Key — copy key tersebut</li>
+                          <li>Paste API Key ke field di bawah</li>
+                          <li>Setiap user penerima juga harus daftar dengan cara yang sama (pakai nomor WA masing-masing)</li>
+                          <li>Pastikan nomor WA user di profil sudah format internasional (contoh: 6281234567890)</li>
+                        </ol>
+                        <p className="text-rose-700 font-semibold">⚠ Tiap user penerima WAJIB daftar sendiri ke bot — ini kekurangan utama CallMeBot.</p>
+                        <p className="text-sky-700">Limit: ~60 pesan/jam per API key.</p>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Fonnte instructions */}
+                {notifSettings.waProvider === 'fonnte' && (
+                  <div className="flex items-start gap-2 p-3 bg-green-100 rounded-lg text-sm text-green-800">
+                    <ExternalLink className="w-4 h-4 flex-shrink-0 mt-0.5" />
+                    <span>Dapatkan token berbayar di <a href="https://fonnte.com" target="_blank" rel="noopener noreferrer" className="underline font-semibold">fonnte.com</a></span>
+                  </div>
+                )}
+
+                <div className="space-y-2">
+                  <Label htmlFor="notifWaToken">
+                    {notifSettings.waProvider === 'ultramsg'
+                      ? 'Instance ID:Token (UltraMsg)'
+                      : notifSettings.waProvider === 'callmebot'
+                        ? 'API Key CallMeBot'
+                        : 'API Token Fonnte'}
+                  </Label>
                   <div className="relative">
                     <Input
                       id="notifWaToken"
@@ -686,7 +811,11 @@ export function SettingsView() {
                       onChange={(e) => setNotifWaToken(e.target.value)}
                       placeholder={notifSettings.hasNotifWaToken
                         ? `Token tersimpan: ${notifSettings.notifWaTokenMasked}`
-                        : 'Masukkan API token Fonnte'
+                        : notifSettings.waProvider === 'ultramsg'
+                          ? 'instance_id:token (contoh: instance123:abc123xyz)'
+                          : notifSettings.waProvider === 'callmebot'
+                            ? 'Masukkan API Key dari CallMeBot'
+                            : 'Masukkan API token Fonnte'
                       }
                       className="pr-10"
                     />
@@ -700,17 +829,20 @@ export function SettingsView() {
                   </div>
                 </div>
 
-                <div className="space-y-2">
-                  <Label htmlFor="notifWaDeviceId">Device ID (Opsional)</Label>
-                  <Input
-                    id="notifWaDeviceId"
-                    value={notifSettings.notifWaDeviceId}
-                    onChange={(e) =>
-                      setNotifSettings(prev => ({ ...prev, notifWaDeviceId: e.target.value }))
-                    }
-                    placeholder="Fonnte device ID"
-                  />
-                </div>
+                {/* Device ID only for Fonnte */}
+                {notifSettings.waProvider === 'fonnte' && (
+                  <div className="space-y-2">
+                    <Label htmlFor="notifWaDeviceId">Device ID (Opsional)</Label>
+                    <Input
+                      id="notifWaDeviceId"
+                      value={notifSettings.notifWaDeviceId}
+                      onChange={(e) =>
+                        setNotifSettings(prev => ({ ...prev, notifWaDeviceId: e.target.value }))
+                      }
+                      placeholder="Fonnte device ID"
+                    />
+                  </div>
+                )}
 
                 <div className="space-y-2">
                   <Label htmlFor="notifWaSenderNumber">Nomor Pengirim WA (Opsional)</Label>
@@ -721,11 +853,12 @@ export function SettingsView() {
                       setNotifSettings(prev => ({ ...prev, notifWaSenderNumber: e.target.value }))
                     }
                     placeholder="628xxxxxxxxxx (untuk test kirim)"
-                  />\n                </div>
-
-                <div className="flex items-start gap-2 p-3 bg-green-100 rounded-lg text-sm text-green-800">
-                  <ExternalLink className="w-4 h-4 flex-shrink-0 mt-0.5" />
-                  <span>Dapatkan token di <a href="https://fonnte.com" target="_blank" rel="noopener noreferrer" className="underline font-semibold">fonnte.com</a></span>
+                  />
+                  {(notifSettings.waProvider === 'callmebot' || notifSettings.waProvider === 'ultramsg') && (
+                    <p className="text-xs text-stone-500">
+                      Nomor ini hanya untuk test kirim. Notifikasi asli dikirim ke nomor WA masing-masing user (sesuai profil).
+                    </p>
+                  )}
                 </div>
               </div>
             )}
@@ -906,6 +1039,7 @@ export function SettingsView() {
                     notifWaEnabled: notifSettings.notifWaEnabled,
                     notifWaDeviceId: notifSettings.notifWaDeviceId,
                     notifWaSenderNumber: notifSettings.notifWaSenderNumber,
+                    waProvider: notifSettings.waProvider,
                     notifEmailEnabled: notifSettings.notifEmailEnabled,
                     notifEmailHost: notifSettings.notifEmailHost,
                     notifEmailPort: notifSettings.notifEmailPort,
@@ -928,6 +1062,7 @@ export function SettingsView() {
                       notifWaTokenMasked: data.notifWaTokenMasked || '',
                       notifWaDeviceId: data.notifWaDeviceId || '',
                       notifWaSenderNumber: data.notifWaSenderNumber || '',
+                      waProvider: (data.waProvider === 'callmebot' ? 'callmebot' : data.waProvider === 'ultramsg' ? 'ultramsg' : 'fonnte'),
                       notifEmailEnabled: data.notifEmailEnabled,
                       hasNotifEmailPass: data.hasNotifEmailPass,
                       notifEmailPassMasked: data.notifEmailPassMasked || '',

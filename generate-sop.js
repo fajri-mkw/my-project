@@ -235,7 +235,7 @@ function buildContent() {
       ["1", "Administrator", "\u2014", "Pengelolaan Surat"],
       ["2", "Manager", "Tahap 0 (Perencanaan)", "Manajemen Proyek"],
       ["3", "Reporter", "Tahap 1 (Produksi)", "Upload File"],
-      ["4", "Photographer, Videographer, dan Audio", "Tahap 1 (Produksi)", "Upload File"],
+      ["4", "Photographer, Videographer, Content Creator, dan Audio", "Tahap 1 (Produksi)", "Upload File"],
       ["5", "Graphic Designer", "Tahap 1 (Produksi)", "Upload File"],
       ["6", "Editor (Video)", "Tahap 2 (Pasca Produksi)", "Download & Upload"],
       ["7", "Editor (Web Article/Author)", "Tahap 2 (Pasca Produksi)", "Download & Upload"],
