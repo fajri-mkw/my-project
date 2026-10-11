@@ -15,26 +15,29 @@ Tag cache does not need populating
 
 Cloudflare collects anonymous telemetry about your usage of Wrangler. Learn more at https://github.com/cloudflare/workers-sdk/tree/main/packages/wrangler/telemetry.md
 🌀 Building list of assets...
-✨ Read 277 files from the assets directory /home/z/my-project/.open-next/assets
+✨ Read 280 files from the assets directory /home/z/my-project/.open-next/assets
 🌀 Starting asset upload...
-🌀 Found 2 new or modified static assets to upload. Proceeding with upload...
+🌀 Found 4 new or modified static assets to upload. Proceeding with upload...
 + /BUILD_ID
-+ /Pushakin-Flows-Award-2026.pptx
-Uploaded 1 of 2 assets
-Uploaded 2 of 2 assets
-✨ Success! Uploaded 2 files (183 already uploaded) (2.88 sec)
++ /Pushakin-Flows-Award-2026-v3.pptx
++ /Pushakin-Flows-Award-2026-v3.html
++ /Pushakin-Flows-Award-2026-v3.pdf
+Uploaded 1 of 4 assets
+Uploaded 2 of 4 assets
+Uploaded 4 of 4 assets
+✨ Success! Uploaded 4 files (184 already uploaded) (2.85 sec)
 
-Total Upload: 27474.45 KiB / gzip: 2882.74 KiB
-Worker Startup Time: 25 ms
+Total Upload: 27474.45 KiB / gzip: 2880.88 KiB
+Worker Startup Time: 14 ms
 Your Worker has access to the following bindings:
 Binding                                          Resource                  
 env.DB (pushakin-db)                             D1 Database               
 env.ASSETS                                       Assets                    
 env.NEXT_PUBLIC_APP_NAME ("Pushakin Flows")      Environment Variable      
 
-Uploaded app (12.16 sec)
-Deployed app triggers (0.71 sec)
+Uploaded app (16.80 sec)
+Deployed app triggers (0.62 sec)
   https://app.pushakin-flows.workers.dev
-Current Version ID: af2e7577-3f77-495a-b463-e977ef7a7cce
-(node:2967) [DEP0190] DeprecationWarning: Passing args to a child process with shell option true can lead to security vulnerabilities, as the arguments are not escaped, only concatenated.
+Current Version ID: d684d12f-ad62-4147-b8b6-394bf4265a65
+(node:4878) [DEP0190] DeprecationWarning: Passing args to a child process with shell option true can lead to security vulnerabilities, as the arguments are not escaped, only concatenated.
 (Use `node --trace-deprecation ...` to show where the warning was created)
