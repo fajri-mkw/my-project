@@ -7,6 +7,7 @@ import {
   nowMs,
   type InValue,
 } from '@/lib/libsql-client'
+import { withEdgeCache } from '@/lib/edge-cache'
 
 // ============================================================================
 // CRITICAL: This route is called on every dashboard page load AND when the
@@ -89,8 +90,8 @@ function toSqlValue(key: string, value: unknown): unknown {
   return value
 }
 
-// GET notification settings (masked)
-export async function GET() {
+// GET notification settings (masked) — edge-cached 120s to reduce Worker request volume
+export const GET = withEdgeCache(async () => {
   try {
     const client = getLibsql()
     let settings = await fetchNotifSettingsRow(client)
@@ -114,7 +115,7 @@ export async function GET() {
     console.error('Get notification settings error:', error)
     return NextResponse.json({ error: 'Failed to fetch notification settings' }, { status: 500 })
   }
-}
+}, { ttl: 120 })
 
 // PUT update notification settings
 export async function PUT(request: NextRequest) {

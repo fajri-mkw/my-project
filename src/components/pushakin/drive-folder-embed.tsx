@@ -488,7 +488,7 @@ export function DriveFolderEmbed({
       if (timer) return
       timer = setInterval(() => {
         if (mountedRef.current) checkFiles(true)
-      }, 15_000)
+      }, 60_000)
     }
 
     const stopPoll = () => {

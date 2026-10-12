@@ -6,6 +6,7 @@ import {
   parseJSON,
   executeWhereIn,
 } from '@/lib/libsql-client'
+import { withEdgeCache } from '@/lib/edge-cache'
 
 // ============================================================================
 // GET - Public tracker: all projects with tasks + assignees + managers.
@@ -47,7 +48,7 @@ function strOrNull(v: unknown): string | null {
   return s === '' ? null : s
 }
 
-export async function GET(request: NextRequest) {
+export const GET = withEdgeCache(async (request: NextRequest) => {
   try {
     const client = getLibsql()
     const { searchParams } = new URL(request.url)
@@ -232,4 +233,4 @@ export async function GET(request: NextRequest) {
       { status: 500 },
     )
   }
-}
+}, { ttl: 120, includeQuery: true })

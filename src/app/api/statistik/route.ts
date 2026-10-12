@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getLibsql, bind, toBool, parseJSON } from '@/lib/libsql-client'
+import { withEdgeCache } from '@/lib/edge-cache'
 
 // ============================================================================
 // GET /api/statistik — Dashboard evaluasi efektivitas & efisiensi tim
@@ -13,7 +14,7 @@ import { getLibsql, bind, toBool, parseJSON } from '@/lib/libsql-client'
 // 5. Statistik Workflow (stage distribution, fast track rate)
 // ============================================================================
 
-export async function GET(request: NextRequest) {
+export const GET = withEdgeCache(async (request: NextRequest) => {
   const userRole = request.headers.get('X-User-Role')
   if (!['Admin', 'Manager'].includes(userRole || '')) {
     return NextResponse.json({ error: 'Hanya Admin dan Manager' }, { status: 403 })
@@ -371,4 +372,4 @@ export async function GET(request: NextRequest) {
     console.error('[STATISTIK] Error:', error)
     return NextResponse.json({ error: 'Gagal memuat statistik' }, { status: 500 })
   }
-}
+}, { ttl: 120 })
