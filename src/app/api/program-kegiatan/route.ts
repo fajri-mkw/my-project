@@ -141,7 +141,7 @@ export const GET = withEdgeCache(async (request: NextRequest) => {
     const msg = error instanceof Error ? error.message : 'Unknown error'
     return NextResponse.json({ error: 'Failed to fetch program kegiatan', details: msg, programKegiatan: [] }, { status: 500 })
   }
-}, { ttl: 60 })
+}, { ttl: 120 })
 
 // POST create program kegiatan
 export async function POST(request: NextRequest) {

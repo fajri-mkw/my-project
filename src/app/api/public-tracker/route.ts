@@ -233,4 +233,4 @@ export const GET = withEdgeCache(async (request: NextRequest) => {
       { status: 500 },
     )
   }
-}, { ttl: 120, includeQuery: true })
+}, { ttl: 300, includeQuery: true })

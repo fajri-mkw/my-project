@@ -233,7 +233,7 @@ export const GET = withEdgeCache(async (request: NextRequest) => {
       { status: 500 },
     )
   }
-}, { ttl: 60, includeQuery: false })
+}, { ttl: 300, includeQuery: false })
 
 // ============================================================================
 // POST create project — batch transaction (project + tasks + drive_folders + notifications)

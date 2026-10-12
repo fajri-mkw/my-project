@@ -41,7 +41,7 @@ export const GET = withEdgeCache(async (request: NextRequest) => {
     console.error('[RELASI GET] Error:', error)
     return NextResponse.json([])
   }
-}, { ttl: 30 })
+}, { ttl: 120 })
 
 // POST /api/relasi — buat form baru (Admin only)
 export async function POST(request: NextRequest) {

@@ -98,7 +98,7 @@ export const GET = withEdgeCache(async (request: NextRequest) => {
     console.error('Get permohonan error:', error)
     return NextResponse.json({ error: 'Failed to fetch permohonan', permohonan: [] }, { status: 500 })
   }
-}, { ttl: 30 })
+}, { ttl: 120 })
 
 // POST create permohonan
 export async function POST(request: NextRequest) {

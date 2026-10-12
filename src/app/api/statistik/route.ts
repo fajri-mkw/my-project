@@ -372,4 +372,4 @@ export const GET = withEdgeCache(async (request: NextRequest) => {
     console.error('[STATISTIK] Error:', error)
     return NextResponse.json({ error: 'Gagal memuat statistik' }, { status: 500 })
   }
-}, { ttl: 120 })
+}, { ttl: 300 })

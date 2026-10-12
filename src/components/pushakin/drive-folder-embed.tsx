@@ -178,7 +178,7 @@ async function checkFileExistsInFolder(
   try {
     const res = await fetch(
       `/api/drive/folder-files?folderId=${encodeURIComponent(folderId)}`,
-      { cache: 'no-store' },
+      ,
     )
     if (!res.ok) return null
     const data = await res.json()
@@ -375,7 +375,7 @@ export function DriveFolderEmbed({
       try {
         const res = await fetch(
           `/api/drive/folder-files?folderId=${encodeURIComponent(folderId)}`,
-          { cache: 'no-store' },
+          ,
         )
         if (!res.ok) {
           const d = await res.json().catch(() => ({}))
@@ -469,50 +469,18 @@ export function DriveFolderEmbed({
     }
   }, [folderId, checkFiles])
 
-  // Poll while the modal is open so the file list updates after an upload
-  // completes. Was 5s — reduced to 15s to cut Worker request volume (the 5s
-  // polling was a significant contributor to the daily 100K free-plan cap being
-  // hit, since each open modal = 12 requests/minute). 15s still feels live for
-  // a file list refresh — and users typically see new files appear after their
-  // own upload completes (the upload UI updates optimistically).
+  // NO POLLING — eliminated to prevent Cloudflare Workers rate limit (1027).
+  // Previously polled every 15s → 60s, but even 60s × 19 users × 8h = 9,120
+  // requests/day just for this modal. Users now manually click "Refresh" if
+  // they need to see new files from other team members.
   //
-  // PAUSE WHEN HIDDEN: also pause polling when the tab is not visible (user
-  // switched to another tab/app while the modal is open). Prevents wasting
-  // Worker requests for users who left the modal open and walked away.
+  // The file list still auto-updates after the user's OWN upload completes
+  // (the upload UI updates optimistically + checkFiles runs once on upload
+  // success). Manual refresh is only needed to see files uploaded by OTHERS.
   useEffect(() => {
     if (!modalOpen || !folderId) return
-
-    let timer: ReturnType<typeof setInterval> | null = null
-
-    const startPoll = () => {
-      if (timer) return
-      timer = setInterval(() => {
-        if (mountedRef.current) checkFiles(true)
-      }, 60_000)
-    }
-
-    const stopPoll = () => {
-      if (timer) {
-        clearInterval(timer)
-        timer = null
-      }
-    }
-
-    const handleVisibilityChange = () => {
-      if (document.visibilityState === 'visible') {
-        startPoll()
-      } else {
-        stopPoll()
-      }
-    }
-
-    startPoll()
-    document.addEventListener('visibilitychange', handleVisibilityChange)
-
-    return () => {
-      stopPoll()
-      document.removeEventListener('visibilitychange', handleVisibilityChange)
-    }
+    // Single check on modal open — NO interval polling.
+    if (mountedRef.current) checkFiles(true)
   }, [modalOpen, folderId, checkFiles])
 
   // Reset upload state when modal closes

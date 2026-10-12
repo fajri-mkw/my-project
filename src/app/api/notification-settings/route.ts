@@ -115,7 +115,7 @@ export const GET = withEdgeCache(async () => {
     console.error('Get notification settings error:', error)
     return NextResponse.json({ error: 'Failed to fetch notification settings' }, { status: 500 })
   }
-}, { ttl: 120 })
+}, { ttl: 600 })
 
 // PUT update notification settings
 export async function PUT(request: NextRequest) {

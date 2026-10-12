@@ -97,7 +97,7 @@ export const GET = withEdgeCache(async (request: NextRequest) => {
       { status: 500 },
     )
   }
-}, { ttl: 60 })
+}, { ttl: 120 })
 
 // POST /api/inventory — create new inventory item.
 export async function POST(request: NextRequest) {

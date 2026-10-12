@@ -1,16 +1,21 @@
 import { NextResponse } from 'next/server'
-import { ensureDbConnection, getLastDbError } from '@/lib/db'
+import { withEdgeCache } from '@/lib/edge-cache'
 
-export async function GET() {
-  const dbUrl = process.env.DATABASE_URL || ''
-  const isConnected = await ensureDbConnection()
-
+// Lightweight health check — NO Prisma import, NO DB query.
+// Previously imported `ensureDbConnection` from @/lib/db, which loads Prisma's
+// WASM module + runs ensureSchemaSync() on every call — burning CPU on
+// Cloudflare Workers free plan and contributing to request quota usage.
+//
+// This version just returns a static OK response. The DB health is already
+// verified indirectly by every other API call that queries the DB.
+// If the DB is down, those routes will return 500 — no need for a separate
+// health check that itself loads Prisma.
+// Cached 600s (10 min) — health status doesn't change frequently.
+export const GET = withEdgeCache(async () => {
   return NextResponse.json({
-    status: isConnected ? 'ok' : 'error',
+    status: 'ok',
     timestamp: new Date().toISOString(),
-    message: isConnected ? 'Server is running' : 'Database connection failed',
-    hasDatabaseUrl: !!dbUrl,
-    databaseType: dbUrl.startsWith('file:') ? 'SQLite' : dbUrl.startsWith('postgres') ? 'PostgreSQL' : dbUrl.startsWith('mysql') ? 'MySQL' : 'unknown',
-    dbError: isConnected ? null : getLastDbError(),
+    message: 'Server is running',
+    databaseType: 'sqlite',
   })
-}
+}, { ttl: 600 })

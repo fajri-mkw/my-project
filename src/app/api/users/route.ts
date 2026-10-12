@@ -72,7 +72,7 @@ export const GET = withEdgeCache(async (_request: NextRequest) => {
       { status: 500 },
     )
   }
-}, { ttl: 120 })
+}, { ttl: 300 })
 
 // POST create user
 export async function POST(request: NextRequest) {
