@@ -1,17 +1,13 @@
 import { Database } from 'bun:sqlite'
 import bcrypt from 'bcryptjs'
 
-// Seed demo users for testing the role merge.
-// NOTE: ContentCreator is intentionally NOT seeded as a separate user here
-// because the user wants to MERGE ContentCreator into the combined
-// PhotographerVideographerAudio role (whose display name becomes
-// "Photographer, Videographer, Content Creator, dan Audio").
 const DB_PATH = '/home/z/my-project/db/custom.db'
 const db = new Database(DB_PATH)
 db.exec('PRAGMA journal_mode = WAL;')
 
 const hashed = await bcrypt.hash('pushakin123', 6)
 
+// Demo users — includes Neco Erlin Pradana with 4 roles (matching production)
 const demoUsers: Array<{ name: string; email: string; role: string }> = [
   { name: 'Manager User',          email: 'manager@pushakin.local',       role: 'Manager' },
   { name: 'Reporter User',         email: 'reporter@pushakin.local',      role: 'Reporter' },
@@ -21,6 +17,11 @@ const demoUsers: Array<{ name: string; email: string; role: string }> = [
   { name: 'Reviewer User',         email: 'reviewer@pushakin.local',      role: 'Reviewer' },
   { name: 'Publisher Web User',    email: 'pubweb@pushakin.local',        role: 'PublisherWeb' },
   { name: 'Publisher Social Media User', email: 'pubsocial@pushakin.local', role: 'PublisherSocialMedia' },
+  // Neco Erlin Pradana — 4 roles (matching production data)
+  { name: 'Neco Erlin Pradana, S.Pd', email: 'user9@pushakin.local',  role: 'StreamingOperator' },
+  { name: 'Neco Erlin Pradana, S.Pd', email: 'user10@pushakin.local', role: 'PodcastOperator' },
+  { name: 'Neco Erlin Pradana, S.Pd', email: 'user14@pushakin.local', role: 'PhotographerVideographerAudio' },
+  { name: 'Neco Erlin Pradana, S.Pd', email: 'user15@pushakin.local', role: 'Manager' },
 ]
 
 let inserted = 0
