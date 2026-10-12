@@ -15,27 +15,22 @@ Tag cache does not need populating
 🌀 Building list of assets...
 ✨ Read 280 files from the assets directory /home/z/my-project/.open-next/assets
 🌀 Starting asset upload...
-🌀 Found 4 new or modified static assets to upload. Proceeding with upload...
+🌀 Found 1 new or modified static asset to upload. Proceeding with upload...
 + /BUILD_ID
-+ /Pushakin-Flows-Award-2026-v3.pptx
-+ /Pushakin-Flows-Award-2026-v3.html
-+ /Pushakin-Flows-Award-2026-v3.pdf
-Uploaded 1 of 4 assets
-Uploaded 2 of 4 assets
-Uploaded 4 of 4 assets
-✨ Success! Uploaded 4 files (184 already uploaded) (2.93 sec)
+Uploaded 1 of 1 asset
+✨ Success! Uploaded 1 file (187 already uploaded) (0.82 sec)
 
-Total Upload: 27474.45 KiB / gzip: 2882.09 KiB
-Worker Startup Time: 18 ms
+Total Upload: 27477.70 KiB / gzip: 2881.81 KiB
+Worker Startup Time: 16 ms
 Your Worker has access to the following bindings:
 Binding                                          Resource                  
 env.DB (pushakin-db)                             D1 Database               
 env.ASSETS                                       Assets                    
 env.NEXT_PUBLIC_APP_NAME ("Pushakin Flows")      Environment Variable      
 
-Uploaded app (15.50 sec)
-Deployed app triggers (0.78 sec)
+Uploaded app (8.89 sec)
+Deployed app triggers (0.77 sec)
   https://app.pushakin-flows.workers.dev
-Current Version ID: cad43119-4b7d-40c9-8292-7951541422fa
-(node:7955) [DEP0190] DeprecationWarning: Passing args to a child process with shell option true can lead to security vulnerabilities, as the arguments are not escaped, only concatenated.
+Current Version ID: 37afbce1-c03c-4443-b374-f5064f28bee0
+(node:3020) [DEP0190] DeprecationWarning: Passing args to a child process with shell option true can lead to security vulnerabilities, as the arguments are not escaped, only concatenated.
 (Use `node --trace-deprecation ...` to show where the warning was created)
