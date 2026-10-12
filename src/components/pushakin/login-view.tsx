@@ -251,9 +251,9 @@ export function LoginView({ onSeed, isSeeding, seedError }: LoginViewProps) {
                   <p className="text-xs mt-1">{dbError}</p>
                   {dbError.includes('DATABASE_URL') && (
                     <p className="text-xs mt-2 text-amber-600">
-                      1. Buka Vercel Dashboard → Settings → Environment Variables<br/>
-                      2. Tambahkan DATABASE_URL dengan nilai dari Neon.tech<br/>
-                      3. Redeploy aplikasi
+                      1. Pastikan file <code>.env</code> berisi <code>DATABASE_URL</code><br/>
+                      2. Untuk produksi: set via <code>wrangler2 secret put DATABASE_URL</code><br/>
+                      3. Restart server: <code>bun run dev</code>
                     </p>
                   )}
                 </div>

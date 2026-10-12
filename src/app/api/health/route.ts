@@ -12,10 +12,12 @@ import { withEdgeCache } from '@/lib/edge-cache'
 // health check that itself loads Prisma.
 // Cached 600s (10 min) — health status doesn't change frequently.
 export const GET = withEdgeCache(async () => {
+  const dbUrl = process.env.DATABASE_URL || ''
   return NextResponse.json({
     status: 'ok',
     timestamp: new Date().toISOString(),
     message: 'Server is running',
-    databaseType: 'sqlite',
+    hasDatabaseUrl: !!dbUrl,
+    databaseType: dbUrl.startsWith('file:') ? 'SQLite' : dbUrl.startsWith('postgres') ? 'PostgreSQL' : dbUrl.startsWith('mysql') ? 'MySQL' : 'sqlite',
   })
 }, { ttl: 600 })
