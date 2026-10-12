@@ -1,36 +1,128 @@
+$ bash scripts/patch-libsql-cf.sh && prisma generate && bash scripts/patch-libsql-cf.sh && opennextjs-cloudflare build
+[patch-libsql] Starting patches...
+[patch-libsql] Found @libsql/client at: node_modules/@prisma/adapter-libsql/node_modules/@libsql/client
+[patch-libsql] Found @libsql/client at: node_modules/@libsql/client
+[patch-libsql] Found @libsql/isomorphic-ws at: node_modules/@libsql/isomorphic-ws
+[patch-libsql] Done.
+[patch-libsql] .prisma/client #main-entry-point → all → wasm.js
+[patch-libsql] .prisma/client/default.js → direct require wasm.js
+[patch-libsql] .prisma/client/index.js runtime → wasm-engine-edge.js
+[patch-libsql] node_modules/.prisma/client/index.js engineType → wasm
+[patch-libsql] node_modules/.prisma/client/wasm.js engineType → wasm
+[patch-libsql] Found node-fetch@? at: node_modules/@types/node-fetch
+[patch-libsql] Found node-fetch@? at: node_modules/node-fetch
+[patch-libsql]   ✓ lib/index.js → native fetch shim
+[patch-libsql]   ✓ lib/index.mjs → native fetch shim (ESM)
+[patch-libsql]   ✓ browser.js → native fetch shim
+[patch-libsql] Found node-fetch@? at: node_modules/@prisma/adapter-libsql/node_modules/@libsql/client/node_modules/@libsql/hrana-client/node_modules/node-fetch
+[patch-libsql] Found node-fetch@? at: node_modules/gaxios/node_modules/node-fetch
+[patch-libsql] Found https-proxy-agent at: node_modules/next/dist/compiled/https-proxy-agent
+[patch-libsql] Found https-proxy-agent at: node_modules/https-proxy-agent
+[patch-libsql]   ✓ dist/index.js → stub
+Environment variables loaded from .env
+Prisma schema loaded from prisma/schema.prisma
 
- ⛅️ wrangler 4.149.0
-────────────────────
-OpenNext project detected, calling `opennextjs-cloudflare deploy`
+✔ Generated Prisma Client (v6.19.2) to ./node_modules/@prisma/client in 188ms
 
-┌──────────────────────────────┐
-│ OpenNext — Cloudflare deploy │
-└──────────────────────────────┘
+Start by importing your Prisma Client (See: https://pris.ly/d/importing-client)
 
-Incremental cache does not need populating
-Tag cache does not need populating
+Tip: Interested in query caching in just a few lines of code? Try Accelerate today! https://pris.ly/tip-3-accelerate
 
- ⛅️ wrangler 4.149.0
-────────────────────
-🌀 Building list of assets...
-✨ Read 280 files from the assets directory /home/z/my-project/.open-next/assets
-🌀 Starting asset upload...
-🌀 Found 1 new or modified static asset to upload. Proceeding with upload...
-+ /BUILD_ID
-Uploaded 1 of 1 asset
-✨ Success! Uploaded 1 file (187 already uploaded) (0.82 sec)
+[patch-libsql] Starting patches...
+[patch-libsql] Found @libsql/client at: node_modules/@prisma/adapter-libsql/node_modules/@libsql/client
+[patch-libsql] Found @libsql/client at: node_modules/@libsql/client
+[patch-libsql] Found @libsql/isomorphic-ws at: node_modules/@libsql/isomorphic-ws
+[patch-libsql] Done.
+[patch-libsql] .prisma/client #main-entry-point → all → wasm.js
+[patch-libsql] .prisma/client/default.js → direct require wasm.js
+[patch-libsql] .prisma/client/index.js runtime → wasm-engine-edge.js
+[patch-libsql] node_modules/.prisma/client/index.js engineType → wasm
+[patch-libsql] node_modules/.prisma/client/wasm.js engineType → wasm
+[patch-libsql] Found node-fetch@? at: node_modules/@types/node-fetch
+[patch-libsql] Found node-fetch@? at: node_modules/node-fetch
+[patch-libsql]   ✓ lib/index.js → native fetch shim
+[patch-libsql]   ✓ lib/index.mjs → native fetch shim (ESM)
+[patch-libsql]   ✓ browser.js → native fetch shim
+[patch-libsql] Found node-fetch@? at: node_modules/@prisma/adapter-libsql/node_modules/@libsql/client/node_modules/@libsql/hrana-client/node_modules/node-fetch
+[patch-libsql] Found node-fetch@? at: node_modules/gaxios/node_modules/node-fetch
+[patch-libsql] Found https-proxy-agent at: node_modules/next/dist/compiled/https-proxy-agent
+[patch-libsql] Found https-proxy-agent at: node_modules/https-proxy-agent
+[patch-libsql]   ✓ dist/index.js → stub
 
-Total Upload: 27477.70 KiB / gzip: 2881.81 KiB
-Worker Startup Time: 16 ms
-Your Worker has access to the following bindings:
-Binding                                          Resource                  
-env.DB (pushakin-db)                             D1 Database               
-env.ASSETS                                       Assets                    
-env.NEXT_PUBLIC_APP_NAME ("Pushakin Flows")      Environment Variable      
+┌─────────────────────────────┐
+│ OpenNext — Cloudflare build │
+└─────────────────────────────┘
 
-Uploaded app (8.89 sec)
-Deployed app triggers (0.77 sec)
-  https://app.pushakin-flows.workers.dev
-Current Version ID: 37afbce1-c03c-4443-b374-f5064f28bee0
-(node:3020) [DEP0190] DeprecationWarning: Passing args to a child process with shell option true can lead to security vulnerabilities, as the arguments are not escaped, only concatenated.
-(Use `node --trace-deprecation ...` to show where the warning was created)
+App directory: /home/z/my-project
+Next.js version : 15.5.14
+@opennextjs/cloudflare version: 1.20.10
+@opennextjs/aws version: 4.1.9
+WARN workerd compatibility_date: 2024-09-23, consider updating your wrangler config to a more recent date to benefit from the latest features and fixes.
+
+┌─────────────────────────────────┐
+│ OpenNext — Building Next.js app │
+└─────────────────────────────────┘
+
+$ prisma generate && next build --experimental-build-mode=compile
+Environment variables loaded from .env
+Prisma schema loaded from prisma/schema.prisma
+
+✔ Generated Prisma Client (v6.19.2) to ./node_modules/@prisma/client in 192ms
+
+Start by importing your Prisma Client (See: https://pris.ly/d/importing-client)
+
+Tip: Need your database queries to be 1000x faster? Accelerate offers you that and more: https://pris.ly/tip-2-accelerate
+
+   ▲ Next.js 15.5.14
+   - Environments: .env
+
+   Creating an optimized production build ...
+Failed to compile.
+
+./src/components/pushakin/drive-folder-embed.tsx
+Error:   [31mx[0m Expression expected
+     ,-[[36;1;4m/home/z/my-project/src/components/pushakin/drive-folder-embed.tsx[0m:181:1]
+ [2m178[0m |   try {
+ [2m179[0m |     const res = await fetch(
+ [2m180[0m |       `/api/drive/folder-files?folderId=${encodeURIComponent(folderId)}`,
+ [2m181[0m |       ,
+     : [35;1m      ^[0m
+ [2m182[0m |     )
+ [2m183[0m |     if (!res.ok) return null
+ [2m184[0m |     const data = await res.json()
+     `----
+
+Caused by:
+    Syntax Error
+
+Import trace for requested module:
+./src/components/pushakin/drive-folder-embed.tsx
+./src/components/pushakin/project-detail-view.tsx
+./src/app/page.tsx
+
+
+> Build failed because of webpack errors
+error: script "build" exited with code 1
+node:internal/errors:986
+  const err = new Error(message);
+              ^
+
+Error: Command failed: bun run build
+    at genericNodeError (node:internal/errors:986:15)
+    at wrappedFn (node:internal/errors:540:14)
+    at checkExecSyncError (node:child_process:942:11)
+    at Object.execSync (node:child_process:1014:15)
+    at buildNextjsApp (file:///home/z/my-project/node_modules/@opennextjs/aws/dist/build/buildNextApp.js:15:8)
+    at build (file:///home/z/my-project/node_modules/@opennextjs/cloudflare/dist/cli/build/build.js:64:9)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async buildCommand (file:///home/z/my-project/node_modules/@opennextjs/cloudflare/dist/cli/commands/build.js:40:5) {
+  status: 1,
+  signal: null,
+  output: [ null, null, null ],
+  pid: 3932,
+  stdout: null,
+  stderr: null
+}
+
+Node.js v24.21.0
+error: script "build:cf" exited with code 1

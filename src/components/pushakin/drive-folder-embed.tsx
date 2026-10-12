@@ -177,8 +177,7 @@ async function checkFileExistsInFolder(
 ): Promise<{ id: string; name: string } | null> {
   try {
     const res = await fetch(
-      `/api/drive/folder-files?folderId=${encodeURIComponent(folderId)}`,
-      ,
+      `/api/drive/folder-files?folderId=${encodeURIComponent(folderId)}`
     )
     if (!res.ok) return null
     const data = await res.json()
@@ -374,8 +373,7 @@ export function DriveFolderEmbed({
       setError(null)
       try {
         const res = await fetch(
-          `/api/drive/folder-files?folderId=${encodeURIComponent(folderId)}`,
-          ,
+          `/api/drive/folder-files?folderId=${encodeURIComponent(folderId)}`
         )
         if (!res.ok) {
           const d = await res.json().catch(() => ({}))
