@@ -17,26 +17,22 @@ Cloudflare collects anonymous telemetry about your usage of Wrangler. Learn more
 🌀 Building list of assets...
 ✨ Read 284 files from the assets directory /home/z/my-project/.open-next/assets
 🌀 Starting asset upload...
-🌀 Found 3 new or modified static assets to upload. Proceeding with upload...
+🌀 Found 1 new or modified static asset to upload. Proceeding with upload...
 + /BUILD_ID
-+ /_next/static/chunks/app/api/route-5790802ca20e9e82.js
-+ /_next/static/jT4YRFV96s2EmjpgPfw5W/_buildManifest.js
-Uploaded 1 of 3 assets
-Uploaded 2 of 3 assets
-Uploaded 3 of 3 assets
-✨ Success! Uploaded 3 files (187 already uploaded) (1.07 sec)
+Uploaded 1 of 1 asset
+✨ Success! Uploaded 1 file (189 already uploaded) (1.10 sec)
 
-Total Upload: 27509.07 KiB / gzip: 2880.32 KiB
-Worker Startup Time: 20 ms
+Total Upload: 27515.03 KiB / gzip: 2881.45 KiB
+Worker Startup Time: 16 ms
 Your Worker has access to the following bindings:
 Binding                                          Resource                  
 env.DB (pushakin-db)                             D1 Database               
 env.ASSETS                                       Assets                    
 env.NEXT_PUBLIC_APP_NAME ("Pushakin Flows")      Environment Variable      
 
-Uploaded app (12.65 sec)
-Deployed app triggers (0.76 sec)
+Uploaded app (12.68 sec)
+Deployed app triggers (1.14 sec)
   https://app.pushakin-flows.workers.dev
-Current Version ID: e857607d-28bc-48a9-abbe-4ea054ab73b1
-(node:2117) [DEP0190] DeprecationWarning: Passing args to a child process with shell option true can lead to security vulnerabilities, as the arguments are not escaped, only concatenated.
+Current Version ID: 7e3be9aa-95db-4cf4-bce5-4e335c423fce
+(node:2005) [DEP0190] DeprecationWarning: Passing args to a child process with shell option true can lead to security vulnerabilities, as the arguments are not escaped, only concatenated.
 (Use `node --trace-deprecation ...` to show where the warning was created)
