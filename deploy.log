@@ -1,5 +1,5 @@
 
- ⛅️ wrangler 4.150.0
+ ⛅️ wrangler 4.151.0
 ────────────────────
 OpenNext project detected, calling `opennextjs-cloudflare deploy`
 
@@ -10,7 +10,7 @@ OpenNext project detected, calling `opennextjs-cloudflare deploy`
 Incremental cache does not need populating
 Tag cache does not need populating
 
- ⛅️ wrangler 4.150.0
+ ⛅️ wrangler 4.151.0
 ────────────────────
 
 Cloudflare collects anonymous telemetry about your usage of Wrangler. Learn more at https://github.com/cloudflare/workers-sdk/tree/main/packages/wrangler/telemetry.md
@@ -20,19 +20,19 @@ Cloudflare collects anonymous telemetry about your usage of Wrangler. Learn more
 🌀 Found 1 new or modified static asset to upload. Proceeding with upload...
 + /BUILD_ID
 Uploaded 1 of 1 asset
-✨ Success! Uploaded 1 file (189 already uploaded) (1.10 sec)
+✨ Success! Uploaded 1 file (189 already uploaded) (0.69 sec)
 
-Total Upload: 27515.03 KiB / gzip: 2881.45 KiB
-Worker Startup Time: 16 ms
+Total Upload: 27496.73 KiB / gzip: 2890.71 KiB
+Worker Startup Time: 15 ms
 Your Worker has access to the following bindings:
 Binding                                          Resource                  
 env.DB (pushakin-db)                             D1 Database               
 env.ASSETS                                       Assets                    
 env.NEXT_PUBLIC_APP_NAME ("Pushakin Flows")      Environment Variable      
 
-Uploaded app (12.68 sec)
-Deployed app triggers (1.14 sec)
+Uploaded app (11.51 sec)
+Deployed app triggers (0.64 sec)
   https://app.pushakin-flows.workers.dev
-Current Version ID: 7e3be9aa-95db-4cf4-bce5-4e335c423fce
-(node:2005) [DEP0190] DeprecationWarning: Passing args to a child process with shell option true can lead to security vulnerabilities, as the arguments are not escaped, only concatenated.
+Current Version ID: d710a60d-3350-441a-b87e-1218435e3ba3
+(node:2457) [DEP0190] DeprecationWarning: Passing args to a child process with shell option true can lead to security vulnerabilities, as the arguments are not escaped, only concatenated.
 (Use `node --trace-deprecation ...` to show where the warning was created)
