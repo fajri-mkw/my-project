@@ -1,5 +1,5 @@
 
- ⛅️ wrangler 4.149.0
+ ⛅️ wrangler 4.150.0
 ────────────────────
 OpenNext project detected, calling `opennextjs-cloudflare deploy`
 
@@ -10,29 +10,33 @@ OpenNext project detected, calling `opennextjs-cloudflare deploy`
 Incremental cache does not need populating
 Tag cache does not need populating
 
- ⛅️ wrangler 4.149.0
+ ⛅️ wrangler 4.150.0
 ────────────────────
 
 Cloudflare collects anonymous telemetry about your usage of Wrangler. Learn more at https://github.com/cloudflare/workers-sdk/tree/main/packages/wrangler/telemetry.md
 🌀 Building list of assets...
-✨ Read 280 files from the assets directory /home/z/my-project/.open-next/assets
+✨ Read 284 files from the assets directory /home/z/my-project/.open-next/assets
 🌀 Starting asset upload...
-🌀 Found 1 new or modified static asset to upload. Proceeding with upload...
+🌀 Found 3 new or modified static assets to upload. Proceeding with upload...
 + /BUILD_ID
-Uploaded 1 of 1 asset
-✨ Success! Uploaded 1 file (187 already uploaded) (1.07 sec)
++ /_next/static/chunks/app/api/route-5790802ca20e9e82.js
++ /_next/static/jT4YRFV96s2EmjpgPfw5W/_buildManifest.js
+Uploaded 1 of 3 assets
+Uploaded 2 of 3 assets
+Uploaded 3 of 3 assets
+✨ Success! Uploaded 3 files (187 already uploaded) (1.07 sec)
 
-Total Upload: 27466.67 KiB / gzip: 2876.54 KiB
-Worker Startup Time: 18 ms
+Total Upload: 27509.07 KiB / gzip: 2880.32 KiB
+Worker Startup Time: 20 ms
 Your Worker has access to the following bindings:
 Binding                                          Resource                  
 env.DB (pushakin-db)                             D1 Database               
 env.ASSETS                                       Assets                    
 env.NEXT_PUBLIC_APP_NAME ("Pushakin Flows")      Environment Variable      
 
-Uploaded app (11.08 sec)
-Deployed app triggers (0.71 sec)
+Uploaded app (12.65 sec)
+Deployed app triggers (0.76 sec)
   https://app.pushakin-flows.workers.dev
-Current Version ID: 9de187a3-e27e-4b67-84b1-93ed7f60647a
-(node:2167) [DEP0190] DeprecationWarning: Passing args to a child process with shell option true can lead to security vulnerabilities, as the arguments are not escaped, only concatenated.
+Current Version ID: e857607d-28bc-48a9-abbe-4ea054ab73b1
+(node:2117) [DEP0190] DeprecationWarning: Passing args to a child process with shell option true can lead to security vulnerabilities, as the arguments are not escaped, only concatenated.
 (Use `node --trace-deprecation ...` to show where the warning was created)
