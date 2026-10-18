@@ -109,7 +109,7 @@ export function InventoryManagementView() {
   // Desktop webcam: buka video stream via getUserMedia
   const openWebcam = async () => {
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' } })
+      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } })
       webcamStreamRef.current = stream
       setIsWebcamOpen(true)
       // Set video src setelah dialog render
