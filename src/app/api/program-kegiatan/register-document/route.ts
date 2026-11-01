@@ -1,5 +1,8 @@
-import { db } from '@/lib/db'
 import { NextRequest, NextResponse } from 'next/server'
+import {
+  readKegiatanForUpload,
+  updateKegiatanFields,
+} from '@/lib/drive-helpers'
 
 interface DocumentMeta {
   id: string
@@ -23,10 +26,20 @@ interface DocumentMeta {
  * Body: { kegiatanId: string, document: DocumentMeta }
  * Returns: { success: true, document: DocumentMeta }
  *
- * PERFORMANCE: This route is intentionally lightweight — NO checkMaintenanceMode,
- * NO ensureDbConnection (schema sync). The kegiatan was just created/updated in
- * the same request flow, so the schema is guaranteed current. This route only
- * does 2 DB round trips (findUnique + update) to stay within Cloudflare Workers'
+ * ----
+ * CRITICAL FIX (Task ID 15 — surat document upload failure):
+ * Same root cause as /api/surat/register-document: this route previously
+ * used Prisma (`db.programKegiatan.findUnique` + `db.programKegiatan.update`)
+ * which on Cloudflare Workers cold isolates triggers the lazy Prisma WASM
+ * module load (~1.5MB) + 2 DB round-trips, exceeding the 10ms CPU limit
+ * (Error 1102) → HTTP 500. The kegiatan version of the same "document
+ * failed to register" bug.
+ *
+ * FIX: Switched to libsql via shared drive-helpers (readKegiatanForUpload +
+ * updateKegiatanFields). Total: 2 subrequests + ~0.1ms CPU. No Prisma.
+ *
+ * PERFORMANCE: Lightweight — NO checkMaintenanceMode, NO ensureDbConnection
+ * (schema sync). Only 2 DB round trips to stay within Cloudflare Workers'
  * free-plan CPU limit.
  */
 export async function POST(request: NextRequest) {
@@ -41,7 +54,8 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Document metadata tidak lengkap (driveFileId, name wajib)' }, { status: 400 })
     }
 
-    const kegiatan = await db.programKegiatan.findUnique({ where: { id: kegiatanId } })
+    // 1 subrequest — read existing documents via libsql (NO Prisma)
+    const kegiatan = await readKegiatanForUpload(kegiatanId)
     if (!kegiatan) {
       return NextResponse.json({ error: 'Kegiatan tidak ditemukan' }, { status: 404 })
     }
@@ -59,13 +73,26 @@ export async function POST(request: NextRequest) {
       uploadedAt: document.uploadedAt || new Date().toISOString(),
     }
 
-    const existingDocs: DocumentMeta[] = JSON.parse(kegiatan.documents || '[]')
+    let existingDocs: DocumentMeta[]
+    try {
+      existingDocs = JSON.parse(kegiatan.documents || '[]')
+      if (!Array.isArray(existingDocs)) existingDocs = []
+    } catch {
+      console.warn('[KEGIATAN REGISTER] Corrupt documents JSON, resetting to empty array')
+      existingDocs = []
+    }
     existingDocs.push(docMeta)
 
-    await db.programKegiatan.update({
-      where: { id: kegiatanId },
-      data: { documents: JSON.stringify(existingDocs) },
+    // 1 subrequest — UPDATE program_kegiatan.documents via libsql (NO Prisma)
+    const ok = await updateKegiatanFields(kegiatanId, {
+      documents: JSON.stringify(existingDocs),
     })
+    if (!ok) {
+      return NextResponse.json(
+        { error: 'Gagal menyimpan metadata dokumen ke database' },
+        { status: 500 },
+      )
+    }
 
     return NextResponse.json({
       success: true,
@@ -75,7 +102,7 @@ export async function POST(request: NextRequest) {
     console.error('[KEGIATAN REGISTER] Error:', error)
     return NextResponse.json(
       { error: 'Gagal mendaftarkan dokumen: ' + (error instanceof Error ? error.message : 'Unknown error') },
-      { status: 500 }
+      { status: 500 },
     )
   }
 }

@@ -269,46 +269,65 @@ export function SuratManagementView() {
     }
 
     // Step 2: Upload each file using chunked resumable upload (supports ANY file size)
+    // Two-phase strategy to avoid orphaned Drive files:
+    //   Phase A — chunkedUploadFile: upload bytes to Drive. The function already
+    //     has its own internal retries (5× for upload-url, 5× per chunk, 3× for
+    //     session recreation), so we do NOT retry the whole thing here. Re-running
+    //     it would create duplicate orphan files in Drive.
+    //   Phase B — register-document: save the metadata to the surat row. This
+    //     is the step that previously failed on Cloudflare Workers cold isolates
+    //     (Prisma WASM load exceeded 10ms CPU limit). We retry up to 3 times
+    //     with backoff. After the Task 15 libsql fix, this should rarely fail.
     const uploadedDocs: any[] = []
     const docLinks: string[] = []
+    const orphanedDocs: { doc: any; reason: string }[] = [] // uploaded to Drive but unregistered
 
     for (const doc of pendingDocs) {
       const file = doc._pendingFile as File
-      const MAX_UPLOAD_RETRIES = 2
-      let uploadSuccess = false
-      let lastErrorMsg = 'Upload gagal'
 
-      for (let attempt = 0; attempt <= MAX_UPLOAD_RETRIES; attempt++) {
+      // ---- Phase A: chunked upload to Google Drive ----
+      updateStep('upload-docs', 'loading', `Mengupload "${doc.name}"...`)
+      let uploadedFile: { id: string; name: string; webViewLink: string } | null = null
+      try {
+        uploadedFile = await chunkedUploadFile({
+          file,
+          folderId,
+          onProgress: (pct, status) => {
+            setUploadingDocs(prev => prev.map(d => d.id === doc.id ? { ...d, progress: pct, ...(status ? { error: undefined } : {}) } : d))
+          },
+        })
+      } catch (err) {
+        const driveErrMsg = err instanceof Error ? err.message : 'Upload ke Google Drive gagal'
+        console.error(`[SURAT UPLOAD] Chunked upload failed for "${doc.name}":`, driveErrMsg)
+        setUploadingDocs(prev => prev.map(d => d.id === doc.id ? { ...d, status: 'error', error: driveErrMsg } : d))
+        continue // skip registration — file never made it to Drive
+      }
+
+      // Build document metadata (must match backend DocumentMeta shape)
+      const docMeta = {
+        id: `DOC-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+        name: uploadedFile.name,
+        originalName: file.name !== uploadedFile.name ? file.name : undefined,
+        mimeType: file.type || 'application/octet-stream',
+        size: file.size,
+        driveFileId: uploadedFile.id,
+        webViewLink: uploadedFile.webViewLink,
+        downloadUrl: `https://drive.google.com/uc?export=download&id=${uploadedFile.id}`,
+        uploadedAt: new Date().toISOString(),
+      }
+
+      // ---- Phase B: register document metadata to surat (with retries) ----
+      // register-document is the step that previously failed on Cloudflare
+      // Workers due to Prisma WASM cold-start CPU limit (Task 15 fix).
+      const MAX_REG_RETRIES = 3
+      let regOk = false
+      let regErrorMsg = 'Gagal mendaftarkan dokumen'
+
+      for (let regAttempt = 0; regAttempt <= MAX_REG_RETRIES; regAttempt++) {
         try {
-          if (attempt === 0) {
-            updateStep('upload-docs', 'loading', `Mengupload "${doc.name}"...`)
-          } else {
-            updateStep('upload-docs', 'loading', `Percobaan ulang #${attempt} untuk "${doc.name}"...`)
+          if (regAttempt > 0) {
+            updateStep('upload-docs', 'loading', `Mendaftarkan dokumen (percobaan ${regAttempt + 1})...`)
           }
-
-          // Use chunked upload — supports files of ANY size (up to Google Drive's 5 TB limit)
-          const uploadedFile = await chunkedUploadFile({
-            file,
-            folderId,
-            onProgress: (pct, status) => {
-              setUploadingDocs(prev => prev.map(d => d.id === doc.id ? { ...d, progress: pct, ...(status ? { error: undefined } : {}) } : d))
-            },
-          })
-
-          // Build document metadata
-          const docMeta = {
-            id: `DOC-${Date.now()}-${Math.random().toString(36).slice(2)}`,
-            name: uploadedFile.name,
-            originalName: file.name !== uploadedFile.name ? file.name : undefined,
-            mimeType: file.type || 'application/octet-stream',
-            size: file.size,
-            driveFileId: uploadedFile.id,
-            webViewLink: uploadedFile.webViewLink,
-            downloadUrl: `https://drive.google.com/uc?export=download&id=${uploadedFile.id}`,
-            uploadedAt: new Date().toISOString(),
-          }
-
-          // Register document metadata to surat
           const regRes = await fetch('/api/surat/register-document', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -321,29 +340,47 @@ export function SuratManagementView() {
             uploadedDocs.push(finalDoc)
             if (finalDoc.webViewLink) docLinks.push(finalDoc.webViewLink)
             setUploadingDocs(prev => prev.map(d => d.id === doc.id ? { ...d, progress: 100, status: 'success', webViewLink: finalDoc.webViewLink } : d))
-            uploadSuccess = true
+            regOk = true
             break
-          } else {
-            const err = await safeJsonParse(regRes)
-            lastErrorMsg = err?.error || `Gagal mendaftarkan dokumen (HTTP ${regRes.status})`
-            if (regRes.status >= 400 && regRes.status < 500) break
           }
+
+          // Parse error
+          const err = await safeJsonParse(regRes)
+          regErrorMsg = err?.error || `Gagal mendaftarkan dokumen (HTTP ${regRes.status})`
+          // 4xx (except 429) is not retried — client/validation error
+          if (regRes.status >= 400 && regRes.status < 500 && regRes.status !== 429) {
+            console.error(`[SURAT UPLOAD] Register failed (4xx, no retry) for "${doc.name}":`, regErrorMsg)
+            break
+          }
+          // 5xx / 429 — retry
+          console.warn(`[SURAT UPLOAD] Register attempt ${regAttempt + 1} failed for "${doc.name}":`, regErrorMsg)
         } catch (err) {
-          lastErrorMsg = err instanceof Error ? err.message : 'Upload gagal'
-          console.error(`[SURAT UPLOAD] Attempt ${attempt + 1} error for "${doc.name}":`, lastErrorMsg)
+          regErrorMsg = err instanceof Error ? err.message : 'Gagal mendaftarkan dokumen'
+          console.warn(`[SURAT UPLOAD] Register attempt ${regAttempt + 1} network error for "${doc.name}":`, regErrorMsg)
         }
 
-        if (attempt < MAX_UPLOAD_RETRIES) {
-          await new Promise(r => setTimeout(r, 800 * (attempt + 1)))
+        if (regAttempt < MAX_REG_RETRIES) {
+          await new Promise(r => setTimeout(r, 1000 * (regAttempt + 1))) // 1s, 2s, 3s backoff
         }
       }
 
-      if (!uploadSuccess) {
-        console.error(`[SURAT UPLOAD] Failed "${doc.name}" after retries:`, lastErrorMsg)
-        setUploadingDocs(prev => prev.map(d => d.id === doc.id ? { ...d, status: 'error', error: lastErrorMsg } : d))
+      if (!regOk) {
+        // File IS in Drive but metadata was not registered. Track as orphan
+        // so the user can be informed — they can manually re-add the document
+        // link later, or the admin can find the file in the Drive folder.
+        console.error(`[SURAT UPLOAD] Register failed for "${doc.name}" after ${MAX_REG_RETRIES + 1} attempts. File ${uploadedFile.id} is orphaned in Drive.`)
+        orphanedDocs.push({ doc: docMeta, reason: regErrorMsg })
+        setUploadingDocs(prev => prev.map(d => d.id === doc.id ? { ...d, status: 'error', error: `File terupload ke Drive tetapi gagal disimpan: ${regErrorMsg}` } : d))
       }
     }
-    return { finalDocs: [...docs.filter((d: any) => !d._pendingFile), ...uploadedDocs], docLinks }
+
+    // Surface orphaned-file warning to the user via console + return value.
+    // The caller (handleSaveSurat) will display a summary in the progress modal.
+    if (orphanedDocs.length > 0) {
+      console.warn(`[SURAT UPLOAD] ${orphanedDocs.length} file(s) uploaded to Drive but not registered to surat:`, orphanedDocs)
+    }
+
+    return { finalDocs: [...docs.filter((d: any) => !d._pendingFile), ...uploadedDocs], docLinks, orphanedDocs }
   }
 
   const openCreateForm = (jenisSurat: 'Surat Masuk' | 'Surat Keluar') => {
@@ -561,7 +598,7 @@ export function SuratManagementView() {
       // --- STEP 2: Upload documents (folder created automatically if needed) ---
       if (hasPending) {
         const suratId = editingId || suratData.id
-        const { finalDocs, docLinks } = await uploadDocumentsToDrive(suratId, formData.documents)
+        const { finalDocs, docLinks, orphanedDocs } = await uploadDocumentsToDrive(suratId, formData.documents)
         // Update form documents to reflect upload results
         setFormData(prev => ({ ...prev, documents: finalDocs }))
         const successCount = docLinks.length
@@ -571,11 +608,19 @@ export function SuratManagementView() {
           setSaveProgress(prev => prev ? { ...prev, docLinks } : null)
         }
         if (failCount > 0) {
-          updateStep('upload-docs', successCount > 0 ? 'success' : 'error',
-            successCount > 0
-              ? `${successCount} berhasil, ${failCount} gagal diupload`
-              : `${failCount} dokumen gagal diupload`
-          )
+          // Distinguish "Drive upload failed" from "registered-failed-but-file-in-Drive".
+          // The latter means the file IS in the surat's Drive folder, just not
+          // linked from the surat row. The user can find it manually in Drive.
+          const orphanCount = orphanedDocs?.length || 0
+          const totalFail = failCount
+          const driveFailCount = totalFail - orphanCount
+          const detail =
+            orphanCount > 0 && driveFailCount > 0
+              ? `${successCount} berhasil, ${driveFailCount} gagal upload, ${orphanCount} di Drive tetapi tidak tersimpan ke surat`
+              : orphanCount > 0
+                ? `${successCount} berhasil, ${orphanCount} file terupload ke Drive tetapi gagal tersimpan ke surat (cek folder Drive surat)`
+                : `${successCount} berhasil, ${totalFail} gagal diupload`
+          updateStep('upload-docs', successCount > 0 ? 'success' : 'error', detail)
         }
       } else {
         // No docs to upload, mark upload step as success
@@ -631,7 +676,7 @@ export function SuratManagementView() {
       // --- STEP 2: Upload documents ---
       if (hasPending) {
         const suratId = lastSavePayload.editingId || suratData.id
-        const { finalDocs, docLinks } = await uploadDocumentsToDrive(suratId, formData.documents)
+        const { finalDocs, docLinks, orphanedDocs } = await uploadDocumentsToDrive(suratId, formData.documents)
         setFormData(prev => ({ ...prev, documents: finalDocs }))
         const successCount = docLinks.length
         const failCount = formData.documents.filter((d: any) => d._pendingFile).length - successCount
@@ -640,9 +685,15 @@ export function SuratManagementView() {
           setSaveProgress(prev => prev ? { ...prev, docLinks } : null)
         }
         if (failCount > 0) {
-          updateStep('upload-docs', successCount > 0 ? 'success' : 'error',
-            successCount > 0 ? `${successCount} berhasil, ${failCount} gagal diupload` : `${failCount} dokumen gagal diupload`
-          )
+          const orphanCount = orphanedDocs?.length || 0
+          const driveFailCount = failCount - orphanCount
+          const detail =
+            orphanCount > 0 && driveFailCount > 0
+              ? `${successCount} berhasil, ${driveFailCount} gagal upload, ${orphanCount} di Drive tetapi tidak tersimpan ke surat`
+              : orphanCount > 0
+                ? `${successCount} berhasil, ${orphanCount} file terupload ke Drive tetapi gagal tersimpan ke surat (cek folder Drive surat)`
+                : `${successCount} berhasil, ${failCount} gagal diupload`
+          updateStep('upload-docs', successCount > 0 ? 'success' : 'error', detail)
         }
       } else {
         updateStep('upload-docs', 'success')

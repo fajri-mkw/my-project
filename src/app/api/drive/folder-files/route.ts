@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getLibsql } from '@/lib/libsql-client'
-import { getCachedAccessToken } from '@/lib/drive-service'
+import { getCachedAccessToken, resolveDriveTarget } from '@/lib/drive-service'
 
 // ============================================================================
 // GET /api/drive/folder-files?folderId=XXX
@@ -20,25 +20,40 @@ import { getCachedAccessToken } from '@/lib/drive-service'
 // intentionally lightweight (1 Drive API subrequest + 1 libsql settings
 // read = 2 subrequests total, well within Cloudflare Workers' 50-subreq
 // free-plan limit).
+//
+// DUAL-MODE (Task: folder-mode project initiation fix):
+// Previously this route ONLY supported Shared Drive mode — it validated
+// `driveSharedDriveId` and always queried with `corpora=drive` +
+// `driveId=<sharedDriveId>`. In "Folder di My Drive" mode (driveFolderId),
+// admins saw "Drive not configured" and the petugas completion checkbox
+// never unlocked even though uploads worked. Now the query params are
+// chosen per mode:
+//   - shared mode: corpora=drive + driveId=<sharedDriveId>
+//   - folder mode: default user corpus (no driveId) — the Service Account
+//     can see the shared My Drive folder via supportsAllDrives.
 // ============================================================================
 
 interface DriveSettings {
   driveServiceAccountKey: string | null
+  driveMode: string | null
   driveSharedDriveId: string | null
+  driveFolderId: string | null
 }
 
 async function readDriveSettings(): Promise<DriveSettings | null> {
   try {
     const client = getLibsql()
     const res = await client.execute({
-      sql: `SELECT driveServiceAccountKey, driveSharedDriveId FROM settings WHERE id = 'main' LIMIT 1`,
+      sql: `SELECT driveServiceAccountKey, driveMode, driveSharedDriveId, driveFolderId FROM settings WHERE id = 'main' LIMIT 1`,
       args: [],
     })
     if (res.rows.length === 0) return null
     const row = res.rows[0] as Record<string, unknown>
     return {
       driveServiceAccountKey: (row.driveServiceAccountKey as string | null) ?? null,
+      driveMode: (row.driveMode as string | null) ?? null,
       driveSharedDriveId: (row.driveSharedDriveId as string | null) ?? null,
+      driveFolderId: (row.driveFolderId as string | null) ?? null,
     }
   } catch (error) {
     console.error('[FOLDER-FILES] readDriveSettings error:', error)
@@ -69,9 +84,21 @@ export async function GET(request: NextRequest) {
     }
 
     const settings = await readDriveSettings()
-    if (!settings?.driveServiceAccountKey || !settings?.driveSharedDriveId) {
+    if (!settings?.driveServiceAccountKey) {
       return NextResponse.json(
-        { error: 'Drive not configured. Admin must set Service Account Key and Shared Drive ID in Settings.' },
+        { error: 'Drive not configured. Admin must set Service Account Key in Settings.' },
+        { status: 400 },
+      )
+    }
+
+    // Resolve the Drive target — mode-aware (mirrors resolveDriveTarget logic).
+    // Returns null when the mode-appropriate root ID is missing.
+    const target = resolveDriveTarget(settings)
+    if (!target) {
+      return NextResponse.json(
+        {
+          error: 'Drive not configured. Admin must set Shared Drive ID (Shared Drive mode) or Drive Folder ID (My Drive folder mode) in Settings.',
+        },
         { status: 400 },
       )
     }
@@ -79,20 +106,26 @@ export async function GET(request: NextRequest) {
     const accessToken = await getCachedAccessToken(settings.driveServiceAccountKey)
 
     // List files in the folder.
-    // For Shared Drives, must pass corpora=drive + driveId + supportsAllDrives +
-    // includeItemsFromAllDrives. We also filter trashed=false so deleted files
-    // don't count toward the "minimum 1 file" gate.
+    // Mode-specific query params:
+    //   - Shared Drive mode: corpora=drive + driveId + includeItemsFromAllDrives
+    //     (required to search inside a Shared Drive).
+    //   - Folder mode (My Drive): NO driveId/corpora — the default user corpus
+    //     already includes folders shared with the Service Account.
+    // Both modes: supportsAllDrives + trashed=false so deleted files don't
+    // count toward the "minimum 1 file" gate.
     const q = `'${folderId.replace(/'/g, "\\'")}' in parents and trashed=false`
     const params = new URLSearchParams({
       q,
-      corpora: 'drive',
-      driveId: settings.driveSharedDriveId,
-      includeItemsFromAllDrives: 'true',
       supportsAllDrives: 'true',
       fields: 'files(id,name,mimeType,size,modifiedTime)',
       pageSize: '100', // cap to avoid huge responses; 100 is enough for a "is there anything?" check
       orderBy: 'modifiedTime desc',
     })
+    if (target.isSharedDrive) {
+      params.set('corpora', 'drive')
+      params.set('driveId', target.rootId)
+      params.set('includeItemsFromAllDrives', 'true')
+    }
 
     const listUrl = `https://www.googleapis.com/drive/v3/files?${params}`
     const response = await fetch(listUrl, {

@@ -364,20 +364,42 @@ export async function readProjectForUpload(projectId: string): Promise<{
  * directly so we avoid Prisma + ensureDbConnection overhead.
  *
  * Only updates the columns supplied; others are left untouched.
+ *
+ * NOTE: `updatedAt` is set to epoch-ms (`Date.now()`) via a bound parameter,
+ * NOT via `CURRENT_TIMESTAMP`. The surat table stores DateTime as INTEGER
+ * epoch-ms (per Prisma's SQLite adapter convention); using `CURRENT_TIMESTAMP`
+ * would store a TEXT string like "2026-10-23 00:50:00" — which toDateISO can
+ * still parse but is inconsistent with rows created via the POST /api/surat
+ * endpoint (which uses `bind(now)`). Keeping the storage format consistent
+ * avoids subtle sort/comparison bugs.
  */
 export async function updateSuratFields(
   suratId: string,
   patch: Record<string, string | null>,
 ): Promise<boolean> {
-  if (Object.keys(patch).length === 0) return true
+  if (Object.keys(patch).length === 0) {
+    // Even with an empty patch, bump updatedAt so callers can detect a write.
+    try {
+      const client = getLibsql()
+      await client.execute({
+        sql: `UPDATE surat SET "updatedAt" = ? WHERE id = ?`,
+        args: [bind(Date.now()), bind(suratId)],
+      })
+      return true
+    } catch (error) {
+      console.error('[DRIVE HELPERS] updateSuratFields (empty patch) error:', error)
+      return false
+    }
+  }
   try {
     const client = getLibsql()
     const cols = Object.keys(patch)
     const setClause = cols.map((c) => `"${c}" = ?`).join(', ')
     const args = cols.map((c) => bind(patch[c] ?? null))
+    args.push(bind(Date.now()))
     args.push(bind(suratId))
     await client.execute({
-      sql: `UPDATE surat SET ${setClause}, "updatedAt" = CURRENT_TIMESTAMP WHERE id = ?`,
+      sql: `UPDATE surat SET ${setClause}, "updatedAt" = ? WHERE id = ?`,
       args,
     })
     return true
@@ -389,20 +411,35 @@ export async function updateSuratFields(
 
 /**
  * Update a `program_kegiatan` row with the given patch.
+ *
+ * Same epoch-ms convention as updateSuratFields — see note there.
  */
 export async function updateKegiatanFields(
   kegiatanId: string,
   patch: Record<string, string | null>,
 ): Promise<boolean> {
-  if (Object.keys(patch).length === 0) return true
+  if (Object.keys(patch).length === 0) {
+    try {
+      const client = getLibsql()
+      await client.execute({
+        sql: `UPDATE program_kegiatan SET "updatedAt" = ? WHERE id = ?`,
+        args: [bind(Date.now()), bind(kegiatanId)],
+      })
+      return true
+    } catch (error) {
+      console.error('[DRIVE HELPERS] updateKegiatanFields (empty patch) error:', error)
+      return false
+    }
+  }
   try {
     const client = getLibsql()
     const cols = Object.keys(patch)
     const setClause = cols.map((c) => `"${c}" = ?`).join(', ')
     const args = cols.map((c) => bind(patch[c] ?? null))
+    args.push(bind(Date.now()))
     args.push(bind(kegiatanId))
     await client.execute({
-      sql: `UPDATE program_kegiatan SET ${setClause}, "updatedAt" = CURRENT_TIMESTAMP WHERE id = ?`,
+      sql: `UPDATE program_kegiatan SET ${setClause}, "updatedAt" = ? WHERE id = ?`,
       args,
     })
     return true
@@ -414,20 +451,35 @@ export async function updateKegiatanFields(
 
 /**
  * Update a `projects` row with the given patch.
+ *
+ * Same epoch-ms convention as updateSuratFields — see note there.
  */
 export async function updateProjectFields(
   projectId: string,
   patch: Record<string, string | null>,
 ): Promise<boolean> {
-  if (Object.keys(patch).length === 0) return true
+  if (Object.keys(patch).length === 0) {
+    try {
+      const client = getLibsql()
+      await client.execute({
+        sql: `UPDATE projects SET "updatedAt" = ? WHERE id = ?`,
+        args: [bind(Date.now()), bind(projectId)],
+      })
+      return true
+    } catch (error) {
+      console.error('[DRIVE HELPERS] updateProjectFields (empty patch) error:', error)
+      return false
+    }
+  }
   try {
     const client = getLibsql()
     const cols = Object.keys(patch)
     const setClause = cols.map((c) => `"${c}" = ?`).join(', ')
     const args = cols.map((c) => bind(patch[c] ?? null))
+    args.push(bind(Date.now()))
     args.push(bind(projectId))
     await client.execute({
-      sql: `UPDATE projects SET ${setClause}, "updatedAt" = CURRENT_TIMESTAMP WHERE id = ?`,
+      sql: `UPDATE projects SET ${setClause}, "updatedAt" = ? WHERE id = ?`,
       args,
     })
     return true

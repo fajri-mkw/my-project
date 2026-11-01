@@ -606,8 +606,20 @@ export function CreateProjectView() {
           if (response.ok) {
             const data = await response.json()
             // Drive dianggap "terhubung" (mampu membuat folder asli) ketika
-            // Service Account Key DAN Shared Drive ID keduanya sudah diisi.
-            setDriveConnected(!!data.hasServiceAccountKey && !!data.driveSharedDriveId)
+            // Service Account Key DAN mode-appropriate root ID sudah diisi:
+            //   - mode 'folder' → driveFolderId (folder My Drive yang dibagikan
+            //     ke Service Account)
+            //   - mode 'shared' (default) → driveSharedDriveId (Shared Drive)
+            // This mirrors the backend resolveDriveTarget() logic in
+            // src/lib/drive-service.ts. Previously this check ONLY looked at
+            // driveSharedDriveId, so admins who configured "Folder di My Drive"
+            // mode saw "Google Drive Belum Terhubung" and managers could not
+            // initiate projects even though Drive was fully connected.
+            const isFolderMode = data.driveMode === 'folder'
+            const hasRootId = isFolderMode
+              ? !!data.driveFolderId
+              : !!data.driveSharedDriveId
+            setDriveConnected(!!data.hasServiceAccountKey && hasRootId)
             return
           }
           // Non-OK response — retry on 5xx (CF CPU limit)
@@ -730,7 +742,13 @@ export function CreateProjectView() {
           const recheckResp = await fetch('/api/settings')
           if (recheckResp.ok) {
             const recheckData = await recheckResp.json()
-            driveVerified = !!recheckData.hasServiceAccountKey && !!recheckData.driveSharedDriveId
+            // Mode-aware check — mirrors resolveDriveTarget() on the backend.
+            // 'folder' mode → driveFolderId; 'shared' mode → driveSharedDriveId.
+            const isFolderMode = recheckData.driveMode === 'folder'
+            const hasRootId = isFolderMode
+              ? !!recheckData.driveFolderId
+              : !!recheckData.driveSharedDriveId
+            driveVerified = !!recheckData.hasServiceAccountKey && hasRootId
             if (driveVerified) {
               setDriveConnected(true) // update state so UI reflects the corrected status
             }
@@ -744,7 +762,8 @@ export function CreateProjectView() {
         setIsCreatingProject(false)
         showAlert(
           'Google Drive BELUM terhubung. Proyek TIDAK dapat diinisiasi.\n\n' +
-          'Hubungi Super Admin untuk mengonfigurasi Service Account Key & Shared Drive ID ' +
+          'Hubungi Super Admin untuk mengonfigurasi Service Account Key dan ' +
+          'Shared Drive ID (mode Shared Drive) atau Drive Folder ID (mode Folder di My Drive) ' +
           'di menu Pengaturan → Google Drive. Setelah Drive terhubung, Anda dapat ' +
           'menginisiasi proyek dan petugas dapat mengunggah file tanpa error.'
         )
@@ -1702,8 +1721,9 @@ export function CreateProjectView() {
                 <p className="text-sm text-red-700">
                   <span className="font-medium">Solusi:</span> Minta Super Admin membuka menu
                   <span className="font-medium"> Pengaturan → Google Drive</span> dan mengisi
-                  <span className="font-medium"> Service Account Key</span> &amp;
-                  <span className="font-medium"> Shared Drive ID</span>.
+                  <span className="font-medium"> Service Account Key</span> beserta
+                  <span className="font-medium"> Shared Drive ID</span> (mode Shared Drive) atau
+                  <span className="font-medium"> Drive Folder ID</span> (mode Folder di My Drive).
                 </p>
               </div>
             </div>
@@ -2706,8 +2726,9 @@ export function CreateProjectView() {
                 <p className="text-sm text-red-700">
                   Tombol &quot;Inisiasi Proyek&quot; dinonaktifkan hingga Drive terhubung.
                   Hubungi <span className="font-medium">Super Admin</span> untuk mengonfigurasi
-                  <span className="font-medium"> Service Account Key</span> &amp;
-                  <span className="font-medium"> Shared Drive ID</span> di menu
+                  <span className="font-medium"> Service Account Key</span> beserta
+                  <span className="font-medium"> Shared Drive ID</span> (mode Shared Drive) atau
+                  <span className="font-medium"> Drive Folder ID</span> (mode Folder di My Drive) di menu
                   <span className="font-medium"> Pengaturan → Google Drive</span>.
                 </p>
                 <p className="text-xs text-red-600 mt-2">

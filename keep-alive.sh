@@ -1,6 +1,6 @@
 #!/bin/bash
 export DATABASE_URL="file:/home/z/my-project/db/custom.db"
-export NODE_OPTIONS="--max-old-space-size=4096"
+export NODE_OPTIONS="--max-old-space-size=2048"
 cd /home/z/my-project
 
 while true; do

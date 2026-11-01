@@ -1,5 +1,227 @@
+[patch-libsql] Starting patches...
+[patch-libsql] Found @libsql/client at: node_modules/@libsql/client
+[patch-libsql]   ✓ node.js → web.js content
+[patch-libsql]   ✓ lib-cjs/node.js → web.js content
+[patch-libsql]   ✓ exports → all point to node.js
+[patch-libsql]   ✓ sqlite3.js stubbed
+[patch-libsql]   ✓ lib-cjs/sqlite3.js stubbed
+[patch-libsql] Found @libsql/client at: node_modules/@prisma/adapter-libsql/node_modules/@libsql/client
+[patch-libsql]   ✓ node.js → web.js content
+[patch-libsql]   ✓ lib-cjs/node.js → web.js content
+[patch-libsql]   ✓ exports → all point to node.js
+[patch-libsql]   ✓ sqlite3.js stubbed
+[patch-libsql]   ✓ lib-cjs/sqlite3.js stubbed
+[patch-libsql] Found @libsql/isomorphic-ws at: node_modules/@libsql/isomorphic-ws
+[patch-libsql]   ✓ node.mjs → web.mjs content
+[patch-libsql]   ✓ node.cjs → web.cjs content
+[patch-libsql]   ✓ exports → all point to node.mjs
+[patch-libsql] Done.
+[patch-libsql] .prisma/client #main-entry-point → all → wasm.js
+[patch-libsql] .prisma/client/default.js → direct require wasm.js
+[patch-libsql] @prisma/client/default.js → direct wasm.js
+[patch-libsql] .prisma/client/index.js runtime → wasm-engine-edge.js
+[patch-libsql] node_modules/.prisma/client/index.js engineType → wasm
+[patch-libsql] node_modules/.prisma/client/wasm.js engineType → wasm
+[patch-libsql] Found node-fetch@? at: node_modules/node-fetch
+[patch-libsql]   ✓ lib/index.js → native fetch shim
+[patch-libsql]   ✓ lib/index.mjs → native fetch shim (ESM)
+[patch-libsql]   ✓ browser.js → native fetch shim
+[patch-libsql] Found node-fetch@? at: node_modules/gaxios/node_modules/node-fetch
+[patch-libsql] Found node-fetch@? at: node_modules/@types/node-fetch
+[patch-libsql] Found node-fetch@? at: node_modules/@prisma/adapter-libsql/node_modules/@libsql/client/node_modules/@libsql/hrana-client/node_modules/node-fetch
+[patch-libsql] Found https-proxy-agent at: node_modules/https-proxy-agent
+[patch-libsql]   ✓ dist/index.js → stub
+[patch-libsql] Found https-proxy-agent at: node_modules/next/dist/compiled/https-proxy-agent
+[patch-libsql] ✓ node_modules/gaxios/build/esm/src/gaxios.js → hasWindow=true, uses native fetch
+[patch-libsql] ✓ node_modules/gaxios/build/cjs/src/gaxios.js → hasWindow=true, uses native fetch
+Environment variables loaded from .env
+Prisma schema loaded from prisma/schema.prisma
 
- ⛅️ wrangler 4.151.1
+✔ Generated Prisma Client (v6.19.2) to ./node_modules/@prisma/client in 172ms
+
+Start by importing your Prisma Client (See: https://pris.ly/d/importing-client)
+
+Tip: Want to turn off tips and other hints? https://pris.ly/tip-4-nohints
+
+[patch-libsql] Starting patches...
+[patch-libsql] Found @libsql/client at: node_modules/@libsql/client
+[patch-libsql] Found @libsql/client at: node_modules/@prisma/adapter-libsql/node_modules/@libsql/client
+[patch-libsql] Found @libsql/isomorphic-ws at: node_modules/@libsql/isomorphic-ws
+[patch-libsql] Done.
+[patch-libsql] .prisma/client #main-entry-point → all → wasm.js
+[patch-libsql] .prisma/client/default.js → direct require wasm.js
+[patch-libsql] .prisma/client/index.js runtime → wasm-engine-edge.js
+[patch-libsql] node_modules/.prisma/client/index.js engineType → wasm
+[patch-libsql] node_modules/.prisma/client/wasm.js engineType → wasm
+[patch-libsql] Found node-fetch@? at: node_modules/node-fetch
+[patch-libsql]   ✓ lib/index.js → native fetch shim
+[patch-libsql]   ✓ lib/index.mjs → native fetch shim (ESM)
+[patch-libsql]   ✓ browser.js → native fetch shim
+[patch-libsql] Found node-fetch@? at: node_modules/gaxios/node_modules/node-fetch
+[patch-libsql] Found node-fetch@? at: node_modules/@types/node-fetch
+[patch-libsql] Found node-fetch@? at: node_modules/@prisma/adapter-libsql/node_modules/@libsql/client/node_modules/@libsql/hrana-client/node_modules/node-fetch
+[patch-libsql] Found https-proxy-agent at: node_modules/https-proxy-agent
+[patch-libsql]   ✓ dist/index.js → stub
+[patch-libsql] Found https-proxy-agent at: node_modules/next/dist/compiled/https-proxy-agent
+
+┌─────────────────────────────┐
+│ OpenNext — Cloudflare build │
+└─────────────────────────────┘
+
+App directory: /home/z/my-project
+Next.js version : 15.5.14
+@opennextjs/cloudflare version: 1.20.15
+@opennextjs/aws version: 4.1.14
+WARN workerd compatibility_date: 2024-09-23, consider updating your wrangler config to a more recent date to benefit from the latest features and fixes.
+
+┌─────────────────────────────────┐
+│ OpenNext — Building Next.js app │
+└─────────────────────────────────┘
+
+$ prisma generate && next build --experimental-build-mode=compile
+Environment variables loaded from .env
+Prisma schema loaded from prisma/schema.prisma
+
+✔ Generated Prisma Client (v6.19.2) to ./node_modules/@prisma/client in 200ms
+
+Start by importing your Prisma Client (See: https://pris.ly/d/importing-client)
+
+Tip: Want to turn off tips and other hints? https://pris.ly/tip-4-nohints
+
+   ▲ Next.js 15.5.14
+   - Environments: .env
+
+   Creating an optimized production build ...
+
+
+Retrying 1/3...
+ ⚠ Compiled with warnings in 22.3s
+
+./src/lib/libsql-client.ts
+Critical dependency: require function is used in a way in which dependencies cannot be statically extracted
+
+Import trace for requested module:
+./src/lib/libsql-client.ts
+./src/app/api/drive-folders/route.ts
+
+
+
+Retrying 1/3...
+ ✓ Compiled successfully in 30.3s
+   Collecting page data ...
+   Finalizing page optimization ...
+   Collecting build traces ...
+   Build ran with "compile" mode, to finalize the build run either "generate" or "generate-env" mode as well
+
+Route (app)                                     Size  First Load JS
+┌ ƒ /
+├ ƒ /_not-found
+├ ƒ /api
+├ ƒ /api/auth/change-password
+├ ƒ /api/auth/login
+├ ƒ /api/debug
+├ ƒ /api/diag-db
+├ ƒ /api/drive
+├ ƒ /api/drive-folders
+├ ƒ /api/drive/create-user-subfolders
+├ ƒ /api/drive/folder-files
+├ ƒ /api/drive/upload-chunk
+├ ƒ /api/drive/upload-complete
+├ ƒ /api/drive/upload-url
+├ ƒ /api/drive/warmup
+├ ƒ /api/email
+├ ƒ /api/external-links
+├ ƒ /api/health
+├ ƒ /api/inventory
+├ ƒ /api/inventory/distributions
+├ ƒ /api/inventory/history
+├ ƒ /api/inventory/loans
+├ ƒ /api/inventory/proxy-image
+├ ƒ /api/inventory/upload-image
+├ ƒ /api/lihum/publish
+├ ƒ /api/maintenance
+├ ƒ /api/migrate-award-fields
+├ ƒ /api/migrate-d1-indexes
+├ ƒ /api/migrate-drive-mode
+├ ƒ /api/migrate-inventory-fields
+├ ƒ /api/migrate-inventory-tables
+├ ƒ /api/migrate-lihum-field
+├ ƒ /api/migrate-loan-fields
+├ ƒ /api/migrate-loan-photo-fields
+├ ƒ /api/migrate-merge-content-creator
+├ ƒ /api/migrate-relasi-example
+├ ƒ /api/migrate-relasi-tables
+├ ƒ /api/migrate-to-d1
+├ ƒ /api/migrate-wa-provider
+├ ƒ /api/notification-settings
+├ ƒ /api/notifications
+├ ƒ /api/permohonan
+├ ƒ /api/permohonan/[id]
+├ ƒ /api/program-kegiatan
+├ ƒ /api/program-kegiatan/migrate
+├ ƒ /api/program-kegiatan/prepare-upload
+├ ƒ /api/program-kegiatan/register-document
+├ ƒ /api/program-kegiatan/upload-document
+├ ƒ /api/projects
+├ ƒ /api/projects/add-task
+├ ƒ /api/projects/award
+├ ƒ /api/projects/prepare-upload
+├ ƒ /api/projects/reassign-task
+├ ƒ /api/projects/register-document
+├ ƒ /api/projects/remove-task
+├ ƒ /api/projects/repair
+├ ƒ /api/projects/upload-document
+├ ƒ /api/public-tracker
+├ ƒ /api/rekapitulasi
+├ ƒ /api/relasi
+├ ƒ /api/relasi/download
+├ ƒ /api/relasi/public
+├ ƒ /api/relasi/submissions
+├ ƒ /api/seed
+├ ƒ /api/settings
+├ ƒ /api/setup-surat-table
+├ ƒ /api/share
+├ ƒ /api/sop
+├ ƒ /api/statistik
+├ ƒ /api/surat
+├ ƒ /api/surat-tugas
+├ ƒ /api/surat-tugas/pdf
+├ ƒ /api/surat/prepare-upload
+├ ƒ /api/surat/register-document
+├ ƒ /api/surat/restore
+├ ƒ /api/surat/upload-document
+├ ƒ /api/tasks
+├ ƒ /api/user-notif-prefs
+├ ƒ /api/users
+├ ƒ /api/users/change-password
+├ ƒ /api/users/reset-password
+└ ƒ /api/users/reviewer-settings
++ First Load JS shared by all                 103 kB
+  ├ chunks/1255-7b8fc56f601f17cf.js          45.9 kB
+  ├ chunks/4bd1b696-100b9d70ed4e49c1.js      54.2 kB
+  └ other shared chunks (total)              2.75 kB
+
+
+ƒ  (Dynamic)  server-rendered on demand
+
+
+┌──────────────────────────────┐
+│ OpenNext — Generating bundle │
+└──────────────────────────────┘
+
+Bundling middleware function...
+Bundling static assets...
+Bundling cache assets...
+Building server function: default...
+Applying code patches: 3.703s
+# copyPackageTemplateFiles
+[35m⚙️ Bundling the OpenNext server...
+[0m
+[35mWorker saved in `.open-next/worker.js` 🚀
+[0m
+OpenNext build complete.
+
+ ⛅️ wrangler 4.156.0
 ────────────────────
 OpenNext project detected, calling `opennextjs-cloudflare deploy`
 
@@ -10,36 +232,33 @@ OpenNext project detected, calling `opennextjs-cloudflare deploy`
 Incremental cache does not need populating
 Tag cache does not need populating
 
- ⛅️ wrangler 4.151.1
+ ⛅️ wrangler 4.156.0
 ────────────────────
 
 Cloudflare collects anonymous telemetry about your usage of Wrangler. Learn more at https://github.com/cloudflare/workers-sdk/tree/main/packages/wrangler/telemetry.md
 🌀 Building list of assets...
 ✨ Read 282 files from the assets directory /home/z/my-project/.open-next/assets
 🌀 Starting asset upload...
-🌀 Found 6 new or modified static assets to upload. Proceeding with upload...
+🌀 Found 3 new or modified static assets to upload. Proceeding with upload...
 + /BUILD_ID
-+ /_next/static/chunks/webpack-a011889f13e96361.js
-+ /_next/static/chunks/app/api/route-2adac199747acff3.js
-+ /_next/static/chunks/6941.240d3215c98e450f.js
-+ /_next/static/ic3FvC-cycyxeA5mChzvI/_buildManifest.js
-+ /_next/static/chunks/19.05b3e7b4229455c4.js
-Uploaded 2 of 6 assets
-Uploaded 4 of 6 assets
-Uploaded 6 of 6 assets
-✨ Success! Uploaded 6 files (183 already uploaded) (1.31 sec)
++ /_next/static/chunks/webpack-f6240cd34a9a19df.js
++ /_next/static/chunks/1827.faee1aa427bf51bd.js
+Uploaded 1 of 3 assets
+Uploaded 2 of 3 assets
+Uploaded 3 of 3 assets
+✨ Success! Uploaded 3 files (186 already uploaded) (1.16 sec)
 
-Total Upload: 27486.23 KiB / gzip: 2891.65 KiB
-Worker Startup Time: 17 ms
+Total Upload: 27523.06 KiB / gzip: 2899.76 KiB
+Worker Startup Time: 12 ms
 Your Worker has access to the following bindings:
 Binding                                          Resource                  
 env.DB (pushakin-db)                             D1 Database               
 env.ASSETS                                       Assets                    
 env.NEXT_PUBLIC_APP_NAME ("Pushakin Flows")      Environment Variable      
 
-Uploaded app (11.94 sec)
-Deployed app triggers (0.87 sec)
+Uploaded app (11.75 sec)
+Deployed app triggers (0.66 sec)
   https://app.pushakin-flows.workers.dev
-Current Version ID: a1966c46-80c5-42fb-a9ae-f8be25b3388c
-(node:1833) [DEP0190] DeprecationWarning: Passing args to a child process with shell option true can lead to security vulnerabilities, as the arguments are not escaped, only concatenated.
+Current Version ID: a187d8bc-e0b1-4681-8dca-26cabd1eb0f2
+(node:2952) [DEP0190] DeprecationWarning: Passing args to a child process with shell option true can lead to security vulnerabilities, as the arguments are not escaped, only concatenated.
 (Use `node --trace-deprecation ...` to show where the warning was created)
