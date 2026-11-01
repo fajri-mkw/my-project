@@ -597,12 +597,17 @@ export function CreateProjectView() {
   // CANNOT initiate a project (mock folder fallback has been removed to
   // prevent the "Folder tidak valid" error that workers hit when uploading
   // to mock/placeholder folders).
+  // NOTE: `cache: 'no-store'` memaksa fetch melewati HTTP cache browser.
+  // Tanpa ini, setelah admin mengubah konfigurasi Drive (misal pindah ke
+  // mode Folder di My Drive), browser masih menyajikan respons lama
+  // (bisa hingga 10 menit) sehingga status "terhubung" terbaca salah dan
+  // manajer diblokir dari inisiasi proyek.
   useEffect(() => {
     const fetchSettings = async () => {
       const MAX_RETRIES = 2
       for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
         try {
-          const response = await fetch('/api/settings')
+          const response = await fetch('/api/settings', { cache: 'no-store' })
           if (response.ok) {
             const data = await response.json()
             // Drive dianggap "terhubung" (mampu membuat folder asli) ketika
@@ -737,24 +742,35 @@ export function CreateProjectView() {
       // folder fallback (mock folders cause "Folder tidak valid" for workers).
       let driveVerified = driveConnected
       if (!driveVerified) {
-        // Re-fetch settings with retry in case the mount-time fetch failed
-        try {
-          const recheckResp = await fetch('/api/settings')
-          if (recheckResp.ok) {
-            const recheckData = await recheckResp.json()
-            // Mode-aware check — mirrors resolveDriveTarget() on the backend.
-            // 'folder' mode → driveFolderId; 'shared' mode → driveSharedDriveId.
-            const isFolderMode = recheckData.driveMode === 'folder'
-            const hasRootId = isFolderMode
-              ? !!recheckData.driveFolderId
-              : !!recheckData.driveSharedDriveId
-            driveVerified = !!recheckData.hasServiceAccountKey && hasRootId
-            if (driveVerified) {
-              setDriveConnected(true) // update state so UI reflects the corrected status
+        // Re-fetch settings with retry in case the mount-time fetch failed.
+        // Retry pattern sama dengan fetchSettings saat mount — cold isolates
+        // sering 5xx pada percobaan pertama lalu sukses pada percobaan kedua.
+        // `cache: 'no-store'` penting: tanpa ini, recheck bisa membaca copy
+        // STALE dari HTTP cache browser (disimpan hingga 10 menit) dan
+        // memblokir proyek padahal Drive sudah dikonfigurasi.
+        const MAX_RECHECK_RETRIES = 2
+        for (let attempt = 0; attempt <= MAX_RECHECK_RETRIES && !driveVerified; attempt++) {
+          try {
+            const recheckResp = await fetch('/api/settings', { cache: 'no-store' })
+            if (recheckResp.ok) {
+              const recheckData = await recheckResp.json()
+              // Mode-aware check — mirrors resolveDriveTarget() on the backend.
+              // 'folder' mode → driveFolderId; 'shared' mode → driveSharedDriveId.
+              const isFolderMode = recheckData.driveMode === 'folder'
+              const hasRootId = isFolderMode
+                ? !!recheckData.driveFolderId
+                : !!recheckData.driveSharedDriveId
+              driveVerified = !!recheckData.hasServiceAccountKey && hasRootId
+              if (driveVerified) {
+                setDriveConnected(true) // update state so UI reflects the corrected status
+              }
             }
+          } catch {
+            // Re-fetch failed — retry after backoff
           }
-        } catch {
-          // Re-fetch also failed — driveVerified stays false
+          if (!driveVerified && attempt < MAX_RECHECK_RETRIES) {
+            await new Promise(r => setTimeout(r, 800 * (attempt + 1)))
+          }
         }
       }
 
@@ -862,7 +878,15 @@ export function CreateProjectView() {
         parentFolderId?: string
       }> = []
 
-      if (driveConnected) {
+      // PENTING: Gunakan `driveVerified` (variabel lokal hasil pre-flight check
+      // di atas), BUKAN state `driveConnected`. State React tidak terupdate
+      // secara sinkron dalam closure yang sama — jika fetch settings saat mount
+      // gagal (cold-start 5xx) lalu pre-flight recheck berhasil,
+      // `setDriveConnected(true)` tidak mengubah nilai `driveConnected` di
+      // closure ini (masih `false`). Memakai state lama membuat proyek DIBLOKIR
+      // dengan "Google Drive BELUM terhubung" padahal Drive sudah terverifikasi
+      // — bug yang sama terjadi di SEMUA mode (shared & folder).
+      if (driveVerified) {
         // Drive terkonfigurasi → SELALU buat folder Google Drive asli.
         // Jika pembuatan gagal karena alasan apa pun, GAGALKAN inisiasi proyek
         // dengan pesan error yang jelas — JANGAN silent fallback ke mock folder.
@@ -1175,7 +1199,8 @@ export function CreateProjectView() {
         setIsCreatingProject(false)
         showAlert(
           'Google Drive BELUM terhubung. Proyek TIDAK dapat diinisiasi.\n\n' +
-          'Hubungi Super Admin untuk mengonfigurasi Service Account Key & Shared Drive ID ' +
+          'Hubungi Super Admin untuk mengonfigurasi Service Account Key dan ' +
+          'Shared Drive ID (mode Shared Drive) atau Drive Folder ID (mode Folder di My Drive) ' +
           'di menu Pengaturan → Google Drive. Setelah Drive terhubung, coba lagi.'
         )
         return

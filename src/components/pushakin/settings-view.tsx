@@ -122,8 +122,11 @@ export function SettingsView() {
       try {
         setLoadError(null)
         const [settingsRes, notifRes] = await Promise.all([
-          fetch('/api/settings'),
-          fetch('/api/notification-settings')
+          // `cache: 'no-store'` — pastikan form selalu memuat nilai DB terkini,
+          // bukan copy lama dari HTTP cache browser (mencegah status koneksi
+          // Drive terbaca salah dan mencegah save yang menimpa data baru).
+          fetch('/api/settings', { cache: 'no-store' }),
+          fetch('/api/notification-settings', { cache: 'no-store' })
         ])
         // If the settings GET failed (e.g. cold-start 5xx on Workers free plan),
         // we must NOT render the editable form — otherwise the default empty

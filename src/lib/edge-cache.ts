@@ -25,6 +25,22 @@ interface CacheOptions {
   includeQuery?: boolean
   /** Skip cache when this function returns true */
   shouldBypass?: (request: Request) => boolean
+  /**
+   * Override the Cache-Control header returned to the BROWSER while the EDGE
+   * cache entry keeps `public, max-age=<ttl>`.
+   *
+   * WHY: Cloudflare's caches.default.put() RESPECTS `no-store`/`private` on the
+   * stored response and silently refuses to cache it. So we cannot just set
+   * `Cache-Control: no-store` on the handler's response — that would disable
+   * the edge cache entirely (CPU burn on the Workers free plan).
+   *
+   * With browserCacheControl, the edge stores a long-TTL copy (cheap CPU on
+   * repeat requests) but every response sent to the browser carries the
+   * override (e.g. `no-store`) so the BROWSER never serves a stale copy —
+   * critical for endpoints like /api/settings where staleness after an admin
+   * save causes wrong "Google Drive belum terhubung" states.
+   */
+  browserCacheControl?: string
 }
 
 // Type-safe access to Cloudflare Cache API
@@ -113,6 +129,12 @@ export function withEdgeCache<T extends Request>(
         // optimization that reduces request COUNT, not just CPU usage.
         const headers = new Headers(cached.headers)
         headers.set('x-edge-cache', 'HIT')
+        // browserCacheControl overrides what the BROWSER sees (the edge entry
+        // itself keeps public,max-age=ttl). With 'no-store' the browser always
+        // hits the Worker — which then gets served from this cheap edge cache.
+        if (opts.browserCacheControl) {
+          headers.set('Cache-Control', opts.browserCacheControl)
+        }
         return new Response(cached.body, {
           status: cached.status,
           statusText: cached.statusText,
@@ -196,9 +218,13 @@ export function withEdgeCache<T extends Request>(
       // =========================================================================
       try {
         const browserHeaders = new Headers(response.headers)
-        // Only set browser Cache-Control if the handler didn't explicitly
-        // set one. This respects handlers that use 'no-store' to opt out.
-        if (!browserHeaders.has('Cache-Control')) {
+        if (opts.browserCacheControl) {
+          // Explicit browser override — takes precedence over both the
+          // handler's header and the default public,max-age=ttl.
+          browserHeaders.set('Cache-Control', opts.browserCacheControl)
+        } else if (!browserHeaders.has('Cache-Control')) {
+          // Only set browser Cache-Control if the handler didn't explicitly
+          // set one. This respects handlers that use 'no-store' to opt out.
           browserHeaders.set('Cache-Control', `public, max-age=${ttl}`)
         }
         browserHeaders.set('x-edge-cache', 'MISS')

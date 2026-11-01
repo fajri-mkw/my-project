@@ -37,6 +37,16 @@ const BOOLEAN_SETTINGS_KEYS = new Set([
   'notifEmailEnabled',
 ])
 
+/**
+ * (Dihapus) Header no-store pada respons GET: Cloudflare caches.default.put()
+ * MENGHORMATI `Cache-Control: no-store` dan MENOLAK menyimpan respons tsb ke
+ * edge cache — yang berarti setiap GET mengenai DB langsung (burn CPU).
+ * Solusi yang benar: opsi `browserCacheControl: 'no-store'` pada withEdgeCache
+ * — edge cache tetap menyimpan (public,max-age=600, hemat CPU), sedangkan
+ * respons ke BROWSER selalu no-store (browser tidak pernah menyajikan data
+ * lama setelah admin menyimpan konfigurasi Drive baru).
+ */
+
 /** Format a settings row as the GET response object (matches original Prisma shape). */
 function formatSettingsResponse(row: Record<string, unknown>) {
   return {
@@ -65,7 +75,16 @@ async function fetchSettingsRow(client: ReturnType<typeof getLibsql>): Promise<R
 }
 
 // GET settings
-// Edge-cached for 30s to reduce CPU usage on Workers free plan
+// Edge-cached (caches.default) untuk menekan penggunaan CPU Workers free plan.
+// PENTING (bug "Google Drive belum terhubung" palsu): Sebelumnya respons GET
+// diberi `Cache-Control: public, max-age=600` sehingga BROWSER menyimpan copy
+// selama 10 menit. Setelah admin mengubah konfigurasi Drive (mis. pindah ke
+// mode Folder di My Drive), create-project-view milik manajer masih membaca
+// data LAMA dari HTTP cache browser (invalidateCache() pada PUT hanya
+// membersihkan edge cache, bukan cache browser) → status koneksi Drive
+// terbaca salah dan inisiasi proyek diblokir.
+// Fix: `browserCacheControl: 'no-store'` — browser tidak pernah menyimpan
+// copy respons ini (selalu fresh), sedangkan edge cache tetap berjalan.
 export const GET = withEdgeCache(async (_request: NextRequest) => {
   try {
     const client = getLibsql()
@@ -91,7 +110,7 @@ export const GET = withEdgeCache(async (_request: NextRequest) => {
     console.error('Get settings error:', error)
     return NextResponse.json({ error: 'Failed to fetch settings' }, { status: 500 })
   }
-}, { ttl: 600 })
+}, { ttl: 600, browserCacheControl: 'no-store' })
 
 // PUT update settings
 //
