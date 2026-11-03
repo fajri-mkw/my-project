@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { checkMaintenanceMode } from '@/lib/maintenance-check'
-import { withEdgeCache, invalidateCache, deferToBackground } from '@/lib/edge-cache'
+import { invalidateCache, deferToBackground } from '@/lib/edge-cache'
 import {
   getLibsql,
   toDateISO,
@@ -60,12 +60,11 @@ const PERMOHONAN_COLUMNS = `id, title, description, requesterUnit, location, exe
   status, adminNote, documents, administratorId, managerId, projectId,
   createdAt, updatedAt`
 
-// GET all permohonan
-// Edge-cached for 30s to reduce request volume against the Workers free plan
-// daily 100K-request cap. Cache key includes query params (userId, userRole)
-// so each user's filtered view gets its own cache entry. Writes (POST/PUT/
-// DELETE) invalidate the cache via deferToBackground(invalidateCache()).
-export const GET = withEdgeCache(async (request: NextRequest) => {
+// GET permohonan — NO edge cache + Cache-Control: no-store.
+// The list is param-ized (userId, userRole); Cloudflare's Cache API cannot
+// wildcard-delete param-ized keys, so a just-created/forwarded permohonan would
+// not appear in the list after refresh (same class of bug as /api/sop).
+export async function GET(request: NextRequest) {
   try {
     const client = getLibsql()
     const { searchParams } = new URL(request.url)
@@ -93,12 +92,14 @@ export const GET = withEdgeCache(async (request: NextRequest) => {
     const transformed = result.rows.map((r) =>
       mapPermohonan(r as Record<string, unknown>),
     )
-    return NextResponse.json(transformed)
+    return NextResponse.json(transformed, {
+      headers: { 'Cache-Control': 'no-store' },
+    })
   } catch (error) {
     console.error('Get permohonan error:', error)
     return NextResponse.json({ error: 'Failed to fetch permohonan', permohonan: [] }, { status: 500 })
   }
-}, { ttl: 120 })
+}
 
 // POST create permohonan
 export async function POST(request: NextRequest) {

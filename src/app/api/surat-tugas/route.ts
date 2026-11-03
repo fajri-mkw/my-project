@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { checkMaintenanceMode } from '@/lib/maintenance-check'
-import { withEdgeCache, invalidateCache } from '@/lib/edge-cache'
+import { invalidateCache } from '@/lib/edge-cache'
 import {
   getLibsql,
   toBool,
@@ -109,9 +109,12 @@ async function generateNomorSurat(client: ReturnType<typeof getLibsql>): Promise
   return `ST/${sequence}/${romanMonths[month - 1]}/${year}`
 }
 
-// GET - Get all surat tugas for a user
-// Edge-cached for 30s — per-user (cache key includes userId)
-export const GET = withEdgeCache(async (request: NextRequest) => {
+// GET surat tugas — NO edge cache + Cache-Control: no-store.
+// The list is param-ized (userId, id); Cloudflare's Cache API cannot wildcard-
+// delete param-ized keys, so a just-created surat tugas (e.g. when a manager
+// assigns a petugas) would not appear in the worker's list after refresh (same
+// class of bug as /api/sop).
+export async function GET(request: NextRequest) {
   const maintenanceBlock = await checkMaintenanceMode(request)
   if (maintenanceBlock) return maintenanceBlock
   try {
@@ -162,6 +165,8 @@ export const GET = withEdgeCache(async (request: NextRequest) => {
         user: user
           ? { id: user.id, name: user.name, email: user.email, role: user.role }
           : null,
+      }, {
+        headers: { 'Cache-Control': 'no-store' },
       })
     }
 
@@ -241,7 +246,9 @@ export const GET = withEdgeCache(async (request: NextRequest) => {
           },
         }
       })
-      return NextResponse.json(out)
+      return NextResponse.json(out, {
+        headers: { 'Cache-Control': 'no-store' },
+      })
     }
 
     return NextResponse.json(
@@ -252,12 +259,13 @@ export const GET = withEdgeCache(async (request: NextRequest) => {
           project: { id: String(sr.projectId ?? ''), title: '', manager: null },
         }
       }),
+      { headers: { 'Cache-Control': 'no-store' } },
     )
   } catch (error) {
     console.error('Get surat tugas error:', error)
     return NextResponse.json({ error: 'Failed to fetch surat tugas' }, { status: 500 })
   }
-}, { ttl: 300 })
+}
 
 // POST - Create new surat tugas
 export async function POST(request: NextRequest) {

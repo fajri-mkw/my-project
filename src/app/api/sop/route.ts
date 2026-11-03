@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { checkMaintenanceMode } from '@/lib/maintenance-check'
-import { withEdgeCache, invalidateCache } from '@/lib/edge-cache'
+import { invalidateCache } from '@/lib/edge-cache'
 import {
   getLibsql,
   toBool,
@@ -28,6 +28,27 @@ import {
 //     slideshowSpeed, published, order, authorId, createdAt, updatedAt,
 //     author: { id, name, email, role }
 //   }
+//
+// ============================================================================
+// EDGE CACHE REMOVED FROM GET (2026-11-03):
+// The GET handler was previously wrapped in `withEdgeCache({ ttl: 300 })`. This
+// caused the exact data-consistency bug reported by the user: "notif berhasil,
+// tetapi tidak ada terliha SOP ataupun Panduan yang muncul".
+//
+// Root cause: Cloudflare's Cache API cannot delete param-ized keys by wildcard.
+// `buildCacheKey` includes the full query string, so `/api/sop?type=Panduan`
+// and `/api/sop?type=SOP` get SEPARATE cache entries. After POST creates a new
+// SOP/Panduan, `invalidateCache('/api/sop')` only deletes the no-query key — the
+// `?type=Panduan` entry stays cached for 300s. When the success modal's
+// "Mengerti" button triggers `fetchItems()`, the browser hits the stale 300s
+// edge cache (AND its own 300s browser cache) and returns the OLD empty list.
+// The just-created item never appears.
+//
+// Fix: GET is now a plain uncached handler that returns `Cache-Control: no-store`.
+// This is the same fix applied to /api/surat (see that file's header comment
+// for the full rationale). The SOP GET is a single indexed SELECT via libsql
+// (a subrequest that does NOT count toward the Workers 10ms CPU limit), so it
+// is fast enough to serve uncached.
 // ============================================================================
 
 interface SOPAuthorDTO {
@@ -109,9 +130,10 @@ const SOP_FROM_CLAUSE = `FROM sops s LEFT JOIN users u ON u.id = s.authorId`
 
 // ----------------------------------------------------------------------------
 // GET - Fetch all SOPs/Pengumuman/Panduan (with optional filters).
-// Edge-cached for 300s (5 min) — SOPs rarely change.
+// NO edge cache + Cache-Control: no-store (see header comment for rationale —
+// removing the cache fixes the "notif berhasil tapi item tidak muncul" bug).
 // ----------------------------------------------------------------------------
-export const GET = withEdgeCache(async (request: NextRequest) => {
+export async function GET(request: NextRequest) {
   const maintenanceBlock = await checkMaintenanceMode(request)
   if (maintenanceBlock) return maintenanceBlock
   try {
@@ -144,7 +166,10 @@ export const GET = withEdgeCache(async (request: NextRequest) => {
       mapSopWithAuthor(row as Record<string, unknown>),
     )
 
-    return NextResponse.json(sops)
+    // no-store so the browser always re-fetches after create/update/delete.
+    return NextResponse.json(sops, {
+      headers: { 'Cache-Control': 'no-store' },
+    })
   } catch (error) {
     console.error('Error fetching SOPs:', error)
     return NextResponse.json(
@@ -152,7 +177,7 @@ export const GET = withEdgeCache(async (request: NextRequest) => {
       { status: 500 },
     )
   }
-}, { ttl: 300 })
+}
 
 // ----------------------------------------------------------------------------
 // POST - Create a new SOP/Pengumuman/Panduan.

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { withEdgeCache, invalidateCache, deferToBackground } from '@/lib/edge-cache'
+import { invalidateCache, deferToBackground } from '@/lib/edge-cache'
 import {
   getLibsql,
   bind,
@@ -48,8 +48,12 @@ function mapInventory(row: Record<string, unknown>) {
   }
 }
 
-// GET /api/inventory — list all inventory items. Edge-cached 60s.
-export const GET = withEdgeCache(async (request: NextRequest) => {
+// GET /api/inventory — list all inventory items.
+// NO edge cache + Cache-Control: no-store. The list is param-ized (kategori,
+// status, search); Cloudflare's Cache API cannot wildcard-delete param-ized keys,
+// so a just-added item wouldn't appear in the filtered list after refresh
+// (same class of bug as /api/sop).
+export async function GET(request: NextRequest) {
   const userRole = request.headers.get('X-User-Role')
   if (!['Admin', 'Administrator', 'Manager'].includes(userRole || '')) {
     return NextResponse.json(
@@ -89,7 +93,9 @@ export const GET = withEdgeCache(async (request: NextRequest) => {
     const transformed = result.rows.map((r) =>
       mapInventory(r as Record<string, unknown>),
     )
-    return NextResponse.json(transformed)
+    return NextResponse.json(transformed, {
+      headers: { 'Cache-Control': 'no-store' },
+    })
   } catch (error) {
     console.error('[INVENTORY GET] Error:', error)
     return NextResponse.json(
@@ -97,7 +103,7 @@ export const GET = withEdgeCache(async (request: NextRequest) => {
       { status: 500 },
     )
   }
-}, { ttl: 120 })
+}
 
 // POST /api/inventory — create new inventory item.
 export async function POST(request: NextRequest) {

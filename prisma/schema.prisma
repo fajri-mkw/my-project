@@ -62,6 +62,11 @@ model Project {
   managerId         String
   publicToken     String?  @unique
   documents       String?  @default("[]")
+  // ID galeri Lihum yang dibuat saat manager publish project ke Lihum (lihat
+  // /api/lihum/publish). Nullable — null sampai pertama kali dipublish. Kolom
+  // ini ditambahkan via /api/migrate-lihum-field (ALTER TABLE) dan kini juga
+  // didefinisikan di schema agar `prisma db push` tidak menghapus kolomnya.
+  lihumGalleryId  String?
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 

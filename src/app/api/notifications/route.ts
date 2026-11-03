@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { checkMaintenanceMode } from '@/lib/maintenance-check'
-import { withEdgeCache, invalidateCache } from '@/lib/edge-cache'
+import { invalidateCache } from '@/lib/edge-cache'
 import {
   getLibsql,
   toBool,
@@ -19,9 +19,14 @@ import {
 // as src/app/api/maintenance/route.ts and src/app/api/users/route.ts.
 // ============================================================================
 
-// GET notifications for a user
-// Edge-cached for 30s — per-user (cache key includes userId)
-export const GET = withEdgeCache(async (request: NextRequest) => {
+// GET notifications for a user.
+// NO edge cache + Cache-Control: no-store. The bell icon polls this endpoint
+// every 30-60s; caching it (param-ized by userId) meant new notifications
+// created by background tasks didn't appear for up to 300s, and the "mark as
+// read" PUT couldn't invalidate the param-ized cache key (Cloudflare Cache API
+// has no wildcard delete). Serving uncached guarantees a freshly-created
+// notification shows up on the next poll. Same fix as /api/sop and /api/surat.
+export async function GET(request: NextRequest) {
   const maintenanceBlock = await checkMaintenanceMode(request)
   if (maintenanceBlock) return maintenanceBlock
   try {
@@ -53,12 +58,14 @@ export const GET = withEdgeCache(async (request: NextRequest) => {
       createdAt: toDateISO(row.createdAt),
     }))
 
-    return NextResponse.json(notifications)
+    return NextResponse.json(notifications, {
+      headers: { 'Cache-Control': 'no-store' },
+    })
   } catch (error) {
     console.error('Get notifications error:', error)
     return NextResponse.json({ error: 'Failed to fetch notifications' }, { status: 500 })
   }
-}, { ttl: 300 })
+}
 
 // PUT mark notification as read
 // Original returned the full Prisma notification object after update — we mirror

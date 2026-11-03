@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { checkMaintenanceMode } from '@/lib/maintenance-check'
-import { withEdgeCache } from '@/lib/edge-cache'
 import {
   getLibsql,
   toDateISO,
@@ -100,8 +99,13 @@ async function generateNomorKegiatan(client: ReturnType<typeof getLibsql>): Prom
   return `${prefix}-${String(nextNumber).padStart(3, '0')}/${year}`
 }
 
-// GET all program kegiatan (edge-cached 30s)
-export const GET = withEdgeCache(async (request: NextRequest) => {
+// GET program kegiatan — NO edge cache + Cache-Control: no-store.
+// The list is param-ized (userId, userRole, status); Cloudflare's Cache API
+// cannot wildcard-delete param-ized keys, so a just-created kegiatan would not
+// appear in the list after the success modal refresh (same class of bug as
+// /api/sop). Serving uncached fixes this. See /api/sop and /api/surat for the
+// full rationale.
+export async function GET(request: NextRequest) {
   try {
     const client = getLibsql()
     const { searchParams } = new URL(request.url)
@@ -135,13 +139,15 @@ export const GET = withEdgeCache(async (request: NextRequest) => {
     })
 
     const transformed = result.rows.map((r) => mapProgramKegiatan(r as Record<string, unknown>))
-    return NextResponse.json(transformed)
+    return NextResponse.json(transformed, {
+      headers: { 'Cache-Control': 'no-store' },
+    })
   } catch (error) {
     console.error('Get program kegiatan error:', error)
     const msg = error instanceof Error ? error.message : 'Unknown error'
     return NextResponse.json({ error: 'Failed to fetch program kegiatan', details: msg, programKegiatan: [] }, { status: 500 })
   }
-}, { ttl: 120 })
+}
 
 // POST create program kegiatan
 export async function POST(request: NextRequest) {
