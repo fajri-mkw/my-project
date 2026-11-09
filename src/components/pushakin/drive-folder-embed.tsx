@@ -29,6 +29,8 @@ import {
   X,
   ExternalLink as ExternalLinkIcon,
 } from 'lucide-react'
+import { chunkedUploadFile } from '@/lib/chunked-upload'
+import { warmupDrive } from '@/lib/drive-warmup'
 
 interface DriveFolderEmbedProps {
   folderLink: string // Google Drive folder URL (e.g. https://drive.google.com/drive/folders/XXX)
@@ -285,58 +287,124 @@ async function uploadFileToDrive(
   folderId: string,
   onProgress: (loaded: number, total: number) => void,
 ): Promise<UploadResult> {
-  // === Attempt 1: create session + PUT file ===
-  const uploadUrl = await createUploadSession(file, folderId)
-
+  // =========================================================================
+  // WARMUP (fixes cold-isolate HTTP 500 on /api/drive/upload-url):
+  // Pre-caches the Google Drive access token on the Cloudflare Workers
+  // isolate. Without this, the first createUploadSession call may hit a
+  // cold isolate where JWT signing + OAuth exceeds the 10ms CPU limit,
+  // returning an empty HTTP 500. warmupDrive is idempotent — on a warm
+  // isolate it returns immediately from cache.
+  // =========================================================================
   try {
-    const result = await putFileToSession(uploadUrl, file, onProgress)
-    return result
-  } catch (err) {
-    const errMsg = err instanceof Error ? err.message : String(err)
+    await warmupDrive(1)
+  } catch {
+    // Non-fatal — proceed to createUploadSession which has its own logic.
+  }
 
-    // === Post-error verification ===
-    // If the XHR errored (network/CORS), the file may still have landed in
-    // Google Drive. Wait 2 seconds for Google to index it, then check.
-    if (errMsg === '__XHR_NETWORK_ERROR__') {
-      onProgress(file.size, file.size) // show 100% while we verify
-      await sleep(2000)
-      const existing = await checkFileExistsInFolder(folderId, file.name)
-      if (existing) {
-        // The file IS in Drive — the XHR error was a false alarm (response
-        // lost, not the upload itself). Mark as verified success.
-        return {
-          id: existing.id,
-          name: existing.name,
-          verified: true,
-        }
-      }
+  // =========================================================================
+  // ATTEMPT 1: Direct browser → Google Drive XHR upload.
+  // Best progress UX (byte-level via xhr.upload.onprogress). This is the
+  // happy path and works for most users/networks.
+  // =========================================================================
+  let directSessionUrl: string | null = null
+  try {
+    directSessionUrl = await createUploadSession(file, folderId)
+  } catch {
+    // Session creation failed (likely cold-isolate 500 or Google error).
+    // Skip the direct path entirely and go straight to chunked fallback.
+    directSessionUrl = null
+  }
 
-      // === Attempt 2: retry with a fresh session URI ===
-      // The first session may have been consumed (Google received the bytes
-      // but the browser couldn't read the response). A fresh session gives
-      // us a clean retry. If the file was partially uploaded, Google's
-      // resumable protocol will resume from where it left off.
-      try {
-        const retryUrl = await createUploadSession(file, folderId)
-        const retryResult = await putFileToSession(retryUrl, file, onProgress)
-        return retryResult
-      } catch (retryErr) {
-        // Retry also failed — do one more verification in case the retry
-        // uploaded the bytes but (again) lost the response.
+  if (directSessionUrl) {
+    try {
+      const result = await putFileToSession(directSessionUrl, file, onProgress)
+      return result
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : String(err)
+
+      if (errMsg === '__XHR_NETWORK_ERROR__') {
+        // ============================================================
+        // POST-ERROR VERIFICATION:
+        // The XHR errored at the network level, but Google may still
+        // have received and saved the file (CORS response lost, TCP
+        // connection dropped after last byte, etc.). Wait 2s for Google
+        // to index the file, then check the folder.
+        // ============================================================
+        onProgress(file.size, file.size) // show 100% while verifying
         await sleep(2000)
-        const verified = await checkFileExistsInFolder(folderId, file.name)
-        if (verified) {
-          return { id: verified.id, name: verified.name, verified: true }
+        const existing = await checkFileExistsInFolder(folderId, file.name)
+        if (existing) {
+          // File IS in Drive — the XHR error was a false alarm.
+          return { id: existing.id, name: existing.name, verified: true }
         }
-        // Genuine failure.
-        throw new Error(
-          'Koneksi error saat upload. File tidak terdeteksi di folder. Jika error berulang, gunakan tombol "Buka di Tab Baru" untuk upload via Google Drive langsung.',
-        )
+        // File not in folder — fall through to chunked fallback below.
       }
+      // For ALL other errors (HTTP 4xx/5xx from Google), also fall through
+      // to the chunked fallback. The chunked path creates a FRESH session
+      // and has its own retry + Worker-proxy logic, so transient 5xx errors
+      // get a second chance. Permanent 4xx errors will also fail on the
+      // chunked path, producing a consistent error message.
     }
+  }
 
-    // Non-network error (e.g. HTTP 4xx from Google) — don't retry, just rethrow.
-    throw err
+  // =========================================================================
+  // ATTEMPT 2 (FALLBACK): Chunked upload via shared chunked-upload.ts.
+  //
+  // This is the SAME upload path used by surat-management-view,
+  // program-kegiatan-view, and project-detail-view. It has critical
+  // reliability features that the direct XHR path lacks:
+  //
+  //   ✅ Worker-proxy fallback: when direct browser→Google PUT fails (CORS,
+  //     network, cold isolate), it proxies the chunk through
+  //     /api/drive/upload-chunk (server-side, no CORS, no browser network
+  //     restrictions). This is the fix for the "24 gagal" mass-failure bug
+  //     reported by the photographer.
+  //   ✅ Session recreation: if Google invalidates the resumable session
+  //     mid-upload (404/410), it recreates the session and restarts.
+  //   ✅ upload-complete: shares the file + fetches metadata in a separate
+  //     request (isolates JWT signing from the upload path).
+  //   ✅ Retry with exponential backoff on transient 5xx.
+  //
+  // ROOT CAUSE of the photographer's mass failure: drive-folder-embed.tsx
+  // used a direct XHR with NO proxy fallback. When the browser's network
+  // stack couldn't reach Google directly (CORS preflight failure, network
+  // proxy, TLS issue, Google's transient 500), the XHR errored. The only
+  // recovery was to retry the SAME direct XHR (which failed again for the
+  // same reason) and then verify the folder (which showed nothing because
+  // the file never landed). Result: every file failed. The chunked path
+  // routes through the Worker proxy when direct fails, bypassing the
+  // browser→Google network issue entirely.
+  // =========================================================================
+  try {
+    const chunked = await chunkedUploadFile({
+      file,
+      folderId,
+      onProgress: (percent: number) => {
+        // Map 0-100 percent → (loaded, total) for the progress bar.
+        // chunkedUploadFile reports: 1% (warming), 2% (preparing),
+        // 5-95% (uploading chunks), 97% (sharing), 100% (done).
+        onProgress(Math.round((percent / 100) * file.size), file.size)
+      },
+    })
+    return {
+      id: chunked.id,
+      name: chunked.name,
+      webViewLink: chunked.webViewLink,
+      verified: true, // chunked path succeeded — verified by upload-complete
+    }
+  } catch {
+    // ============================================================
+    // Both paths failed. Final verification — the file may have landed
+    // from the first direct XHR attempt even though it reported an error.
+    // ============================================================
+    await sleep(2000)
+    const verified = await checkFileExistsInFolder(folderId, file.name)
+    if (verified) {
+      return { id: verified.id, name: verified.name, verified: true }
+    }
+    throw new Error(
+      'Koneksi error saat upload. File tidak terdeteksi di folder. Jika error berulang, gunakan tombol "Buka di Tab Baru" untuk upload via Google Drive langsung.',
+    )
   }
 }
 
