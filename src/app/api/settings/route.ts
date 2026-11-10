@@ -24,7 +24,7 @@ import {
 
 // Settings columns used by this route (GET selects these; PUT may update any subset).
 const SETTINGS_COLUMNS = `id, driveAutoCreate, driveMode, driveParentFolderId, driveSharedDriveId,
-  driveFolderId, driveServiceAccountKey, driveApiKey, maintenanceMode, maintenanceMessage,
+  driveFolderId, driveServiceAccountKey, driveApiKey, driveAdminEmail, maintenanceMode, maintenanceMessage,
   notifWaEnabled, notifWaToken, notifWaDeviceId, notifWaSenderNumber,
   notifEmailEnabled, notifEmailHost, notifEmailPort, notifEmailUser, notifEmailPass,
   notifEmailFromName, updatedAt`
@@ -59,6 +59,7 @@ function formatSettingsResponse(row: Record<string, unknown>) {
     driveFolderId: row.driveFolderId === null || row.driveFolderId === undefined ? '' : String(row.driveFolderId),
     hasServiceAccountKey: !!row.driveServiceAccountKey,
     driveApiKey: row.driveApiKey === null || row.driveApiKey === undefined ? '' : String(row.driveApiKey),
+    driveAdminEmail: row.driveAdminEmail === null || row.driveAdminEmail === undefined ? '' : String(row.driveAdminEmail),
     maintenanceMode: toBool(row.maintenanceMode),
     maintenanceMessage: row.maintenanceMessage === null || row.maintenanceMessage === undefined ? '' : String(row.maintenanceMessage),
   }
@@ -131,7 +132,7 @@ export async function PUT(request: NextRequest) {
   try {
     const client = getLibsql()
     const body = await request.json()
-    const { driveAutoCreate, driveMode, driveParentFolderId, driveSharedDriveId, driveFolderId, driveServiceAccountKey, driveApiKey, maintenanceMode, maintenanceMessage, forceClear } = body
+    const { driveAutoCreate, driveMode, driveParentFolderId, driveSharedDriveId, driveFolderId, driveServiceAccountKey, driveApiKey, driveAdminEmail, maintenanceMode, maintenanceMessage, forceClear } = body
 
     // Fetch the existing settings so we can protect non-empty values from
     // being overwritten by accidental empty-string submissions.
@@ -226,6 +227,11 @@ export async function PUT(request: NextRequest) {
     }
     if (driveApiKey !== undefined) {
       updateData.driveApiKey = driveApiKey || null
+    }
+    if (driveAdminEmail !== undefined) {
+      // Admin email for domain-wide delegation (folder mode). Empty string
+      // means "no delegation" — stored as null.
+      updateData.driveAdminEmail = driveAdminEmail || null
     }
     if (typeof maintenanceMode === 'boolean') {
       updateData.maintenanceMode = maintenanceMode

@@ -44,6 +44,7 @@ export interface DriveSettings {
   driveMode: string | null
   driveParentFolderId: string | null
   driveAutoCreate: boolean
+  driveAdminEmail: string | null  // admin email for domain-wide delegation (folder mode)
 }
 
 export interface DriveFolderInfo {
@@ -76,7 +77,7 @@ export async function readDriveSettings(): Promise<DriveSettings | null> {
   try {
     const client = getLibsql()
     const res = await client.execute({
-      sql: `SELECT driveServiceAccountKey, driveSharedDriveId, driveFolderId, driveMode, driveParentFolderId, driveAutoCreate FROM settings WHERE id = 'main' LIMIT 1`,
+      sql: `SELECT driveServiceAccountKey, driveSharedDriveId, driveFolderId, driveMode, driveParentFolderId, driveAutoCreate, driveAdminEmail FROM settings WHERE id = 'main' LIMIT 1`,
       args: [],
     })
     if (res.rows.length === 0) return null
@@ -88,6 +89,7 @@ export async function readDriveSettings(): Promise<DriveSettings | null> {
       driveMode: (row.driveMode as string | null) ?? null,
       driveParentFolderId: (row.driveParentFolderId as string | null) ?? null,
       driveAutoCreate: Boolean(Number(row.driveAutoCreate ?? 0)),
+      driveAdminEmail: (row.driveAdminEmail as string | null) ?? null,
     }
   } catch (error) {
     console.error('[DRIVE HELPERS] readDriveSettings error:', error)
@@ -149,7 +151,7 @@ export async function findOrCreateYearMonthCategoryFolder(
   // field — exactly the behavior we want for My Drive folder uploads.
   const driveIdForCreate = target.isSharedDrive ? target.rootId : ''
 
-  const accessToken = await getCachedAccessToken(settings.driveServiceAccountKey!)
+  const accessToken = await getCachedAccessToken(settings.driveServiceAccountKey!, settings.driveMode === 'folder' ? settings.driveAdminEmail ?? undefined : undefined)
 
   const year = date.getFullYear().toString()
   const monthName = BULAN_INDONESIA[date.getMonth()]
@@ -225,7 +227,7 @@ export async function createEntityFolder(
     throw new Error('Drive tidak dikonfigurasi — driveSharedDriveId atau driveFolderId belum diisi')
   }
 
-  const accessToken = await getCachedAccessToken(settings.driveServiceAccountKey!)
+  const accessToken = await getCachedAccessToken(settings.driveServiceAccountKey!, settings.driveMode === 'folder' ? settings.driveAdminEmail ?? undefined : undefined)
   const driveIdForCreate = target.isSharedDrive ? target.rootId : ''
 
   const folder = await createDriveFolder(accessToken, {

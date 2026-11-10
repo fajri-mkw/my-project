@@ -186,7 +186,7 @@ export async function POST(request: NextRequest) {
     // but caching ensures the token is shared with the subsequent chunk uploads.
     let accessToken: string
     try {
-      accessToken = await getCachedAccessToken(settings.driveServiceAccountKey)
+      accessToken = await getCachedAccessToken(settings.driveServiceAccountKey, settings.driveMode === "folder" ? settings.driveAdminEmail : undefined)
     } catch (tokenErr) {
       console.error('[UPLOAD-URL] access token error:', tokenErr)
       return NextResponse.json(

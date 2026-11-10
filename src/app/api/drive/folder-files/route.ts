@@ -103,7 +103,7 @@ export async function GET(request: NextRequest) {
       )
     }
 
-    const accessToken = await getCachedAccessToken(settings.driveServiceAccountKey)
+    const accessToken = await getCachedAccessToken(settings.driveServiceAccountKey, settings.driveMode === "folder" ? settings.driveAdminEmail : undefined)
 
     // List files in the folder.
     // Mode-specific query params:

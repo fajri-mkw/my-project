@@ -400,7 +400,7 @@ export async function POST(request: NextRequest) {
       : (target.parentFolderId || target.rootId)
 
     // Use cached access token (native Web Crypto API JWT signing — no googleapis)
-    const accessToken = await getCachedAccessToken(settings.driveServiceAccountKey)
+    const accessToken = await getCachedAccessToken(settings.driveServiceAccountKey, settings.driveMode === "folder" ? settings.driveAdminEmail : undefined)
 
     // Find or create Year > Month > PROJECT folder structure based on current date
     const now = new Date()
@@ -555,7 +555,7 @@ export async function PUT(request: NextRequest) {
       }, { status: 400 })
     }
 
-    const accessToken = await getCachedAccessToken(settings.driveServiceAccountKey)
+    const accessToken = await getCachedAccessToken(settings.driveServiceAccountKey, settings.driveMode === "folder" ? settings.driveAdminEmail : undefined)
 
     // Enable link sharing (works for non-Google accounts too)
     const linkShared = await shareWithLink(accessToken, folderId, role || 'writer')
@@ -605,7 +605,7 @@ export async function GET(request: NextRequest) {
     }
 
     // Use cached access token (native Web Crypto API JWT signing — no googleapis)
-    const accessToken = await getCachedAccessToken(settings.driveServiceAccountKey)
+    const accessToken = await getCachedAccessToken(settings.driveServiceAccountKey, settings.driveMode === "folder" ? settings.driveAdminEmail : undefined)
 
     // Mode-aware connection check:
     //   - shared mode: GET /drive/v3/drives/{driveId} verifies Shared Drive access

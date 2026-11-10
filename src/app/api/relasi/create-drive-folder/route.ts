@@ -72,7 +72,7 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    const accessToken = await getCachedAccessToken(settings.driveServiceAccountKey)
+    const accessToken = await getCachedAccessToken(settings.driveServiceAccountKey, settings.driveMode === "folder" ? settings.driveAdminEmail : undefined)
     const driveIdForCreate = target.isSharedDrive ? target.rootId : ''
     const safeTitle = (String(form.title || 'Form')).replace(/[/\\?%*:|"<>]/g, '-').substring(0, 80)
     const folderName = `Relasi - ${safeTitle}`

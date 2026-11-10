@@ -54,7 +54,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Dapatkan access token
-    const accessToken = await getCachedAccessToken(settings.driveServiceAccountKey)
+    const accessToken = await getCachedAccessToken(settings.driveServiceAccountKey, settings.driveMode === "folder" ? settings.driveAdminEmail : undefined)
     const driveIdForCreate = target.isSharedDrive ? target.rootId : ''
 
     // Cari atau buat folder "Relasi - Contoh" di root Drive

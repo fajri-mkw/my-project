@@ -303,7 +303,10 @@ async function importRsaPrivateKey(pem: string): Promise<CryptoKey> {
  *   4. POST the JWT to Google's OAuth2 token endpoint
  *   5. Return the access_token
  */
-export async function getAccessToken(serviceAccountKey: string): Promise<string> {
+export async function getAccessToken(
+  serviceAccountKey: string,
+  adminEmail?: string,
+): Promise<string> {
   const credentials = parseServiceAccountKey(serviceAccountKey)
   validateServiceAccountCredentials(credentials)
 
@@ -316,12 +319,29 @@ export async function getAccessToken(serviceAccountKey: string): Promise<string>
   // Build JWT header and payload
   const now = Math.floor(Date.now() / 1000)
   const header = { alg: 'RS256', typ: 'JWT' }
-  const payload = {
+  const payload: Record<string, unknown> = {
     iss: clientEmail,
     scope: 'https://www.googleapis.com/auth/drive',
     aud: 'https://oauth2.googleapis.com/token',
     exp: now + 3600, // 1 hour
     iat: now,
+  }
+
+  // === Domain-wide delegation (folder mode) ===
+  // Saat driveMode='folder', Service Account tidak punya storage quota sendiri
+  // (Google: "Service Accounts do not have storage quota"). Dengan menambahkan
+  // claim `sub` (subject) berisi email admin Google Workspace, Service Account
+  // mengimpersonate admin tersebut → file tersimpan di kuota storage admin.
+  //
+  // Syarat: Service Account harus di-enable domain-wide delegation di Google
+  // Workspace admin console (Security > API Controls > Manage Domain-Wide
+  // Delegation), dengan client ID SA authorized untuk scope
+  // https://www.googleapis.com/auth/drive.
+  //
+  // Saat driveMode='shared' (Shared Drive), adminEmail TIDAK diberikan →
+  // SA pakai token sendiri → file tersimpan di Shared Drive (kuota org). ✓
+  if (adminEmail && adminEmail.trim()) {
+    payload.sub = adminEmail.trim()
   }
 
   // Encode header and payload as base64url
@@ -400,6 +420,7 @@ export async function getAccessToken(serviceAccountKey: string): Promise<string>
 interface CachedToken {
   token: string
   expiresAt: number // epoch millis
+  adminEmail?: string // the admin email used to obtain this token (for cache key)
 }
 
 let cachedAccessToken: CachedToken | null = null
@@ -408,24 +429,40 @@ const TOKEN_CACHE_TTL_MS = 50 * 60 * 1000 // 50 minutes (Google tokens last 60 m
 /**
  * Get a cached Google API access token.
  *
- * Returns the cached token if it's still valid (with a 5-minute safety margin).
+ * Returns the cached token if it's still valid (with a 5-minute safety margin)
+ * AND was obtained with the same adminEmail (different sub = different token).
  * Otherwise, fetches a new token and caches it.
+ *
+ * The adminEmail parameter enables domain-wide delegation: when provided,
+ * the Service Account impersonates the admin user (for folder mode uploads
+ * to My Drive folders — the SA has no storage quota of its own).
  *
  * This is critical for chunked uploads: without caching, each 1 MB chunk of a
  * large file triggers a full OAuth handshake (JWT signing + HTTP request),
  * which frequently exceeds the Cloudflare Workers CPU/wall-clock limits.
  */
-export async function getCachedAccessToken(serviceAccountKey: string): Promise<string> {
+export async function getCachedAccessToken(
+  serviceAccountKey: string,
+  adminEmail?: string,
+): Promise<string> {
   const now = Date.now()
   const safetyMargin = 5 * 60 * 1000 // refresh 5 min before expiry
+  const email = adminEmail?.trim() || undefined
 
-  if (cachedAccessToken && cachedAccessToken.expiresAt - safetyMargin > now) {
+  // Cache hit only if the same adminEmail (sub) was used to obtain the token.
+  // A token obtained WITHOUT sub cannot be reused for folder-mode uploads
+  // (which need sub), and vice versa.
+  if (
+    cachedAccessToken &&
+    cachedAccessToken.expiresAt - safetyMargin > now &&
+    cachedAccessToken.adminEmail === email
+  ) {
     return cachedAccessToken.token
   }
 
   // Fetch a new token (this does JWT signing + OAuth HTTP request)
-  const token = await getAccessToken(serviceAccountKey)
-  cachedAccessToken = { token, expiresAt: now + TOKEN_CACHE_TTL_MS }
+  const token = await getAccessToken(serviceAccountKey, email)
+  cachedAccessToken = { token, expiresAt: now + TOKEN_CACHE_TTL_MS, adminEmail: email }
   return token
 }
 

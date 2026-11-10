@@ -178,6 +178,11 @@ model Settings {
   driveFolderId         String?  // My Drive folder ID used when driveMode = 'folder'
   driveServiceAccountKey String?
   driveApiKey           String?
+  // Email admin Google Workspace untuk domain-wide delegation (folder mode).
+  // Service Account mengimpersonate admin ini saat upload ke My Drive folder
+  // agar file tersimpan di kuota storage admin (bukan kuota SA yang = 0).
+  // Hanya dipakai saat driveMode='folder'. Lihat getAccessToken() sub claim.
+  driveAdminEmail       String?
   maintenanceMode       Boolean  @default(false)
   maintenanceMessage    String?
   notifWaEnabled        Boolean  @default(false)

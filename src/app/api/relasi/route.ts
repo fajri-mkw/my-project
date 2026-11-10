@@ -85,7 +85,7 @@ export async function POST(request: NextRequest) {
       if (settings?.driveServiceAccountKey) {
         const target = resolveDriveTarget(settings)
         if (target) {
-          const accessToken = await getCachedAccessToken(settings.driveServiceAccountKey)
+          const accessToken = await getCachedAccessToken(settings.driveServiceAccountKey, settings.driveMode === "folder" ? settings.driveAdminEmail : undefined)
           const driveIdForCreate = target.isSharedDrive ? target.rootId : ''
           // Sanitize title untuk nama folder (Drive forbids certain chars)
           const safeTitle = (title || 'Form').replace(/[/\\?%*:|"<>]/g, '-').substring(0, 80)

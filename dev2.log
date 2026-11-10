@@ -1,4 +1,4 @@
-[Tue Nov 10 02:10:16 UTC 2026] Starting dev server...
+[Tue Nov 10 02:56:21 UTC 2026] Starting dev server...
 $ node scripts/setup-db.js && next dev
 [DB Setup] Detected SQLite database (local development)
 [DB Setup] Schema patched for SQLite
@@ -10,10 +10,7 @@ $ node scripts/setup-db.js && next dev
    - Environments: .env
 
  ✓ Starting...
- ✓ Ready in 1443ms
+ ✓ Ready in 1403ms
  ○ Compiling / ...
-
-
-Retrying 1/3...
- ✓ Compiled / in 10s (1771 modules)
- GET / 200 in 10629ms
+ ✓ Compiled / in 10.1s (1771 modules)
+ GET / 200 in 10671ms

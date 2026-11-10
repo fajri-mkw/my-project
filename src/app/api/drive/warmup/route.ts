@@ -69,7 +69,7 @@ export async function POST() {
     // 3-5ms CPU (RSA key import + signing). But since there's no Drive API
     // call after it, the total CPU stays under the 10ms limit.
     try {
-      await getCachedAccessToken(settings.driveServiceAccountKey)
+      await getCachedAccessToken(settings.driveServiceAccountKey, settings.driveMode === "folder" ? settings.driveAdminEmail : undefined)
     } catch (tokenErr) {
       console.error('[WARMUP] access token error:', tokenErr)
       return NextResponse.json(

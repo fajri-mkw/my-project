@@ -26,6 +26,7 @@ export interface DriveSettings {
   driveFolderId: string
   driveMode: string  // 'shared' (default) | 'folder' — drives upload-mode selection
   driveParentFolderId?: string | null
+  driveAdminEmail?: string  // admin email for domain-wide delegation (folder mode)
 }
 
 interface CachedSettings {
@@ -54,7 +55,7 @@ export async function getCachedSettings(): Promise<DriveSettings | null> {
   // Cache miss or expired — fetch from DB
   const client = getLibsql()
   const result = await client.execute({
-    sql: `SELECT driveServiceAccountKey, driveSharedDriveId, driveFolderId, driveMode, driveParentFolderId FROM settings WHERE id = 'main' LIMIT 1`,
+    sql: `SELECT driveServiceAccountKey, driveSharedDriveId, driveFolderId, driveMode, driveParentFolderId, driveAdminEmail FROM settings WHERE id = 'main' LIMIT 1`,
     args: [],
   })
 
@@ -72,6 +73,7 @@ export async function getCachedSettings(): Promise<DriveSettings | null> {
     driveFolderId: (row.driveFolderId as string) || '',
     driveMode: (row.driveMode as string) || 'shared', // NULL → 'shared' for backward compat
     driveParentFolderId: (row.driveParentFolderId as string) || null,
+    driveAdminEmail: (row.driveAdminEmail as string) || '',
   }
 
   cachedSettings = { data, expiresAt: now + SETTINGS_CACHE_TTL_MS }

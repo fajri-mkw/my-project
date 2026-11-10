@@ -1,25 +1,11 @@
 $ bash scripts/patch-libsql-cf.sh && prisma generate && bash scripts/patch-libsql-cf.sh && opennextjs-cloudflare build && wrangler2 deploy
 [patch-libsql] Starting patches...
 [patch-libsql] Found @libsql/client at: node_modules/@prisma/adapter-libsql/node_modules/@libsql/client
-[patch-libsql]   ✓ node.js → web.js content
-[patch-libsql]   ✓ lib-cjs/node.js → web.js content
-[patch-libsql]   ✓ exports → all point to node.js
-[patch-libsql]   ✓ sqlite3.js stubbed
-[patch-libsql]   ✓ lib-cjs/sqlite3.js stubbed
 [patch-libsql] Found @libsql/client at: node_modules/@libsql/client
-[patch-libsql]   ✓ node.js → web.js content
-[patch-libsql]   ✓ lib-cjs/node.js → web.js content
-[patch-libsql]   ✓ exports → all point to node.js
-[patch-libsql]   ✓ sqlite3.js stubbed
-[patch-libsql]   ✓ lib-cjs/sqlite3.js stubbed
 [patch-libsql] Found @libsql/isomorphic-ws at: node_modules/@libsql/isomorphic-ws
-[patch-libsql]   ✓ node.mjs → web.mjs content
-[patch-libsql]   ✓ node.cjs → web.cjs content
-[patch-libsql]   ✓ exports → all point to node.mjs
 [patch-libsql] Done.
 [patch-libsql] .prisma/client #main-entry-point → all → wasm.js
 [patch-libsql] .prisma/client/default.js → direct require wasm.js
-[patch-libsql] @prisma/client/default.js → direct wasm.js
 [patch-libsql] .prisma/client/index.js runtime → wasm-engine-edge.js
 [patch-libsql] node_modules/.prisma/client/index.js engineType → wasm
 [patch-libsql] node_modules/.prisma/client/wasm.js engineType → wasm
@@ -33,12 +19,10 @@ $ bash scripts/patch-libsql-cf.sh && prisma generate && bash scripts/patch-libsq
 [patch-libsql] Found https-proxy-agent at: node_modules/https-proxy-agent
 [patch-libsql]   ✓ dist/index.js → stub
 [patch-libsql] Found https-proxy-agent at: node_modules/next/dist/compiled/https-proxy-agent
-[patch-libsql] ✓ node_modules/gaxios/build/esm/src/gaxios.js → hasWindow=true, uses native fetch
-[patch-libsql] ✓ node_modules/gaxios/build/cjs/src/gaxios.js → hasWindow=true, uses native fetch
 Environment variables loaded from .env
 Prisma schema loaded from prisma/schema.prisma
 
-✔ Generated Prisma Client (v6.19.2) to ./node_modules/@prisma/client in 160ms
+✔ Generated Prisma Client (v6.19.2) to ./node_modules/@prisma/client in 177ms
 
 Start by importing your Prisma Client (See: https://pris.ly/d/importing-client)
 
@@ -83,17 +67,17 @@ $ prisma generate && next build --experimental-build-mode=compile
 Environment variables loaded from .env
 Prisma schema loaded from prisma/schema.prisma
 
-✔ Generated Prisma Client (v6.19.2) to ./node_modules/@prisma/client in 213ms
+✔ Generated Prisma Client (v6.19.2) to ./node_modules/@prisma/client in 203ms
 
 Start by importing your Prisma Client (See: https://pris.ly/d/importing-client)
 
-Tip: Want to turn off tips and other hints? https://pris.ly/tip-4-nohints
+Tip: Need your database queries to be 1000x faster? Accelerate offers you that and more: https://pris.ly/tip-2-accelerate
 
    ▲ Next.js 15.5.14
    - Environments: .env
 
    Creating an optimized production build ...
- ⚠ Compiled with warnings in 29.5s
+ ⚠ Compiled with warnings in 21.5s
 
 ./src/lib/libsql-client.ts
 Critical dependency: require function is used in a way in which dependencies cannot be statically extracted
@@ -102,7 +86,7 @@ Import trace for requested module:
 ./src/lib/libsql-client.ts
 ./src/app/api/drive-folders/route.ts
 
- ✓ Compiled successfully in 38.3s
+ ✓ Compiled successfully in 29.9s
    Collecting page data ...
    Finalizing page optimization ...
    Collecting build traces ...
@@ -137,6 +121,7 @@ Route (app)                                     Size  First Load JS
 ├ ƒ /api/maintenance
 ├ ƒ /api/migrate-award-fields
 ├ ƒ /api/migrate-d1-indexes
+├ ƒ /api/migrate-drive-admin-email
 ├ ƒ /api/migrate-drive-mode
 ├ ƒ /api/migrate-inventory-fields
 ├ ƒ /api/migrate-inventory-tables
@@ -211,7 +196,7 @@ Bundling middleware function...
 Bundling static assets...
 Bundling cache assets...
 Building server function: default...
-Applying code patches: 3.646s
+Applying code patches: 3.636s
 # copyPackageTemplateFiles
 [35m⚙️ Bundling the OpenNext server...
 [0m
@@ -232,24 +217,21 @@ Tag cache does not need populating
 
  ⛅️ wrangler 4.159.0
 ────────────────────
-
-Cloudflare collects anonymous telemetry about your usage of Wrangler. Learn more at https://github.com/cloudflare/workers-sdk/tree/main/packages/wrangler/telemetry.md
 🌀 Building list of assets...
-✨ Read 288 files from the assets directory /home/z/my-project/.open-next/assets
+✨ Read 290 files from the assets directory /home/z/my-project/.open-next/assets
 🌀 Starting asset upload...
-🌀 Found 6 new or modified static assets to upload. Proceeding with upload...
+🌀 Found 5 new or modified static assets to upload. Proceeding with upload...
 + /BUILD_ID
-+ /_next/static/chunks/webpack-0376b0e9b31b953e.js
-+ /_next/static/chunks/app/api/route-05056ff9b0e796c4.js
-+ /_next/static/chunks/3142.e2800422d3a9d688.js
-+ /_next/static/uH-TSbaj8CxcD1J6wjL-j/_buildManifest.js
-+ /_next/static/chunks/3981.73d78df8eb64e6d0.js
-Uploaded 2 of 6 assets
-Uploaded 4 of 6 assets
-Uploaded 6 of 6 assets
-✨ Success! Uploaded 6 files (186 already uploaded) (0.85 sec)
++ /_next/static/chunks/webpack-cd479089982fca26.js
++ /_next/static/chunks/app/api/route-62d834ef88682bb1.js
++ /_next/static/chunks/6719.cf308c4bac8c96c5.js
++ /_next/static/dIxRIumuJLdQvv6L_DANQ/_buildManifest.js
+Uploaded 1 of 5 assets
+Uploaded 3 of 5 assets
+Uploaded 5 of 5 assets
+✨ Success! Uploaded 5 files (188 already uploaded) (0.99 sec)
 
-Total Upload: 27600.54 KiB / gzip: 2903.95 KiB
+Total Upload: 27624.44 KiB / gzip: 2907.26 KiB
 Worker Startup Time: 14 ms
 Your Worker has access to the following bindings:
 Binding                                          Resource                  
@@ -257,9 +239,9 @@ env.DB (pushakin-db)                             D1 Database
 env.ASSETS                                       Assets                    
 env.NEXT_PUBLIC_APP_NAME ("Pushakin Flows")      Environment Variable      
 
-Uploaded app (13.75 sec)
-Deployed app triggers (0.81 sec)
+Uploaded app (10.86 sec)
+Deployed app triggers (0.53 sec)
   https://app.pushakin-flows.workers.dev
-Current Version ID: b3151fa4-5278-4d50-bec8-59781d4375d5
-(node:1811) [DEP0190] DeprecationWarning: Passing args to a child process with shell option true can lead to security vulnerabilities, as the arguments are not escaped, only concatenated.
+Current Version ID: 0e5fcb62-1e35-4065-a497-7284fcc9b6fe
+(node:3291) [DEP0190] DeprecationWarning: Passing args to a child process with shell option true can lead to security vulnerabilities, as the arguments are not escaped, only concatenated.
 (Use `node --trace-deprecation ...` to show where the warning was created)

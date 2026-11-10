@@ -36,7 +36,7 @@ export const GET = withEdgeCache(async (request: NextRequest) => {
       return NextResponse.json({ error: 'Drive belum dikonfigurasi' }, { status: 400 })
     }
 
-    const accessToken = await getCachedAccessToken(settings.driveServiceAccountKey)
+    const accessToken = await getCachedAccessToken(settings.driveServiceAccountKey, settings.driveMode === "folder" ? settings.driveAdminEmail : undefined)
 
     // Drive API v3: alt=media returns raw file bytes
     const resp = await fetch(`https://www.googleapis.com/drive/v3/files/${encodeURIComponent(fileId)}?alt=media`, {

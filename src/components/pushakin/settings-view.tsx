@@ -36,6 +36,7 @@ interface SettingsData {
   driveParentFolderId: string
   driveSharedDriveId: string  // used when driveMode='shared'
   driveFolderId: string       // used when driveMode='folder'
+  driveAdminEmail: string    // admin email for domain-wide delegation (folder mode)
   hasServiceAccountKey: boolean
   driveApiKey: string
   maintenanceMode: boolean
@@ -74,6 +75,7 @@ export function SettingsView() {
     driveParentFolderId: '',
     driveSharedDriveId: '',
     driveFolderId: '',
+    driveAdminEmail: '',
     hasServiceAccountKey: false,
     driveApiKey: '',
     maintenanceMode: false,
@@ -143,6 +145,7 @@ export function SettingsView() {
           driveParentFolderId: data.driveParentFolderId || '',
           driveSharedDriveId: data.driveSharedDriveId || '',
           driveFolderId: data.driveFolderId || '',
+          driveAdminEmail: data.driveAdminEmail || '',
           hasServiceAccountKey: data.hasServiceAccountKey || false,
           driveApiKey: data.driveApiKey || '',
           maintenanceMode: data.maintenanceMode || false,
@@ -258,6 +261,9 @@ export function SettingsView() {
       if (dirtyFields.has('driveFolderId')) {
         updateData.driveFolderId = settings.driveFolderId
       }
+      if (dirtyFields.has('driveAdminEmail')) {
+        updateData.driveAdminEmail = settings.driveAdminEmail
+      }
 
       // Service account key: only sent when the user types a new one.
       // (Textarea is always empty on load — we never pre-fill secrets.)
@@ -285,6 +291,7 @@ export function SettingsView() {
           driveParentFolderId: data.driveParentFolderId,
           driveSharedDriveId: data.driveSharedDriveId,
           driveFolderId: data.driveFolderId,
+          driveAdminEmail: data.driveAdminEmail || prev.driveAdminEmail,
           hasServiceAccountKey: data.hasServiceAccountKey
         }))
         setServiceAccountKey('')
@@ -1402,6 +1409,51 @@ export function SettingsView() {
                 <p className="text-[11px] text-emerald-700 mt-2 leading-relaxed">
                   💡 Semua file upload akan disimpan di folder ini (dan subfolder year/month/category otomatis dibuat di dalamnya). Storage dihitung dari kuota My Drive Anda (2 TB), bukan Shared Drive. <strong>Service Account menjadi pemilik file upload</strong> — pastikan tidak menghapus Service Account setelah upload dimulai.
                 </p>
+              </div>
+
+              {/* === Admin Email for Domain-Wide Delegation === */}
+              {/* Service Accounts have 0 storage quota in their own My Drive.
+                  Without domain-wide delegation, uploads to folder mode fail
+                  with "Service Accounts do not have storage quota" (HTTP 403).
+                  The fix: SA impersonates the admin (who has storage quota) by
+                  adding the `sub` claim to the JWT. Requires DWD enabled in
+                  Google Workspace admin console. */}
+              <div className="mt-3 p-3 bg-amber-50 rounded-lg border border-amber-300">
+                <div className="flex items-center gap-2 mb-1">
+                  <AlertCircle className="w-4 h-4 text-amber-600 flex-shrink-0" />
+                  <Label htmlFor="driveAdminEmail" className="font-semibold text-amber-900 text-sm">
+                    Email Admin Google Workspace (WAJIB untuk mode Folder)
+                  </Label>
+                </div>
+                <Input
+                  id="driveAdminEmail"
+                  type="email"
+                  value={settings.driveAdminEmail}
+                  onChange={(e) => {
+                    setSettings(prev => ({ ...prev, driveAdminEmail: e.target.value }))
+                    markDirty('driveAdminEmail')
+                  }}
+                  placeholder="admin@uin-antasari.ac.id"
+                  className="bg-white"
+                />
+                <div className="mt-2 text-[11px] text-amber-800 leading-relaxed">
+                  <p className="font-semibold mb-1">Mengapa wajib?</p>
+                  <p className="mb-1">
+                    Service Account memiliki <strong>kuota storage 0</strong> di My Drive sendiri.
+                    Tanpa domain-wide delegation, upload ke folder mode gagal dengan error
+                    <code className="bg-amber-100 px-1 rounded mx-0.5">storageQuotaExceeded (403)</code>.
+                  </p>
+                  <p className="font-semibold mt-2 mb-1">Setup domain-wide delegation (1x saja):</p>
+                  <ol className="list-decimal list-inside space-y-0.5 ml-1">
+                    <li>Buka <a href="https://admin.google.com/ac/owl" target="_blank" rel="noopener noreferrer" className="text-amber-700 underline">Google Workspace Admin</a> → Security → API Controls → Manage Domain-Wide Delegation</li>
+                    <li>Tambah <strong>Client ID</strong> Service Account (dari JSON key, field <code>client_id</code>)</li>
+                    <li>Authorize scope: <code className="bg-amber-100 px-1 rounded">https://www.googleapis.com/auth/drive</code></li>
+                    <li>Masukkan email admin Anda di field di atas → Simpan</li>
+                  </ol>
+                  <p className="mt-2 text-amber-700">
+                    Dengan ini, Service Account mengimpersonate admin saat upload → file tersimpan di <strong>kuota storage admin</strong> (2 TB), bukan kuota SA (0).
+                  </p>
+                </div>
               </div>
             </div>
           )}

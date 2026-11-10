@@ -42,10 +42,11 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Google Drive belum dikonfigurasi' }, { status: 400 })
     }
 
-    // Use cached access token
+    // Use cached access token — pass admin email for domain-wide delegation
+    // in folder mode (Service Account impersonates admin to use admin's storage quota)
     let accessToken: string
     try {
-      accessToken = await getCachedAccessToken(serviceAccountKey)
+      accessToken = await getCachedAccessToken(serviceAccountKey, settings.driveMode === 'folder' ? settings.driveAdminEmail : undefined)
     } catch (tokenErr) {
       console.error('[UPLOAD-COMPLETE] access token error:', tokenErr)
       return NextResponse.json(

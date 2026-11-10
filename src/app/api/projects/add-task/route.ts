@@ -405,7 +405,7 @@ async function setupFoldersForNewPetugas(
   //    subfolder, hanya pastikan assignedUsers include petugas ini.
   const userSubfolderPattern = `${role.toLowerCase().replace(/\s*&\s*/g, '-')}-${assigneeId}`
 
-  const accessToken = await getCachedAccessToken(settings.driveServiceAccountKey)
+  const accessToken = await getCachedAccessToken(settings.driveServiceAccountKey, settings.driveMode === "folder" ? settings.driveAdminEmail : undefined)
   const driveIdForCreate = target.isSharedDrive ? target.rootId : ''
 
   // 5. Untuk setiap parent folder, buat user subfolder + output subfolders
