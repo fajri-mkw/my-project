@@ -1,16 +1,30 @@
 $ bash scripts/patch-libsql-cf.sh && prisma generate && bash scripts/patch-libsql-cf.sh && opennextjs-cloudflare build && wrangler2 deploy
 [patch-libsql] Starting patches...
-[patch-libsql] Found @libsql/client at: node_modules/@libsql/client
 [patch-libsql] Found @libsql/client at: node_modules/@prisma/adapter-libsql/node_modules/@libsql/client
+[patch-libsql]   ✓ node.js → web.js content
+[patch-libsql]   ✓ lib-cjs/node.js → web.js content
+[patch-libsql]   ✓ exports → all point to node.js
+[patch-libsql]   ✓ sqlite3.js stubbed
+[patch-libsql]   ✓ lib-cjs/sqlite3.js stubbed
+[patch-libsql] Found @libsql/client at: node_modules/@libsql/client
+[patch-libsql]   ✓ node.js → web.js content
+[patch-libsql]   ✓ lib-cjs/node.js → web.js content
+[patch-libsql]   ✓ exports → all point to node.js
+[patch-libsql]   ✓ sqlite3.js stubbed
+[patch-libsql]   ✓ lib-cjs/sqlite3.js stubbed
 [patch-libsql] Found @libsql/isomorphic-ws at: node_modules/@libsql/isomorphic-ws
+[patch-libsql]   ✓ node.mjs → web.mjs content
+[patch-libsql]   ✓ node.cjs → web.cjs content
+[patch-libsql]   ✓ exports → all point to node.mjs
 [patch-libsql] Done.
 [patch-libsql] .prisma/client #main-entry-point → all → wasm.js
 [patch-libsql] .prisma/client/default.js → direct require wasm.js
+[patch-libsql] @prisma/client/default.js → direct wasm.js
 [patch-libsql] .prisma/client/index.js runtime → wasm-engine-edge.js
 [patch-libsql] node_modules/.prisma/client/index.js engineType → wasm
 [patch-libsql] node_modules/.prisma/client/wasm.js engineType → wasm
-[patch-libsql] Found node-fetch@? at: node_modules/@types/node-fetch
 [patch-libsql] Found node-fetch@? at: node_modules/@prisma/adapter-libsql/node_modules/@libsql/client/node_modules/@libsql/hrana-client/node_modules/node-fetch
+[patch-libsql] Found node-fetch@? at: node_modules/@types/node-fetch
 [patch-libsql] Found node-fetch@? at: node_modules/gaxios/node_modules/node-fetch
 [patch-libsql] Found node-fetch@? at: node_modules/node-fetch
 [patch-libsql]   ✓ lib/index.js → native fetch shim
@@ -19,18 +33,20 @@ $ bash scripts/patch-libsql-cf.sh && prisma generate && bash scripts/patch-libsq
 [patch-libsql] Found https-proxy-agent at: node_modules/https-proxy-agent
 [patch-libsql]   ✓ dist/index.js → stub
 [patch-libsql] Found https-proxy-agent at: node_modules/next/dist/compiled/https-proxy-agent
+[patch-libsql] ✓ node_modules/gaxios/build/esm/src/gaxios.js → hasWindow=true, uses native fetch
+[patch-libsql] ✓ node_modules/gaxios/build/cjs/src/gaxios.js → hasWindow=true, uses native fetch
 Environment variables loaded from .env
 Prisma schema loaded from prisma/schema.prisma
 
-✔ Generated Prisma Client (v6.19.2) to ./node_modules/@prisma/client in 162ms
+✔ Generated Prisma Client (v6.19.2) to ./node_modules/@prisma/client in 160ms
 
 Start by importing your Prisma Client (See: https://pris.ly/d/importing-client)
 
-Tip: Need your database queries to be 1000x faster? Accelerate offers you that and more: https://pris.ly/tip-2-accelerate
+Tip: Want to turn off tips and other hints? https://pris.ly/tip-4-nohints
 
 [patch-libsql] Starting patches...
-[patch-libsql] Found @libsql/client at: node_modules/@libsql/client
 [patch-libsql] Found @libsql/client at: node_modules/@prisma/adapter-libsql/node_modules/@libsql/client
+[patch-libsql] Found @libsql/client at: node_modules/@libsql/client
 [patch-libsql] Found @libsql/isomorphic-ws at: node_modules/@libsql/isomorphic-ws
 [patch-libsql] Done.
 [patch-libsql] .prisma/client #main-entry-point → all → wasm.js
@@ -38,8 +54,8 @@ Tip: Need your database queries to be 1000x faster? Accelerate offers you that a
 [patch-libsql] .prisma/client/index.js runtime → wasm-engine-edge.js
 [patch-libsql] node_modules/.prisma/client/index.js engineType → wasm
 [patch-libsql] node_modules/.prisma/client/wasm.js engineType → wasm
-[patch-libsql] Found node-fetch@? at: node_modules/@types/node-fetch
 [patch-libsql] Found node-fetch@? at: node_modules/@prisma/adapter-libsql/node_modules/@libsql/client/node_modules/@libsql/hrana-client/node_modules/node-fetch
+[patch-libsql] Found node-fetch@? at: node_modules/@types/node-fetch
 [patch-libsql] Found node-fetch@? at: node_modules/gaxios/node_modules/node-fetch
 [patch-libsql] Found node-fetch@? at: node_modules/node-fetch
 [patch-libsql]   ✓ lib/index.js → native fetch shim
@@ -67,26 +83,26 @@ $ prisma generate && next build --experimental-build-mode=compile
 Environment variables loaded from .env
 Prisma schema loaded from prisma/schema.prisma
 
-✔ Generated Prisma Client (v6.19.2) to ./node_modules/@prisma/client in 173ms
+✔ Generated Prisma Client (v6.19.2) to ./node_modules/@prisma/client in 213ms
 
 Start by importing your Prisma Client (See: https://pris.ly/d/importing-client)
 
-Tip: Interested in query caching in just a few lines of code? Try Accelerate today! https://pris.ly/tip-3-accelerate
+Tip: Want to turn off tips and other hints? https://pris.ly/tip-4-nohints
 
    ▲ Next.js 15.5.14
    - Environments: .env
 
    Creating an optimized production build ...
- ⚠ Compiled with warnings in 21.3s
+ ⚠ Compiled with warnings in 29.5s
 
 ./src/lib/libsql-client.ts
 Critical dependency: require function is used in a way in which dependencies cannot be statically extracted
 
 Import trace for requested module:
 ./src/lib/libsql-client.ts
-./src/app/api/diag-db/route.ts
+./src/app/api/drive-folders/route.ts
 
- ✓ Compiled successfully in 29.9s
+ ✓ Compiled successfully in 38.3s
    Collecting page data ...
    Finalizing page optimization ...
    Collecting build traces ...
@@ -158,7 +174,6 @@ Route (app)                                     Size  First Load JS
 ├ ƒ /api/relasi/migrate-files-table
 ├ ƒ /api/relasi/public
 ├ ƒ /api/relasi/submissions
-├ ƒ /api/relasi/upload
 ├ ƒ /api/relasi/upload-example
 ├ ƒ /api/seed
 ├ ƒ /api/settings
@@ -196,7 +211,7 @@ Bundling middleware function...
 Bundling static assets...
 Bundling cache assets...
 Building server function: default...
-Applying code patches: 3.734s
+Applying code patches: 3.646s
 # copyPackageTemplateFiles
 [35m⚙️ Bundling the OpenNext server...
 [0m
@@ -217,25 +232,34 @@ Tag cache does not need populating
 
  ⛅️ wrangler 4.159.0
 ────────────────────
-🌀 Building list of assets...
-✨ Read 290 files from the assets directory /home/z/my-project/.open-next/assets
-🌀 Starting asset upload...
-🌀 Found 1 new or modified static asset to upload. Proceeding with upload...
-+ /BUILD_ID
-Uploaded 1 of 1 asset
-✨ Success! Uploaded 1 file (192 already uploaded) (0.90 sec)
 
-Total Upload: 27622.16 KiB / gzip: 2905.07 KiB
-Worker Startup Time: 16 ms
+Cloudflare collects anonymous telemetry about your usage of Wrangler. Learn more at https://github.com/cloudflare/workers-sdk/tree/main/packages/wrangler/telemetry.md
+🌀 Building list of assets...
+✨ Read 288 files from the assets directory /home/z/my-project/.open-next/assets
+🌀 Starting asset upload...
+🌀 Found 6 new or modified static assets to upload. Proceeding with upload...
++ /BUILD_ID
++ /_next/static/chunks/webpack-0376b0e9b31b953e.js
++ /_next/static/chunks/app/api/route-05056ff9b0e796c4.js
++ /_next/static/chunks/3142.e2800422d3a9d688.js
++ /_next/static/uH-TSbaj8CxcD1J6wjL-j/_buildManifest.js
++ /_next/static/chunks/3981.73d78df8eb64e6d0.js
+Uploaded 2 of 6 assets
+Uploaded 4 of 6 assets
+Uploaded 6 of 6 assets
+✨ Success! Uploaded 6 files (186 already uploaded) (0.85 sec)
+
+Total Upload: 27600.54 KiB / gzip: 2903.95 KiB
+Worker Startup Time: 14 ms
 Your Worker has access to the following bindings:
 Binding                                          Resource                  
 env.DB (pushakin-db)                             D1 Database               
 env.ASSETS                                       Assets                    
 env.NEXT_PUBLIC_APP_NAME ("Pushakin Flows")      Environment Variable      
 
-Uploaded app (11.66 sec)
-Deployed app triggers (0.66 sec)
+Uploaded app (13.75 sec)
+Deployed app triggers (0.81 sec)
   https://app.pushakin-flows.workers.dev
-Current Version ID: 821ebd9b-ecec-4540-aabe-d34ac007de27
-(node:5071) [DEP0190] DeprecationWarning: Passing args to a child process with shell option true can lead to security vulnerabilities, as the arguments are not escaped, only concatenated.
+Current Version ID: b3151fa4-5278-4d50-bec8-59781d4375d5
+(node:1811) [DEP0190] DeprecationWarning: Passing args to a child process with shell option true can lead to security vulnerabilities, as the arguments are not escaped, only concatenated.
 (Use `node --trace-deprecation ...` to show where the warning was created)

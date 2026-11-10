@@ -115,7 +115,8 @@ export function RelasiManagementView() {
   // otomatis oleh backend /api/relasi/upload-example). Sama seperti sistem
   // upload project & surat — chunked, bisa file ukuran apapun.
   const handleExampleUpload = async (file: File) => {
-    if (file.size > 500 * 1024 * 1024) { showAlert('Maksimal 500MB'); return }
+    const MAX_FILE_SIZE = 1024 * 1024 * 1024 * 1024 // 1 TiB
+    if (file.size > MAX_FILE_SIZE) { showAlert('Maksimal 1TB'); return }
     setIsUploadingExample(true)
     try {
       // Warmup Drive
@@ -420,7 +421,7 @@ export function RelasiManagementView() {
                     <span className="text-sm text-stone-600">
                       {isUploadingExample ? 'Mengupload ke Google Drive...' : 'Klik untuk upload file contoh'}
                     </span>
-                    <span className="text-xs text-stone-400 mt-1">Maks. 500MB — disimpan ke Google Drive (PDF, DOCX, XLSX, JPG, PNG, video, dll)</span>
+                    <span className="text-xs text-stone-400 mt-1">Maks. 1TB — disimpan ke Google Drive (PDF, DOCX, XLSX, JPG, PNG, video, dll)</span>
                     <input
                       type="file"
                       className="hidden"

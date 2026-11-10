@@ -75,8 +75,9 @@ export function RelasiPublicView({ token }: { token: string }) {
   // sistem upload project & surat management — bukan D1 base64.
   //
   // chunkedUploadFile mendukung file ukuran APAPUN (hingga 5TB Google Drive
-  // limit) dengan Worker-proxy fallback + session recreation + retry. Batas
-  // praktis 500MB untuk upload via browser (koneksi terputus pada file besar).
+  // limit). Batas 1TB dipilih karena cukup untuk video resolusi tinggi/panjang
+  // dan masih dalam batas praktis untuk upload via browser (koneksi terputus
+  // pada file sangat besar; chunked-upload punya retry + session recreation).
   const handleDriveUpload = async (
     fieldId: string,
     file: File,
@@ -92,10 +93,12 @@ export function RelasiPublicView({ token }: { token: string }) {
       alert('Hanya file video yang diperbolehkan (MP4, MOV, AVI, MKV, WebM, dll)')
       return
     }
-    // Batas 500MB — berlaku untuk foto & video. Google Drive mendukung hingga
-    // 5TB, tapi 500MB adalah batas praktis untuk upload via browser.
-    if (file.size > 500 * 1024 * 1024) {
-      alert('Maksimal 500MB per file')
+    // Batas 1TB — Google Drive mendukung hingga 5TB; 1TB cukup untuk video
+    // resolusi tinggi/panjang. chunked-upload (8MB per chunk) menangani file
+    // besar dengan retry + session recreation.
+    const MAX_FILE_SIZE = 1024 * 1024 * 1024 * 1024 // 1 TiB
+    if (file.size > MAX_FILE_SIZE) {
+      alert('Maksimal 1TB per file')
       return
     }
     // Cek limit jumlah file
@@ -482,7 +485,7 @@ export function RelasiPublicView({ token }: { token: string }) {
                             <span className="text-sm text-stone-600">
                               Upload Video {uploadedFiles[field.id]?.length || 0}/{field.maxPhotos || 1}
                             </span>
-                            <span className="text-xs text-stone-400 mt-1">MP4, MOV, AVI, MKV, WebM — maks. 500MB</span>
+                            <span className="text-xs text-stone-400 mt-1">MP4, MOV, AVI, MKV, WebM — maks. 1TB</span>
                           </>
                         )}
                         {isUploading !== field.id && (
