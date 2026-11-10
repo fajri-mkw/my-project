@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getLibsql, bind } from '@/lib/libsql-client'
+import { getCachedSettings } from '@/lib/drive-settings-cache'
 import {
-  getCachedSettings,
   getCachedAccessToken,
   resolveDriveTarget,
   createDriveFolder,

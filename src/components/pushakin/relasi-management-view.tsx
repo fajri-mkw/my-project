@@ -11,6 +11,8 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '
 import { useAppStore } from '@/lib/store'
 import { cn } from '@/lib/utils'
 import { Users, Plus, Trash2, Pencil, ExternalLink, Copy, Eye, Loader2, FileText, Check, X, ChevronDown, ChevronUp, Settings2, QrCode, Upload } from 'lucide-react'
+import { chunkedUploadFile } from '@/lib/chunked-upload'
+import { warmupDrive } from '@/lib/drive-warmup'
 
 interface FormField {
   id: string
@@ -108,23 +110,40 @@ export function RelasiManagementView() {
     setIsDialogOpen(true)
   }
 
+  // === Upload file contoh ke Google Drive ===
+  // File contoh disimpan di folder "Relasi - Contoh" di root Drive (dibuat
+  // otomatis oleh backend /api/relasi/upload-example). Sama seperti sistem
+  // upload project & surat — chunked, bisa file ukuran apapun.
   const handleExampleUpload = async (file: File) => {
-    if (file.size > 20 * 1024 * 1024) { showAlert('Maksimal 20MB'); return }
+    if (file.size > 500 * 1024 * 1024) { showAlert('Maksimal 500MB'); return }
     setIsUploadingExample(true)
     try {
-      const fd = new FormData()
-      fd.append('file', file)
-      fd.append('formId', editingForm?.id || 'new')
-      fd.append('isExample', 'true')
-      const r = await fetch('/api/relasi/upload', { method: 'POST', body: fd })
-      const d = await r.json()
-      if (r.ok && d.success) {
-        setExampleFile({ fileId: d.fileId, name: d.name, url: d.url })
-        showAlert('File contoh berhasil diupload')
-      } else {
-        showAlert(d.error || 'Gagal upload contoh')
+      // Warmup Drive
+      try { await warmupDrive(1) } catch { /* non-fatal */ }
+
+      // Step 1: Minta URL sesi upload dari backend (folder Contoh sudah di-setup)
+      const initRes = await fetch('/api/relasi/upload-example', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ fileName: file.name, mimeType: file.type || 'application/octet-stream' }),
+      })
+      if (!initRes.ok) {
+        const d = await initRes.json().catch(() => ({}))
+        throw new Error(d?.error || `Gagal menyiapkan upload (HTTP ${initRes.status})`)
       }
-    } catch { showAlert('Gagal upload') } finally { setIsUploadingExample(false) }
+      const initData = await initRes.json()
+      const targetFolderId = initData.folderId
+
+      // Step 2: Upload via chunkedUploadFile (pakai folderId dari backend)
+      const result = await chunkedUploadFile({ file, folderId: targetFolderId })
+
+      // URL untuk download/preview file contoh
+      setExampleFile({ fileId: result.id, name: result.name, url: result.webViewLink })
+      showAlert('File contoh berhasil diupload ke Google Drive')
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Gagal upload'
+      showAlert(msg)
+    } finally { setIsUploadingExample(false) }
   }
 
   const addField = (type: FormField['type']) => {
@@ -399,9 +418,9 @@ export function RelasiManagementView() {
                       <Upload className="w-6 h-6 text-stone-400 mb-2" />
                     )}
                     <span className="text-sm text-stone-600">
-                      {isUploadingExample ? 'Mengupload...' : 'Klik untuk upload file contoh'}
+                      {isUploadingExample ? 'Mengupload ke Google Drive...' : 'Klik untuk upload file contoh'}
                     </span>
-                    <span className="text-xs text-stone-400 mt-1">Maks. 20MB — PDF, DOCX, XLSX, JPG, PNG, dll</span>
+                    <span className="text-xs text-stone-400 mt-1">Maks. 500MB — disimpan ke Google Drive (PDF, DOCX, XLSX, JPG, PNG, video, dll)</span>
                     <input
                       type="file"
                       className="hidden"

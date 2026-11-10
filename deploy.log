@@ -22,7 +22,7 @@ $ bash scripts/patch-libsql-cf.sh && prisma generate && bash scripts/patch-libsq
 Environment variables loaded from .env
 Prisma schema loaded from prisma/schema.prisma
 
-✔ Generated Prisma Client (v6.19.2) to ./node_modules/@prisma/client in 155ms
+✔ Generated Prisma Client (v6.19.2) to ./node_modules/@prisma/client in 162ms
 
 Start by importing your Prisma Client (See: https://pris.ly/d/importing-client)
 
@@ -67,38 +67,26 @@ $ prisma generate && next build --experimental-build-mode=compile
 Environment variables loaded from .env
 Prisma schema loaded from prisma/schema.prisma
 
-✔ Generated Prisma Client (v6.19.2) to ./node_modules/@prisma/client in 174ms
+✔ Generated Prisma Client (v6.19.2) to ./node_modules/@prisma/client in 173ms
 
 Start by importing your Prisma Client (See: https://pris.ly/d/importing-client)
 
-Tip: Need your database queries to be 1000x faster? Accelerate offers you that and more: https://pris.ly/tip-2-accelerate
+Tip: Interested in query caching in just a few lines of code? Try Accelerate today! https://pris.ly/tip-3-accelerate
 
    ▲ Next.js 15.5.14
    - Environments: .env
 
    Creating an optimized production build ...
- ⚠ Compiled with warnings in 22.3s
-
-./src/app/api/relasi/create-drive-folder/route.ts
-Attempted import error: 'getCachedSettings' is not exported from '@/lib/drive-service' (imported as 'getCachedSettings').
-
-Import trace for requested module:
-./src/app/api/relasi/create-drive-folder/route.ts
-
-./src/app/api/relasi/route.ts
-Attempted import error: 'getCachedSettings' is not exported from '@/lib/drive-service' (imported as 'getCachedSettings').
-
-Import trace for requested module:
-./src/app/api/relasi/route.ts
+ ⚠ Compiled with warnings in 21.3s
 
 ./src/lib/libsql-client.ts
 Critical dependency: require function is used in a way in which dependencies cannot be statically extracted
 
 Import trace for requested module:
 ./src/lib/libsql-client.ts
-./src/app/api/drive-folders/route.ts
+./src/app/api/diag-db/route.ts
 
- ✓ Compiled successfully in 30.9s
+ ✓ Compiled successfully in 29.9s
    Collecting page data ...
    Finalizing page optimization ...
    Collecting build traces ...
@@ -171,6 +159,7 @@ Route (app)                                     Size  First Load JS
 ├ ƒ /api/relasi/public
 ├ ƒ /api/relasi/submissions
 ├ ƒ /api/relasi/upload
+├ ƒ /api/relasi/upload-example
 ├ ƒ /api/seed
 ├ ƒ /api/settings
 ├ ƒ /api/setup-surat-table
@@ -207,7 +196,7 @@ Bundling middleware function...
 Bundling static assets...
 Bundling cache assets...
 Building server function: default...
-Applying code patches: 3.808s
+Applying code patches: 3.734s
 # copyPackageTemplateFiles
 [35m⚙️ Bundling the OpenNext server...
 [0m
@@ -229,24 +218,24 @@ Tag cache does not need populating
  ⛅️ wrangler 4.159.0
 ────────────────────
 🌀 Building list of assets...
-✨ Read 288 files from the assets directory /home/z/my-project/.open-next/assets
+✨ Read 290 files from the assets directory /home/z/my-project/.open-next/assets
 🌀 Starting asset upload...
 🌀 Found 1 new or modified static asset to upload. Proceeding with upload...
 + /BUILD_ID
 Uploaded 1 of 1 asset
-✨ Success! Uploaded 1 file (191 already uploaded) (1.17 sec)
+✨ Success! Uploaded 1 file (192 already uploaded) (0.90 sec)
 
-Total Upload: 27594.80 KiB / gzip: 2903.07 KiB
-Worker Startup Time: 15 ms
+Total Upload: 27622.16 KiB / gzip: 2905.07 KiB
+Worker Startup Time: 16 ms
 Your Worker has access to the following bindings:
 Binding                                          Resource                  
 env.DB (pushakin-db)                             D1 Database               
 env.ASSETS                                       Assets                    
 env.NEXT_PUBLIC_APP_NAME ("Pushakin Flows")      Environment Variable      
 
-Uploaded app (11.56 sec)
-Deployed app triggers (0.60 sec)
+Uploaded app (11.66 sec)
+Deployed app triggers (0.66 sec)
   https://app.pushakin-flows.workers.dev
-Current Version ID: 8f9e46a3-6fb0-4102-aafa-8e40a0f9ec0c
-(node:3240) [DEP0190] DeprecationWarning: Passing args to a child process with shell option true can lead to security vulnerabilities, as the arguments are not escaped, only concatenated.
+Current Version ID: 821ebd9b-ecec-4540-aabe-d34ac007de27
+(node:5071) [DEP0190] DeprecationWarning: Passing args to a child process with shell option true can lead to security vulnerabilities, as the arguments are not escaped, only concatenated.
 (Use `node --trace-deprecation ...` to show where the warning was created)

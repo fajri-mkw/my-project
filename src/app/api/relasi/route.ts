@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { withEdgeCache, invalidateCache, deferToBackground } from '@/lib/edge-cache'
 import { getLibsql, bind, nowMs, genId } from '@/lib/libsql-client'
+import { getCachedSettings } from '@/lib/drive-settings-cache'
 import {
-  getCachedSettings,
   getCachedAccessToken,
   resolveDriveTarget,
   createDriveFolder,
