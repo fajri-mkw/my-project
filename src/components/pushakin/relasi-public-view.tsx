@@ -6,11 +6,13 @@ import { Card, CardContent } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
-import { Loader2, CheckCircle2, Upload, AlertCircle, FileText } from 'lucide-react'
+import { Loader2, CheckCircle2, Upload, AlertCircle, FileText, Film } from 'lucide-react'
+import { chunkedUploadFile } from '@/lib/chunked-upload'
+import { warmupDrive } from '@/lib/drive-warmup'
 
 interface FormField {
   id: string
-  type: 'text' | 'textarea' | 'email' | 'phone' | 'file' | 'select' | 'date' | 'number' | 'text+photo'
+  type: 'text' | 'textarea' | 'email' | 'phone' | 'file' | 'select' | 'date' | 'number' | 'text+photo' | 'video'
   label: string
   required: boolean
   placeholder?: string
@@ -24,6 +26,7 @@ interface FormData {
   description: string
   fields: FormField[]
   exampleFile?: { name: string; url: string } | null
+  driveFolderId?: string | null
 }
 
 interface UploadedFile {
@@ -43,6 +46,7 @@ export function RelasiPublicView({ token }: { token: string }) {
   const [uploadedFiles, setUploadedFiles] = useState<UploadedFilesMap>({})
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [isUploading, setIsUploading] = useState<string | null>(null)
+  const [videoUploadProgress, setVideoUploadProgress] = useState<Record<string, number>>({})
   const [submitted, setSubmitted] = useState(false)
 
   useEffect(() => {
@@ -102,6 +106,74 @@ export function RelasiPublicView({ token }: { token: string }) {
     }
   }
 
+  // === Handle VIDEO upload via Google Drive chunked upload ===
+  // Video disimpan ke Google Drive (bukan D1) karena ukurannya besar
+  // (bisa ratusan MB). Menggunakan path chunked-upload.ts yang sama dengan
+  // upload photographer/surat/kegiatan — mendukung file hingga 5TB dengan
+  // Worker-proxy fallback + session recreation + retry.
+  const handleVideoUpload = async (fieldId: string, file: File, maxVideos: number) => {
+    if (!file.type.startsWith('video/')) {
+      alert('Hanya file video yang diperbolehkan (MP4, MOV, AVI, MKV, WebM, dll)')
+      return
+    }
+    // Batas 500MB — cukup untuk video pendek/menengah. Google Drive mendukung
+    // hingga 5TB, tapi 500MB adalah batas praktis untuk upload via browser
+    // (koneksi terputus pada file lebih besar).
+    if (file.size > 500 * 1024 * 1024) {
+      alert('Maksimal 500MB untuk video')
+      return
+    }
+    // Cek limit
+    const current = uploadedFiles[fieldId] || []
+    if (current.length >= maxVideos) {
+      alert(`Maksimal ${maxVideos} video untuk pertanyaan ini`)
+      return
+    }
+    // Pastikan form punya driveFolderId (untuk video upload ke folder form)
+    if (!formData?.driveFolderId) {
+      alert('Folder Google Drive untuk form ini belum dibuat. Hubungi admin untuk membuat form ulang atau mengaktifkan Google Drive.')
+      return
+    }
+
+    setIsUploading(fieldId)
+    setVideoUploadProgress(prev => ({ ...prev, [fieldId]: 0 }))
+    try {
+      // Warmup Drive (pre-cache access token di isolate)
+      try {
+        await warmupDrive(1)
+      } catch {
+        // Non-fatal — chunkedUploadFile punya retry sendiri
+      }
+
+      const result = await chunkedUploadFile({
+        file,
+        folderId: formData.driveFolderId,
+        onProgress: (percent: number) => {
+          setVideoUploadProgress(prev => ({ ...prev, [fieldId]: percent }))
+        },
+      })
+
+      setUploadedFiles(prev => ({
+        ...prev,
+        [fieldId]: [...(prev[fieldId] || []), {
+          name: result.name,
+          fileId: result.id,
+          url: result.webViewLink,
+        }],
+      }))
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Gagal upload video'
+      alert(msg)
+    } finally {
+      setIsUploading(null)
+      setVideoUploadProgress(prev => {
+        const next = { ...prev }
+        delete next[fieldId]
+        return next
+      })
+    }
+  }
+
   const removeUpload = (fieldId: string, idx: number) => {
     setUploadedFiles(prev => ({
       ...prev,
@@ -114,7 +186,7 @@ export function RelasiPublicView({ token }: { token: string }) {
     // Validate required fields
     for (const field of formData.fields) {
       if (field.required) {
-        if (field.type === 'file' || field.type === 'text+photo') {
+        if (field.type === 'file' || field.type === 'text+photo' || field.type === 'video') {
           if (!uploadedFiles[field.id] || uploadedFiles[field.id].length === 0) {
             alert(`"${field.label}" wajib diisi`)
             return
@@ -373,6 +445,72 @@ export function RelasiPublicView({ token }: { token: string }) {
                         </label>
                       )}
                     </div>
+                  </div>
+                )}
+
+                {field.type === 'video' && (
+                  <div className="space-y-2">
+                    <p className="text-xs text-stone-500 font-medium">
+                      Upload Video (maks. {field.maxPhotos || 1}) — disimpan ke Google Drive:
+                    </p>
+                    {/* Video sudah upload — tampilkan dengan ikon film */}
+                    {(uploadedFiles[field.id] || []).map((f, fi) => (
+                      <div key={fi} className="flex items-center gap-2 p-2 bg-green-50 border border-green-200 rounded-lg">
+                        <Film className="w-4 h-4 text-green-600 flex-shrink-0" />
+                        <span className="text-xs text-stone-600 truncate flex-1">{f.name}</span>
+                        <a
+                          href={f.url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-xs text-blue-600 hover:underline"
+                        >
+                          Lihat
+                        </a>
+                        <button type="button" onClick={() => removeUpload(field.id, fi)} className="text-red-500 text-xs hover:text-red-700">Hapus</button>
+                      </div>
+                    ))}
+                    {/* Upload button — hanya tampil kalau belum capai maxVideos */}
+                    {(!uploadedFiles[field.id] || uploadedFiles[field.id].length < (field.maxPhotos || 1)) && (
+                      <label className="flex flex-col items-center justify-center border-2 border-dashed border-stone-300 rounded-xl p-6 cursor-pointer hover:border-indigo-400 hover:bg-indigo-50 transition-colors">
+                        {isUploading === field.id ? (
+                          <>
+                            <Loader2 className="w-8 h-8 animate-spin text-indigo-500 mb-2" />
+                            <span className="text-sm text-stone-600">
+                              {videoUploadProgress[field.id]
+                                ? `Mengupload... ${videoUploadProgress[field.id]}%`
+                                : 'Menyiapkan...'}
+                            </span>
+                            {videoUploadProgress[field.id] !== undefined && videoUploadProgress[field.id] > 0 && (
+                              <div className="w-full max-w-xs mt-2 bg-stone-200 rounded-full h-1.5 overflow-hidden">
+                                <div
+                                  className="bg-indigo-500 h-full transition-all"
+                                  style={{ width: `${videoUploadProgress[field.id]}%` }}
+                                />
+                              </div>
+                            )}
+                          </>
+                        ) : (
+                          <>
+                            <Film className="w-8 h-8 text-stone-400 mb-2" />
+                            <span className="text-sm text-stone-600">
+                              Upload Video {uploadedFiles[field.id]?.length || 0}/{field.maxPhotos || 1}
+                            </span>
+                            <span className="text-xs text-stone-400 mt-1">MP4, MOV, AVI, MKV, WebM — maks. 500MB</span>
+                          </>
+                        )}
+                        {isUploading !== field.id && (
+                          <input
+                            type="file"
+                            accept="video/*"
+                            className="hidden"
+                            onChange={e => {
+                              const file = e.target.files?.[0]
+                              if (file) handleVideoUpload(field.id, file, field.maxPhotos || 1)
+                            }}
+                          />
+                        )}
+                      </label>
+                    )}
                   </div>
                 )}
               </div>

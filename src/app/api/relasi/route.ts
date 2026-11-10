@@ -1,6 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { withEdgeCache, invalidateCache, deferToBackground } from '@/lib/edge-cache'
 import { getLibsql, bind, nowMs, genId } from '@/lib/libsql-client'
+import {
+  getCachedSettings,
+  getCachedAccessToken,
+  resolveDriveTarget,
+  createDriveFolder,
+} from '@/lib/drive-service'
 
 // GET /api/relasi — list semua form (Admin only, cached 30s)
 export const GET = withEdgeCache(async (request: NextRequest) => {
@@ -67,15 +73,48 @@ export async function POST(request: NextRequest) {
     const token = `relasi-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
     const ts = nowMs()
 
+    // === Auto-create Google Drive folder untuk video uploads ===
+    // Jika Drive terkonfigurasi (hasServiceAccountKey + root ID), buat subfolder
+    // bernama "Relasi - {title}" di root Drive folder. Ini untuk menyimpan
+    // video yang diupload pengunjung form (video terlalu besar untuk D1 base64).
+    // Folder ID disimpan di kolom driveFolderId. Non-fatal jika gagal — form
+    // tetap dibuat, hanya upload video yang tidak akan berfungsi (foto tetap OK).
+    let driveFolderId: string | null = null
+    try {
+      const settings = await getCachedSettings()
+      if (settings?.driveServiceAccountKey) {
+        const target = resolveDriveTarget(settings)
+        if (target) {
+          const accessToken = await getCachedAccessToken(settings.driveServiceAccountKey)
+          const driveIdForCreate = target.isSharedDrive ? target.rootId : ''
+          // Sanitize title untuk nama folder (Drive forbids certain chars)
+          const safeTitle = (title || 'Form').replace(/[/\\?%*:|"<>]/g, '-').substring(0, 80)
+          const folderName = `Relasi - ${safeTitle}`
+          const created = await createDriveFolder(accessToken, {
+            name: folderName,
+            parentId: target.rootId,
+            sharedDriveId: driveIdForCreate,
+          })
+          if (created?.id) {
+            driveFolderId = created.id
+          }
+        }
+      }
+    } catch (driveErr) {
+      // Non-fatal — form tetap dibuat tanpa driveFolderId. Upload video akan
+      // menampilkan pesan "folder belum dibuat" di frontend.
+      console.error('[RELASI POST] Drive folder creation failed (non-fatal):', driveErr)
+    }
+
     const client = getLibsql()
     await client.execute({
-      sql: `INSERT INTO relasi_forms (id, title, description, fields, publicToken, status, createdBy,
+      sql: `INSERT INTO relasi_forms (id, title, description, fields, publicToken, driveFolderId, status, createdBy,
             exampleFileId, exampleFileName, exampleFileUrl, createdAt, updatedAt)
-            VALUES (?, ?, ?, ?, ?, 'active', ?, ?, ?, ?, ?, ?)`,
+            VALUES (?, ?, ?, ?, ?, ?, 'active', ?, ?, ?, ?, ?, ?)`,
       args: [
         bind(id), bind(title), bind(description || ''),
         bind(JSON.stringify(fields || [])),
-        bind(token), bind(userId || ''),
+        bind(token), bind(driveFolderId), bind(userId || ''),
         bind(exampleFileId || null), bind(exampleFileName || null), bind(exampleFileUrl || null),
         bind(ts), bind(ts),
       ],

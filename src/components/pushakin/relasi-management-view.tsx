@@ -14,7 +14,7 @@ import { Users, Plus, Trash2, Pencil, ExternalLink, Copy, Eye, Loader2, FileText
 
 interface FormField {
   id: string
-  type: 'text' | 'textarea' | 'email' | 'phone' | 'file' | 'select' | 'date' | 'number' | 'text+photo'
+  type: 'text' | 'textarea' | 'email' | 'phone' | 'file' | 'select' | 'date' | 'number' | 'text+photo' | 'video'
   label: string
   required: boolean
   placeholder?: string
@@ -56,6 +56,7 @@ const FIELD_TYPES: Array<{ type: FormField['type']; label: string; icon: string 
   { type: 'number', label: 'Angka', icon: '🔢' },
   { type: 'date', label: 'Tanggal', icon: '📅' },
   { type: 'file', label: 'Upload Foto', icon: '📸' },
+  { type: 'video', label: 'Upload Video', icon: '🎬' },
   { type: 'text+photo', label: 'Teks + Foto (Gabungan)', icon: '📝📸' },
   { type: 'select', label: 'Pilihan Ganda', icon: '☑️' },
 ]
@@ -133,7 +134,7 @@ export function RelasiManagementView() {
       label: '',
       required: false,
       ...(type === 'select' ? { options: [''] } : {}),
-      ...((type === 'file' || type === 'text+photo') ? { maxPhotos: 3 } : {}),
+      ...((type === 'file' || type === 'text+photo' || type === 'video') ? { maxPhotos: 3 } : {}),
     }
     setFormFields([...formFields, newField])
   }
@@ -495,6 +496,20 @@ export function RelasiManagementView() {
                           className="w-20 text-sm"
                         />
                         <span className="text-xs text-stone-400">foto per pertanyaan ini</span>
+                      </div>
+                    )}
+                    {field.type === 'video' && (
+                      <div className="flex items-center gap-2">
+                        <Label className="text-xs text-stone-500">Maks. video:</Label>
+                        <Input
+                          type="number"
+                          min={1}
+                          max={5}
+                          value={field.maxPhotos || 1}
+                          onChange={e => updateField(idx, { maxPhotos: Number(e.target.value) })}
+                          className="w-20 text-sm"
+                        />
+                        <span className="text-xs text-stone-400">video per pertanyaan ini (disimpan ke Google Drive)</span>
                       </div>
                     )}
                   </div>

@@ -10,7 +10,7 @@ export async function GET(request: NextRequest) {
 
     const client = getLibsql()
     const res = await client.execute({
-      sql: `SELECT id, title, description, fields, status,
+      sql: `SELECT id, title, description, fields, status, driveFolderId,
             exampleFileId, exampleFileName, exampleFileUrl
             FROM relasi_forms WHERE publicToken = ? LIMIT 1`,
       args: [bind(token)],
@@ -32,6 +32,7 @@ export async function GET(request: NextRequest) {
       title: String(row.title || ''),
       description: String(row.description || ''),
       fields: JSON.parse(String(row.fields || '[]')),
+      driveFolderId: row.driveFolderId != null ? String(row.driveFolderId) : null,
       exampleFile: row.exampleFileId != null ? {
         name: String(row.exampleFileName || ''),
         url: String(row.exampleFileUrl || ''),

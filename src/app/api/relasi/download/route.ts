@@ -69,12 +69,22 @@ export async function GET(request: NextRequest) {
           pdf: 'application/pdf',
           docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
           xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+          pptx: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
           jpg: 'image/jpeg',
           jpeg: 'image/jpeg',
           png: 'image/png',
           gif: 'image/gif',
+          webp: 'image/webp',
           txt: 'text/plain',
           zip: 'application/zip',
+          // Video (local dev fallback — di Workers, video disimpan di Google Drive,
+          // bukan D1/filesystem, sehingga jalur ini tidak dipakai untuk video di produksi)
+          mp4: 'video/mp4',
+          mov: 'video/quicktime',
+          avi: 'video/x-msvideo',
+          mkv: 'video/x-matroska',
+          webm: 'video/webm',
+          m4v: 'video/x-m4v',
         }
         const contentType = contentTypes[ext] || 'application/octet-stream'
 

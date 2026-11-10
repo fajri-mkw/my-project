@@ -1,4 +1,4 @@
-[Mon Nov  9 04:28:39 UTC 2026] Starting dev server...
+[Tue Nov 10 01:04:17 UTC 2026] Starting dev server...
 $ node scripts/setup-db.js && next dev
 [DB Setup] Detected SQLite database (local development)
 [DB Setup] Schema patched for SQLite
@@ -6,11 +6,22 @@ $ node scripts/setup-db.js && next dev
 [DB Setup] Prisma Client generated successfully
    ▲ Next.js 15.5.14
    - Local:        http://localhost:3000
-   - Network:      http://21.0.4.111:3000
+   - Network:      http://21.0.13.127:3000
    - Environments: .env
 
  ✓ Starting...
- ✓ Ready in 1777ms
+ ✓ Ready in 1318ms
  ○ Compiling / ...
- ✓ Compiled / in 10.4s (1771 modules)
- GET / 200 in 11029ms
+ ✓ Compiled / in 9.4s (1771 modules)
+ GET / 200 in 10051ms
+ ○ Compiling /api/users ...
+ ⚠ ./src/lib/libsql-client.ts
+Critical dependency: require function is used in a way in which dependencies cannot be statically extracted
+
+Import trace for requested module:
+./src/lib/libsql-client.ts
+./src/app/api/maintenance/route.ts
+ GET /api/projects 200 in 3687ms
+ GET /api/users 200 in 3664ms
+ GET /api/maintenance 200 in 3743ms
+ GET / 200 in 2130ms
