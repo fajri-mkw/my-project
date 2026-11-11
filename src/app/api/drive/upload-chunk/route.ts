@@ -162,9 +162,32 @@ export async function POST(request: NextRequest) {
     )
   }
 
-  // 401/403 from Google on a resumable upload URL means the session itself
-  // is bad — treat it the same as 404/410 (session invalidated).
+  // 401/403 from Google — could be session issue OR quota/permission issue.
+  // Read the body to distinguish. Quota/permission errors are NOT recoverable
+  // by recreating the session — surface them with an actionable message so
+  // the frontend can tell the user exactly what to fix.
   if (driveResponse.status === 401 || driveResponse.status === 403) {
+    const isQuotaIssue = /storageQuotaExceeded|do not have storage quota/i.test(errorText)
+    const isPermissionIssue = /cannotShareItem|insufficientFilePermissions|forbidden/i.test(errorText)
+    if (isQuotaIssue) {
+      return NextResponse.json(
+        {
+          error: 'Google Drive menolak upload: Service Account tidak punya kuota storage. Solusi: buka Pengaturan → di mode Folder, isi "Email Admin Google Workspace" dan aktifkan Domain-Wide Delegation di Google Workspace Admin. Atau ganti ke mode Shared Drive.',
+          quotaExceeded: true,
+        },
+        { status: 403 },
+      )
+    }
+    if (isPermissionIssue) {
+      return NextResponse.json(
+        {
+          error: 'Google Drive menolak upload: Service Account tidak punya izin ke folder. Pastikan folder sudah di-share ke email Service Account dengan akses Editor.',
+          permissionDenied: true,
+        },
+        { status: 403 },
+      )
+    }
+    // Genuine session issue — recreate
     return NextResponse.json(
       {
         error: `Sesi upload tidak valid (HTTP ${driveResponse.status}). Sesi akan dibuat ulang.`,

@@ -1251,6 +1251,24 @@ export function SettingsView() {
             </div>
           )}
 
+          {/* === Critical warning: folder mode + no admin email = uploads will fail === */}
+          {settings.driveAutoCreate && settings.hasServiceAccountKey && settings.driveMode === 'folder' && settings.driveFolderId && !settings.driveAdminEmail && (
+            <div className="p-4 bg-red-50 border border-red-300 rounded-xl text-red-800 text-sm">
+              <div className="flex items-start gap-3">
+                <AlertCircle className="w-5 h-5 flex-shrink-0 mt-0.5 text-red-600" />
+                <div>
+                  <p className="font-semibold text-red-900">⚠ Upload akan GAGAL — Email Admin belum diisi</p>
+                  <p className="mt-1">
+                    Service Account punya kuota storage <strong>0</strong> di My Drive sendiri. Tanpa Domain-Wide Delegation, Google akan menolak semua upload dengan error <code className="bg-red-100 px-1 rounded">storageQuotaExceeded (403)</code>.
+                  </p>
+                  <p className="mt-1">
+                    Lihat field <strong>"Email Admin Google Workspace"</strong> di bawah — isi email admin Anda + aktifkan Domain-Wide Delegation di Google Workspace Admin. <strong>Atau</strong> ganti ke <strong>mode Shared Drive</strong> di atas (tidak perlu DWD).
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* Drive Mode selector — switch between Shared Drive and My Drive Folder */}
           <div className="space-y-2 p-4 bg-stone-50 rounded-xl border border-stone-200">
             <Label className="font-semibold text-stone-900">Drive Mode</Label>

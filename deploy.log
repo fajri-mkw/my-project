@@ -10,23 +10,23 @@ $ bash scripts/patch-libsql-cf.sh && prisma generate && bash scripts/patch-libsq
 [patch-libsql] node_modules/.prisma/client/index.js engineType → wasm
 [patch-libsql] node_modules/.prisma/client/wasm.js engineType → wasm
 [patch-libsql] Found node-fetch@? at: node_modules/@prisma/adapter-libsql/node_modules/@libsql/client/node_modules/@libsql/hrana-client/node_modules/node-fetch
-[patch-libsql] Found node-fetch@? at: node_modules/@types/node-fetch
 [patch-libsql] Found node-fetch@? at: node_modules/gaxios/node_modules/node-fetch
 [patch-libsql] Found node-fetch@? at: node_modules/node-fetch
 [patch-libsql]   ✓ lib/index.js → native fetch shim
 [patch-libsql]   ✓ lib/index.mjs → native fetch shim (ESM)
 [patch-libsql]   ✓ browser.js → native fetch shim
+[patch-libsql] Found node-fetch@? at: node_modules/@types/node-fetch
 [patch-libsql] Found https-proxy-agent at: node_modules/https-proxy-agent
 [patch-libsql]   ✓ dist/index.js → stub
 [patch-libsql] Found https-proxy-agent at: node_modules/next/dist/compiled/https-proxy-agent
 Environment variables loaded from .env
 Prisma schema loaded from prisma/schema.prisma
 
-✔ Generated Prisma Client (v6.19.2) to ./node_modules/@prisma/client in 177ms
+✔ Generated Prisma Client (v6.19.2) to ./node_modules/@prisma/client in 174ms
 
 Start by importing your Prisma Client (See: https://pris.ly/d/importing-client)
 
-Tip: Want to turn off tips and other hints? https://pris.ly/tip-4-nohints
+Tip: Interested in query caching in just a few lines of code? Try Accelerate today! https://pris.ly/tip-3-accelerate
 
 [patch-libsql] Starting patches...
 [patch-libsql] Found @libsql/client at: node_modules/@prisma/adapter-libsql/node_modules/@libsql/client
@@ -39,12 +39,12 @@ Tip: Want to turn off tips and other hints? https://pris.ly/tip-4-nohints
 [patch-libsql] node_modules/.prisma/client/index.js engineType → wasm
 [patch-libsql] node_modules/.prisma/client/wasm.js engineType → wasm
 [patch-libsql] Found node-fetch@? at: node_modules/@prisma/adapter-libsql/node_modules/@libsql/client/node_modules/@libsql/hrana-client/node_modules/node-fetch
-[patch-libsql] Found node-fetch@? at: node_modules/@types/node-fetch
 [patch-libsql] Found node-fetch@? at: node_modules/gaxios/node_modules/node-fetch
 [patch-libsql] Found node-fetch@? at: node_modules/node-fetch
 [patch-libsql]   ✓ lib/index.js → native fetch shim
 [patch-libsql]   ✓ lib/index.mjs → native fetch shim (ESM)
 [patch-libsql]   ✓ browser.js → native fetch shim
+[patch-libsql] Found node-fetch@? at: node_modules/@types/node-fetch
 [patch-libsql] Found https-proxy-agent at: node_modules/https-proxy-agent
 [patch-libsql]   ✓ dist/index.js → stub
 [patch-libsql] Found https-proxy-agent at: node_modules/next/dist/compiled/https-proxy-agent
@@ -67,26 +67,26 @@ $ prisma generate && next build --experimental-build-mode=compile
 Environment variables loaded from .env
 Prisma schema loaded from prisma/schema.prisma
 
-✔ Generated Prisma Client (v6.19.2) to ./node_modules/@prisma/client in 203ms
+✔ Generated Prisma Client (v6.19.2) to ./node_modules/@prisma/client in 187ms
 
 Start by importing your Prisma Client (See: https://pris.ly/d/importing-client)
 
-Tip: Need your database queries to be 1000x faster? Accelerate offers you that and more: https://pris.ly/tip-2-accelerate
+Tip: Interested in query caching in just a few lines of code? Try Accelerate today! https://pris.ly/tip-3-accelerate
 
    ▲ Next.js 15.5.14
    - Environments: .env
 
    Creating an optimized production build ...
- ⚠ Compiled with warnings in 21.5s
+ ⚠ Compiled with warnings in 22.2s
 
 ./src/lib/libsql-client.ts
 Critical dependency: require function is used in a way in which dependencies cannot be statically extracted
 
 Import trace for requested module:
 ./src/lib/libsql-client.ts
-./src/app/api/drive-folders/route.ts
+./src/app/api/diag-db/route.ts
 
- ✓ Compiled successfully in 29.9s
+ ✓ Compiled successfully in 30.2s
    Collecting page data ...
    Finalizing page optimization ...
    Collecting build traces ...
@@ -196,7 +196,7 @@ Bundling middleware function...
 Bundling static assets...
 Bundling cache assets...
 Building server function: default...
-Applying code patches: 3.636s
+Applying code patches: 3.696s
 # copyPackageTemplateFiles
 [35m⚙️ Bundling the OpenNext server...
 [0m
@@ -204,7 +204,7 @@ Applying code patches: 3.636s
 [0m
 OpenNext build complete.
 
- ⛅️ wrangler 4.159.0
+ ⛅️ wrangler 4.160.0
 ────────────────────
 OpenNext project detected, calling `opennextjs-cloudflare deploy`
 
@@ -215,33 +215,35 @@ OpenNext project detected, calling `opennextjs-cloudflare deploy`
 Incremental cache does not need populating
 Tag cache does not need populating
 
- ⛅️ wrangler 4.159.0
+ ⛅️ wrangler 4.160.0
 ────────────────────
+
+Cloudflare collects anonymous telemetry about your usage of Wrangler. Learn more at https://github.com/cloudflare/workers-sdk/tree/main/packages/wrangler/telemetry.md
 🌀 Building list of assets...
 ✨ Read 290 files from the assets directory /home/z/my-project/.open-next/assets
 🌀 Starting asset upload...
 🌀 Found 5 new or modified static assets to upload. Proceeding with upload...
 + /BUILD_ID
-+ /_next/static/chunks/webpack-cd479089982fca26.js
-+ /_next/static/chunks/app/api/route-62d834ef88682bb1.js
-+ /_next/static/chunks/6719.cf308c4bac8c96c5.js
-+ /_next/static/dIxRIumuJLdQvv6L_DANQ/_buildManifest.js
++ /_next/static/chunks/6719.3fda53a4de5fb601.js
++ /_next/static/chunks/webpack-32d680aa76fffd46.js
++ /_next/static/css/90c008cb7e7a0406.css
++ /_next/static/chunks/3261.e5152c2324929fb7.js
 Uploaded 1 of 5 assets
 Uploaded 3 of 5 assets
 Uploaded 5 of 5 assets
-✨ Success! Uploaded 5 files (188 already uploaded) (0.99 sec)
+✨ Success! Uploaded 5 files (188 already uploaded) (1.08 sec)
 
-Total Upload: 27624.44 KiB / gzip: 2907.26 KiB
-Worker Startup Time: 14 ms
+Total Upload: 27625.21 KiB / gzip: 2907.55 KiB
+Worker Startup Time: 15 ms
 Your Worker has access to the following bindings:
 Binding                                          Resource                  
 env.DB (pushakin-db)                             D1 Database               
 env.ASSETS                                       Assets                    
 env.NEXT_PUBLIC_APP_NAME ("Pushakin Flows")      Environment Variable      
 
-Uploaded app (10.86 sec)
-Deployed app triggers (0.53 sec)
+Uploaded app (10.95 sec)
+Deployed app triggers (0.60 sec)
   https://app.pushakin-flows.workers.dev
-Current Version ID: 0e5fcb62-1e35-4065-a497-7284fcc9b6fe
-(node:3291) [DEP0190] DeprecationWarning: Passing args to a child process with shell option true can lead to security vulnerabilities, as the arguments are not escaped, only concatenated.
+Current Version ID: a5c7f487-2e25-4c69-a85f-522afa8c8f49
+(node:2523) [DEP0190] DeprecationWarning: Passing args to a child process with shell option true can lead to security vulnerabilities, as the arguments are not escaped, only concatenated.
 (Use `node --trace-deprecation ...` to show where the warning was created)

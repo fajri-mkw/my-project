@@ -308,8 +308,44 @@ export async function chunkedUploadFile(
             consecutiveSessionErrors = 0
             break
           }
-          // 404/410/401/403 = session invalidated
-          if ([404, 410, 401, 403].includes(chunkResponse.status)) {
+          // 404/410 = session invalidated (resumable session expired)
+          // 401/403 = could be session issue OR quota/permission issue — must
+          //   read the response body to distinguish.
+          if ([404, 410].includes(chunkResponse.status)) {
+            chunkError = new Error(`Sesi upload kedaluwarsa (HTTP ${chunkResponse.status}). Sesi akan dibuat ulang.`)
+            consecutiveSessionErrors = 99
+            break
+          }
+          if ([401, 403].includes(chunkResponse.status)) {
+            // Read Google's error body to distinguish quota/permission issues
+            // from session issues. Retrying/recreating session will NOT fix
+            // a quota/permission problem — surface it immediately so the user
+            // gets an actionable message instead of "3x pembuatan ulang sesi".
+            let gerrBody = ''
+            try {
+              gerrBody = await chunkResponse.text()
+            } catch {}
+            const isQuotaIssue = /storageQuotaExceeded|do not have storage quota/i.test(gerrBody)
+            const isPermissionIssue = /cannotShareItem|insufficientFilePermissions|forbidden/i.test(gerrBody)
+            if (isQuotaIssue) {
+              // Google: "Service Accounts do not have storage quota."
+              // Fix: set driveAdminEmail + enable domain-wide delegation.
+              throw new Error(
+                'Google Drive menolak upload: Service Account tidak punya kuota storage. ' +
+                'Solusi: buka Pengaturan → di mode Folder, isi "Email Admin Google Workspace" ' +
+                'dan aktifkan Domain-Wide Delegation di Google Workspace Admin. ' +
+                'Atau ganti ke mode Shared Drive (tidak perlu DWD). ' +
+                `(HTTP ${chunkResponse.status})`,
+              )
+            }
+            if (isPermissionIssue) {
+              throw new Error(
+                `Google Drive menolak upload: Service Account tidak punya izin ke folder. ` +
+                `Pastikan folder sudah di-share ke email Service Account (di JSON key, field client_email) ` +
+                `dengan akses Editor. (HTTP ${chunkResponse.status})`,
+              )
+            }
+            // Genuine session issue — recreate
             chunkError = new Error(`Sesi upload kedaluwarsa (HTTP ${chunkResponse.status}). Sesi akan dibuat ulang.`)
             consecutiveSessionErrors = 99
             break
@@ -348,14 +384,23 @@ export async function chunkedUploadFile(
           }
           let errorMsg = `Gagal upload chunk ${chunkIndex + 1}/${totalChunks}`
           let isTransient = false
+          let isQuotaExceeded = false
+          let isPermissionDenied = false
           try {
             const errData = await chunkResponse.json()
             errorMsg = errData.error || errorMsg
             isTransient = chunkResponse.status >= 500
             sessionInvalidated = errData.sessionInvalidated === true
+            isQuotaExceeded = errData.quotaExceeded === true
+            isPermissionDenied = errData.permissionDenied === true
           } catch {
             errorMsg = `Server error (${chunkResponse.status})`
             isTransient = chunkResponse.status >= 500 || chunkResponse.status === 0
+          }
+          // Quota/permission errors are NOT recoverable — throw immediately
+          // with the actionable message from the backend.
+          if (isQuotaExceeded || isPermissionDenied) {
+            throw new Error(errorMsg)
           }
           if (sessionInvalidated) {
             chunkError = new Error(errorMsg)
