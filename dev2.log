@@ -1,4 +1,4 @@
-[Wed Nov 11 01:48:37 UTC 2026] Starting dev server...
+[Tue Nov 17 03:41:32 UTC 2026] Starting dev server...
 $ node scripts/setup-db.js && next dev
 [DB Setup] Detected SQLite database (local development)
 [DB Setup] Schema patched for SQLite
@@ -6,11 +6,15 @@ $ node scripts/setup-db.js && next dev
 [DB Setup] Prisma Client generated successfully
    ▲ Next.js 15.5.14
    - Local:        http://localhost:3000
-   - Network:      http://21.0.7.13:3000
+   - Network:      http://21.0.13.115:3000
    - Environments: .env
 
  ✓ Starting...
- ✓ Ready in 1496ms
+ ✓ Ready in 1417ms
+ ⚠ Cross origin request detected from preview-chat-44188634-d832-42f9-8ac0-fc845e5dd672.space-z.ai to /_next/* resource. In a future major version of Next.js, you will need to explicitly configure "allowedDevOrigins" in next.config to allow this.
+Read more: https://nextjs.org/docs/app/api-reference/config/next-config-js/allowedDevOrigins
  ○ Compiling / ...
- ✓ Compiled / in 10.2s (1771 modules)
- GET / 200 in 10785ms
+ ✓ Compiled / in 10.1s (1771 modules)
+ GET / 200 in 10751ms
+ ⚠ Fast Refresh had to perform a full reload due to a runtime error.
+ GET / 200 in 41ms

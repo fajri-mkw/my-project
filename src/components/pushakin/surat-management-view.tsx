@@ -243,7 +243,7 @@ export function SuratManagementView() {
   // (network errors, CF CPU limit 5xx, HTML error pages).
   const uploadDocumentsToDrive = async (suratId: string, docs: any[]) => {
     const pendingDocs = docs.filter((d: any) => d._pendingFile)
-    if (pendingDocs.length === 0) return { finalDocs: docs, docLinks: [] as string[] }
+    if (pendingDocs.length === 0) return { finalDocs: docs, docLinks: [] as string[], orphanedDocs: [] as any[], failedUploads: [] as any[] }
 
     // Step 1: Prepare upload folder (get folderId from server)
     let folderId: string
@@ -265,7 +265,12 @@ export function SuratManagementView() {
       const msg = err instanceof Error ? err.message : 'Gagal menyiapkan folder'
       console.error('[SURAT UPLOAD] Prepare failed:', msg)
       setUploadingDocs(prev => prev.map(d => (d as any)._pendingFile ? { ...d, status: 'error', error: msg } : d))
-      return { finalDocs: docs.filter((d: any) => !d._pendingFile), docLinks: [] }
+      return {
+        finalDocs: docs.filter((d: any) => !d._pendingFile),
+        docLinks: [] as string[],
+        orphanedDocs: [] as any[],
+        failedUploads: pendingDocs.map((d: any) => ({ name: d.name, error: msg })),
+      }
     }
 
     // Step 2: Upload each file using chunked resumable upload (supports ANY file size)
@@ -281,6 +286,7 @@ export function SuratManagementView() {
     const uploadedDocs: any[] = []
     const docLinks: string[] = []
     const orphanedDocs: { doc: any; reason: string }[] = [] // uploaded to Drive but unregistered
+    const failedUploads: { name: string; error: string }[] = [] // never made it to Drive
 
     for (const doc of pendingDocs) {
       const file = doc._pendingFile as File
@@ -299,6 +305,7 @@ export function SuratManagementView() {
       } catch (err) {
         const driveErrMsg = err instanceof Error ? err.message : 'Upload ke Google Drive gagal'
         console.error(`[SURAT UPLOAD] Chunked upload failed for "${doc.name}":`, driveErrMsg)
+        failedUploads.push({ name: doc.name, error: driveErrMsg })
         setUploadingDocs(prev => prev.map(d => d.id === doc.id ? { ...d, status: 'error', error: driveErrMsg } : d))
         continue // skip registration — file never made it to Drive
       }
@@ -380,7 +387,7 @@ export function SuratManagementView() {
       console.warn(`[SURAT UPLOAD] ${orphanedDocs.length} file(s) uploaded to Drive but not registered to surat:`, orphanedDocs)
     }
 
-    return { finalDocs: [...docs.filter((d: any) => !d._pendingFile), ...uploadedDocs], docLinks, orphanedDocs }
+    return { finalDocs: [...docs.filter((d: any) => !d._pendingFile), ...uploadedDocs], docLinks, orphanedDocs, failedUploads }
   }
 
   const openCreateForm = (jenisSurat: 'Surat Masuk' | 'Surat Keluar') => {
@@ -598,7 +605,7 @@ export function SuratManagementView() {
       // --- STEP 2: Upload documents (folder created automatically if needed) ---
       if (hasPending) {
         const suratId = editingId || suratData.id
-        const { finalDocs, docLinks, orphanedDocs } = await uploadDocumentsToDrive(suratId, formData.documents)
+        const { finalDocs, docLinks, orphanedDocs, failedUploads } = await uploadDocumentsToDrive(suratId, formData.documents)
         // Update form documents to reflect upload results
         setFormData(prev => ({ ...prev, documents: finalDocs }))
         const successCount = docLinks.length
@@ -614,12 +621,18 @@ export function SuratManagementView() {
           const orphanCount = orphanedDocs?.length || 0
           const totalFail = failCount
           const driveFailCount = totalFail - orphanCount
-          const detail =
+          let detail =
             orphanCount > 0 && driveFailCount > 0
               ? `${successCount} berhasil, ${driveFailCount} gagal upload, ${orphanCount} di Drive tetapi tidak tersimpan ke surat`
               : orphanCount > 0
                 ? `${successCount} berhasil, ${orphanCount} file terupload ke Drive tetapi gagal tersimpan ke surat (cek folder Drive surat)`
                 : `${successCount} berhasil, ${totalFail} gagal diupload`
+          // Surface the ACTUAL error reason (e.g. storage quota) so the user
+          // knows what to fix — not just "1 gagal diupload".
+          const firstFail = (failedUploads || [])[0]
+          if (firstFail?.error) {
+            detail += ` — ${firstFail.error}`
+          }
           updateStep('upload-docs', successCount > 0 ? 'success' : 'error', detail)
         }
       } else {
@@ -676,7 +689,7 @@ export function SuratManagementView() {
       // --- STEP 2: Upload documents ---
       if (hasPending) {
         const suratId = lastSavePayload.editingId || suratData.id
-        const { finalDocs, docLinks, orphanedDocs } = await uploadDocumentsToDrive(suratId, formData.documents)
+        const { finalDocs, docLinks, orphanedDocs, failedUploads } = await uploadDocumentsToDrive(suratId, formData.documents)
         setFormData(prev => ({ ...prev, documents: finalDocs }))
         const successCount = docLinks.length
         const failCount = formData.documents.filter((d: any) => d._pendingFile).length - successCount
@@ -687,12 +700,18 @@ export function SuratManagementView() {
         if (failCount > 0) {
           const orphanCount = orphanedDocs?.length || 0
           const driveFailCount = failCount - orphanCount
-          const detail =
+          let detail =
             orphanCount > 0 && driveFailCount > 0
               ? `${successCount} berhasil, ${driveFailCount} gagal upload, ${orphanCount} di Drive tetapi tidak tersimpan ke surat`
               : orphanCount > 0
                 ? `${successCount} berhasil, ${orphanCount} file terupload ke Drive tetapi gagal tersimpan ke surat (cek folder Drive surat)`
                 : `${successCount} berhasil, ${failCount} gagal diupload`
+          // Surface the ACTUAL error reason (e.g. storage quota) so the user
+          // knows what to fix — not just "1 gagal diupload".
+          const firstFail = (failedUploads || [])[0]
+          if (firstFail?.error) {
+            detail += ` — ${firstFail.error}`
+          }
           updateStep('upload-docs', successCount > 0 ? 'success' : 'error', detail)
         }
       } else {
