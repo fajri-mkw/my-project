@@ -36,10 +36,17 @@ async function createPrismaClient(): Promise<PrismaClient> {
   const isFile = databaseUrl.startsWith('file:')
 
   if (isFile) {
-    const { PrismaLibSQL } = await import('@prisma/adapter-libsql/web')
-    const adapter = new PrismaLibSQL({ url: databaseUrl })
+    // Local dev (file: SQLite) — use the standard library engine directly.
+    // The libsql WEB adapter (@prisma/adapter-libsql/web) can only speak
+    // HTTP/WS — it cannot open file: URLs, so it always failed locally.
+    // The library engine reads SQLite natively: fastest, zero-config.
+    //
+    // NOTE: this requires the PRISTINE @prisma/client package (library
+    // engine). `scripts/setup-db.js` restores it from scripts/vendor/ on
+    // every `bun run dev` start, undoing the Cloudflare deploy patch
+    // (scripts/patch-libsql-cf.sh rewrites default.js → wasm.js).
     return new PrismaClient({
-      adapter,
+      datasourceUrl: databaseUrl,
       log: process.env.NODE_ENV === 'development' ? ['error', 'warn'] : ['error'],
     })
   }
@@ -85,26 +92,67 @@ async function getDbAsync(): Promise<PrismaClient> {
 }
 
 /**
- * Lazy Prisma client proxy.
+ * Lazy Prisma client proxy — defers the PrismaClient import (WASM on Workers /
+ * library engine locally) until the first actual call.
  *
- * `db.user.findFirst(...)` works — the underlying PrismaClient is constructed
- * on first method access (dynamically importing Prisma WASM only when needed).
+ * Supported access patterns:
+ *   1. `await db.user.findMany({...})`   — chained MODEL method call
+ *   2. `await db.$queryRaw\`...\``        — top-level client method call
+ *   3. `await db.user`                    — property value access
  *
- * IMPORTANT: Because Prisma is now loaded dynamically, `db` is an async proxy.
- * Method calls return Promises. This is compatible with existing code that
- * already awaits Prisma calls (e.g., `await db.user.findMany(...)`).
+ * HISTORY BUG (fixed): the previous proxy only handled pattern 2 — a plain
+ * `get` trap returning an async function. Accessing `db.user` returned that
+ * async FUNCTION (not the model delegate), so `db.user.count` was `undefined`
+ * and every `db.<model>.<method>()` call in every route threw
+ * "db.user.count is not a function". This broke 15+ production routes
+ * (reset-password, change-password, reviewer-settings, register-document,
+ * restore, …) from the moment the lazy proxy shipped.
+ *
+ * The fix: the trap now returns a CALLABLE proxy that also forwards
+ * sub-property access, so both `db.$transaction(...)` (call) and
+ * `db.user.findMany(...)` (property → call) work.
  */
+function makeLazyPropProxy(prop: string | symbol): unknown {
+  // Resolve/call the top-level property against the real client.
+  const lazyCall = async (...args: unknown[]) => {
+    const client = await getDbAsync()
+    const value = Reflect.get(client as object, prop)
+    if (typeof value === 'function') {
+      return (value as (...a: unknown[]) => unknown).apply(client, args)
+    }
+    return value
+  }
+
+  // Callable proxy over lazyCall — adds sub-property forwarding
+  // (db.user.findMany) while keeping direct calls (db.$transaction) working.
+  return new Proxy(lazyCall, {
+    get(fn, subProp: string | symbol, receiver) {
+      // Own props of the async fn: `then` (so `await db.user` resolves to the
+      // delegate object), name, length, … — return them as-is.
+      const direct = Reflect.get(fn, subProp, receiver)
+      if (direct !== undefined) {
+        return direct
+      }
+      // Lazy member: `db.<prop>.<subProp>(...)` — e.g. db.user.findMany()
+      return async (...args: unknown[]) => {
+        const client = await getDbAsync()
+        const parent = Reflect.get(client as object, prop)
+        const member = Reflect.get(parent as object, subProp)
+        if (typeof member === 'function') {
+          return (member as (...a: unknown[]) => unknown).apply(parent, args)
+        }
+        return member
+      }
+    },
+    apply(fn, _thisArg, args) {
+      return (fn as (...a: unknown[]) => unknown)(...args)
+    },
+  })
+}
+
 export const db = new Proxy({} as PrismaClient, {
   get(_target, prop: string | symbol) {
-    // Return a function that dynamically loads Prisma, then calls the method
-    return async (...args: unknown[]) => {
-      const client = await getDbAsync()
-      const value = Reflect.get(client as object, prop)
-      if (typeof value === 'function') {
-        return (value as (...a: unknown[]) => unknown).apply(client, args)
-      }
-      return value
-    }
+    return makeLazyPropProxy(prop)
   },
 }) as PrismaClient
 

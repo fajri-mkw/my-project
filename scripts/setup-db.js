@@ -88,6 +88,17 @@ function setupSchema() {
     process.exit(1);
   }
 
+  // Restore pristine @prisma/client entry points (library engine) for LOCAL dev.
+  //
+  // WHY: `bun run deploy:cf` runs scripts/patch-libsql-cf.sh which rewrites
+  // node_modules/@prisma/client/default.js to directly require the WASM engine
+  // (required for Cloudflare Workers). But `prisma generate` only regenerates
+  // node_modules/.prisma/client — it does NOT restore the outer @prisma/client
+  // package. Local dev (file: SQLite) needs the library engine, so we copy the
+  // pristine entry files back from scripts/vendor/ on every dev start.
+  // The next deploy re-patches them — the cycle is self-consistent.
+  restorePristinePrismaClient();
+
   // For PostgreSQL (Vercel/Neon): push schema changes to ensure DB is in sync
   // This ensures new columns (like workerOutputs, workerCustomOutput) are created
   // without data loss. SQLite uses db:push locally instead.
@@ -104,6 +115,32 @@ function setupSchema() {
       console.error('[DB Setup] Warning: Failed to push schema to PostgreSQL:', error.message);
       // Don't exit — the app may still work if schema is already up to date
     }
+  }
+}
+
+function restorePristinePrismaClient() {
+  const vendorDir = path.join(__dirname, 'vendor', 'prisma-client');
+  const targetDir = path.join(__dirname, '..', 'node_modules', '@prisma', 'client');
+  const files = ['default.js', 'index.js'];
+  let restored = 0;
+
+  for (const file of files) {
+    const src = path.join(vendorDir, file);
+    const dst = path.join(targetDir, file);
+    try {
+      const pristine = fs.readFileSync(src, 'utf-8');
+      const current = fs.existsSync(dst) ? fs.readFileSync(dst, 'utf-8') : '';
+      if (current !== pristine) {
+        fs.writeFileSync(dst, pristine);
+        restored++;
+      }
+    } catch (err) {
+      console.warn(`[DB Setup] Warning: could not restore @prisma/client/${file}: ${err.message}`);
+    }
+  }
+
+  if (restored > 0) {
+    console.log(`[DB Setup] Restored ${restored} pristine @prisma/client file(s) (local library engine)`);
   }
 }
 
