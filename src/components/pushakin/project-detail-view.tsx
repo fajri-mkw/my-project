@@ -24,7 +24,7 @@ import {
 } from '@/components/ui/select'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
-import { useAppStore, STAGES, ROLE_CONFIG, getRoleDisplayName, getStage2Dependency } from '@/lib/store'
+import { useAppStore, STAGES, ROLE_CONFIG, getRoleDisplayName, getStage2Dependency, isDivisionFolderId, getDivisionFromFolderId, DRIVE_DIVISIONS } from '@/lib/store'
 import { chunkedUploadFile } from '@/lib/chunked-upload'
 import { FileUpload } from '@/components/pushakin/file-upload'
 import { DriveFolderEmbed } from '@/components/pushakin/drive-folder-embed'
@@ -394,9 +394,10 @@ Pushakin Flows — Sistem Manajemen Produksi`
         ? `Buat folder Google Drive untuk proyek "${project.title}"?\n\n`
         : `Buat ulang folder Google Drive untuk proyek "${project.title}"?\n\n`) +
       `Tindakan ini akan:\n` +
-      `• Membuat folder BARU di Google Drive (struktur: PRODUKSI, PASCA PRODUKSI, DESAIN, Additional Asset + subfolder per petugas & output)\n` +
+      `• Membuat folder BARU di Google Drive (struktur: PRODUKSI, PASCA PRODUKSI + subfolder per petugas & output)\n` +
+      `• Setiap Petugas Tahap 1 mendapat 1 subfolder di PRODUKSI berisi pembagian UMUM/PRIVATE dengan folder output di dalamnya\n` +
       (hasNoFolders
-        ? `• Folder belum pernah dibuat untuk proyek ini — semua 4 folder standar akan dibuat dan seluruh petugas mendapat akses upload/download\n\n`
+        ? `• Folder belum pernah dibuat untuk proyek ini — folder standar akan dibuat dan seluruh petugas mendapat akses upload/download\n\n`
         : `• Mengganti folder lama (mock/placeholder) dengan folder asli yang dapat menerima upload\n\n`) +
       `Pastikan koneksi Google Drive sudah aktif di Pengaturan. Lanjutkan?`,
       async () => {
@@ -408,13 +409,14 @@ Pushakin Flows — Sistem Manajemen Produksi`
           // === 0) — e.g. because folder creation failed during initiation or the
           // project predates the auto-create logic — we cannot reconstruct the
           // folder config from existing records. In that case we fall back to
-          // creating ALL FOUR standard folder types (raw, revised, desain, lainnya)
+          // creating the TWO standard folder types (raw, revised) of the NEW
+          // structure (UMUM/PRIVATE divisions live inside PRODUKSI user folders)
           // and grant every assigned worker both download & upload access. This
           // makes the "Buat Ulang Folder Drive" button usable for projects that
           // were created without any folders at all.
           const PARENT_TYPES = ['raw', 'revised', 'desain', 'lainnya', 'public', 'private']
           // Include custom folders (id starts with "custom-") as parent folders
-          // so they are recreated too — not just the 4 standard types.
+          // so they are recreated too — not just the standard types.
           const parentFolders = project.driveFolders.filter(
             f => PARENT_TYPES.includes(f.folderId) || f.folderId.startsWith('custom-'),
           )
@@ -426,14 +428,29 @@ Pushakin Flows — Sistem Manajemen Produksi`
             .filter(f => f.folderId.startsWith('custom-'))
             .map(f => ({ id: f.folderId, name: f.name, desc: f.desc }))
 
-          // Fallback: no existing parent folders → create all 4 standard types.
+          // Fallback: no existing parent folders → create the new-standard types.
           // This is the fix for the "folder tidak dibuat otomatis" + "button tidak
           // bisa diklik" bug: previously the handler early-returned with an error
           // here, leaving the project permanently stuck without folders.
           const hasNoExistingFolders = folderTypes.length === 0
           if (hasNoExistingFolders) {
-            folderTypes = [...PARENT_TYPES]
+            // NEW structure: only PRODUKSI + PASCA PRODUKSI as top-level folders.
+            // The old PUBLIC/PRIVATE top-level folders are deprecated — the
+            // UMUM/PRIVATE division now lives inside each T1 worker's PRODUKSI
+            // subfolder (see the divisions logic below).
+            folderTypes = ['raw', 'revised']
           }
+
+          // OLD vs NEW structure detection:
+          //   - OLD: project has top-level 'public'/'private' folders → regenerate
+          //     recreates that same legacy shape (separate top-level folders, flat
+          //     output folders inside each user subfolder — no divisions).
+          //   - NEW: no top-level public/private → PRODUKSI user subfolders get
+          //     UMUM/PRIVATE divisions with output folders inside each division.
+          const hasLegacyTopLevelPubPriv = parentFolders.some(
+            f => f.folderId === 'public' || f.folderId === 'private'
+          )
+          const useDivisions = !hasLegacyTopLevelPubPriv && folderTypes.includes('raw')
 
           // Build assignedUsers list from tasks (all stages)
           const assignedUsersData = project.tasks
@@ -633,6 +650,144 @@ Pushakin Flows — Sistem Manajemen Produksi`
             }
           })
 
+          // === 3b) BATCHED USER SUBFOLDER CREATION ===
+          // The main POST /api/drive only creates the structure (main + stage
+          // folders). User subfolders + output subfolders are created in separate
+          // batched requests (same pattern as create-project-view) to stay within
+          // Cloudflare Workers' 50-subrequest-per-invocation limit.
+          //
+          // For PRODUKSI ('raw') on NEW-structure projects we pass `divisions`
+          // so each T1 worker gets ONE subfolder containing UMUM/ + PRIVATE/
+          // divisions with the auto-named output folders inside each division.
+          if (driveData.folderIdMap) {
+            for (const folderType of folderTypes) {
+              const parentDriveId = driveData.folderIdMap[folderType]
+              if (!parentDriveId) continue
+
+              const folderAccess = folderUserAccess[folderType] || {}
+              const usersWithUpload = assignedUsersData.filter(u => folderAccess[u.userId]?.upload)
+
+              if (usersWithUpload.length === 0) continue
+
+              try {
+                const subResp = await fetch('/api/drive/create-user-subfolders', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({
+                    folderType,
+                    parentDriveId,
+                    users: usersWithUpload,
+                    workerOutputs: project.workerOutputs || {},
+                    workerCustomOutput: project.workerCustomOutput || {},
+                    // NEW structure: UMUM/PRIVATE divisions inside each PRODUKSI
+                    // user subfolder (skipped for legacy projects that still have
+                    // top-level PUBLIC/PRIVATE folders).
+                    ...(folderType === 'raw' && useDivisions ? { divisions: [...DRIVE_DIVISIONS] } : {}),
+                  }),
+                })
+
+                if (subResp.ok) {
+                  const subData = await subResp.json()
+                  if (subData.success && subData.subfolders) {
+                    // Map the created subfolders to the DriveFolder shape.
+                    // Handles: division folders, division outputs, legacy flat
+                    // outputs, and plain user subfolders (see create-project-view
+                    // for the same mapping logic).
+                    const mappedSubs: DriveFolder[] = subData.subfolders.map((f: { folderId: string; name: string; webViewLink: string }) => {
+                      const isOutputSub = f.folderId.includes('-output-')
+                      const division = getDivisionFromFolderId(f.folderId)
+
+                      if (isOutputSub) {
+                        const outputPrefix = f.folderId.substring(0, f.folderId.indexOf('-output-'))
+                        const parentType = PARENT_TYPES.find(t => outputPrefix.startsWith(t + '-')) || ''
+                        const userPrefix = division ? outputPrefix.slice(0, -(division.length + 1)) : outputPrefix
+                        const matchedUser = users.find(u => userPrefix.endsWith('-' + u.id))
+                        const parentAccess = folderUserAccess[parentType] || {}
+                        return {
+                          id: `${project.id}-${f.folderId}`,
+                          folderId: f.folderId,
+                          name: f.name,
+                          desc: division
+                            ? `Output ${f.name} (${division === 'umum' ? 'UMUM' : 'PRIVATE'})${matchedUser ? ' - ' + matchedUser.name : ''}`
+                            : `Output ${f.name}${matchedUser ? ' - ' + matchedUser.name : ''}`,
+                          color: division === 'umum' ? 'text-green-500' : division === 'private' ? 'text-red-400' : 'text-stone-400',
+                          bg: division === 'umum' ? 'bg-green-50/50' : division === 'private' ? 'bg-red-50/50' : 'bg-stone-50/50',
+                          border: division === 'umum' ? 'border-green-100' : division === 'private' ? 'border-red-100' : 'border-stone-100',
+                          link: f.webViewLink,
+                          assignedRoles: matchedUser ? [matchedUser.role] : [],
+                          assignedUsers: matchedUser ? [{
+                            userId: matchedUser.id,
+                            userName: matchedUser.name,
+                            download: parentAccess[matchedUser.id]?.download ?? true,
+                            upload: true,
+                          }] : [],
+                          parentFolderId: outputPrefix,
+                        }
+                      }
+
+                      // Division folder (UMUM/PRIVATE inside a PRODUKSI user subfolder)
+                      if (isDivisionFolderId(f.folderId)) {
+                        const userPrefix = f.folderId.slice(0, -(division!.length + 1))
+                        const matchedUser = users.find(u => userPrefix.endsWith('-' + u.id))
+                        return {
+                          id: `${project.id}-${f.folderId}`,
+                          folderId: f.folderId,
+                          name: f.name,
+                          desc: division === 'umum'
+                            ? `Hasil yang boleh dibagikan${matchedUser ? ' - ' + matchedUser.name : ''}`
+                            : `Hasil yang TIDAK boleh dibagikan${matchedUser ? ' - ' + matchedUser.name : ''}`,
+                          color: division === 'umum' ? 'text-green-600' : 'text-red-500',
+                          bg: division === 'umum' ? 'bg-green-50' : 'bg-red-50',
+                          border: division === 'umum' ? 'border-green-200' : 'border-red-200',
+                          link: f.webViewLink,
+                          assignedRoles: matchedUser ? [matchedUser.role] : [],
+                          assignedUsers: matchedUser ? [{
+                            userId: matchedUser.id,
+                            userName: matchedUser.name,
+                            download: true,
+                            upload: true,
+                          }] : [],
+                          parentFolderId: userPrefix,
+                        }
+                      }
+
+                      // Plain user subfolder
+                      const parentType = PARENT_TYPES.find(t => f.folderId.startsWith(t + '-')) || ''
+                      const remaining = f.folderId.substring(parentType.length + 1)
+                      const secondDash = remaining.indexOf('-')
+                      const subUserId = secondDash > 0 ? remaining.substring(secondDash + 1) : ''
+                      const matchedUser = users.find(u => u.id === subUserId)
+                      const parentAccess = folderUserAccess[parentType] || {}
+                      return {
+                        id: `${project.id}-${f.folderId}`,
+                        folderId: f.folderId,
+                        name: f.name,
+                        desc: `Subfolder untuk ${matchedUser?.name || ''}`,
+                        color: 'text-stone-500',
+                        bg: 'bg-stone-50',
+                        border: 'border-stone-200',
+                        link: f.webViewLink,
+                        assignedRoles: matchedUser ? [matchedUser.role] : [],
+                        assignedUsers: matchedUser ? [{
+                          userId: matchedUser.id,
+                          userName: matchedUser.name,
+                          download: parentAccess[matchedUser.id]?.download ?? true,
+                          upload: parentAccess[matchedUser.id]?.upload ?? true,
+                        }] : [],
+                        parentFolderId: parentType,
+                      }
+                    })
+                    newFolders.push(...mappedSubs)
+                  }
+                }
+              } catch (subErr) {
+                // Don't fail the whole regeneration — the main folders exist and
+                // the manager can retry. Log for debugging.
+                console.error('[REGEN-DRIVE] Subfolder creation error for', folderType, ':', subErr)
+              }
+            }
+          }
+
           // 4) Persist to DB via /api/projects PUT with action=regenerate-drive-folders
           const updateResponse = await fetch('/api/projects', {
             method: 'PUT',
@@ -658,6 +813,9 @@ Pushakin Flows — Sistem Manajemen Produksi`
           updateProject({ ...project, driveFolders: newFolders })
           showAlert(
             `Berhasil! ${newFolders.length} folder Google Drive telah dibuat ulang untuk proyek "${project.title}".\n\n` +
+            (useDivisions
+              ? `Setiap Petugas Tahap 1 mendapat 1 subfolder PRODUKSI berisi pembagian UMUM/PRIVATE dengan folder output di dalamnya.\n\n`
+              : '') +
             `Petugas sekarang dapat mengunggah tugas tanpa error "Folder tidak valid".`,
           )
         } catch (err) {
@@ -1239,22 +1397,31 @@ Pushakin Flows — Sistem Manajemen Produksi`
   // assignedUsers. This fixes projects created before the output-subfolder fix where
   // assignedUsers was empty, causing uploads to go to the parent user subfolder (HS_...)
   // instead of the specific output folder.
+  //
+  // DIVISION-AWARE: for the new UMUM/PRIVATE structure, a division output folder
+  // (raw-{role}-{userId}-umum-output-0) inherits from its DIVISION folder first,
+  // and if that is empty too, walks further up to the user subfolder (HS_...).
   const normalizedDriveFolders = project.driveFolders.map(folder => {
     if (folder.folderId.includes('-output-') && (!folder.assignedUsers || folder.assignedUsers.length === 0)) {
       const outputPrefix = folder.folderId.substring(0, folder.folderId.indexOf('-output-'))
-      // Inherit assignedUsers from the parent user subfolder (HS_...)
-      const parentSub = project.driveFolders.find(f => f.folderId === outputPrefix)
-      if (parentSub?.assignedUsers && parentSub.assignedUsers.length > 0) {
-        return {
-          ...folder,
-          assignedRoles: parentSub.assignedRoles?.length ? parentSub.assignedRoles : folder.assignedRoles,
-          assignedUsers: parentSub.assignedUsers.map(au => ({
-            ...au,
-            upload: true, // output subfolders are always upload destinations for the owner
-            download: true, // owner can also download what they uploaded
-          })),
-          parentFolderId: outputPrefix,
+      // Walk up the parent chain (division → user subfolder) until a folder
+      // with assignedUsers is found. Max 3 hops covers any realistic depth.
+      let ancestorId: string | null = outputPrefix
+      for (let hop = 0; hop < 3 && ancestorId; hop++) {
+        const ancestor = project.driveFolders.find(f => f.folderId === ancestorId)
+        if (ancestor?.assignedUsers && ancestor.assignedUsers.length > 0) {
+          return {
+            ...folder,
+            assignedRoles: ancestor.assignedRoles?.length ? ancestor.assignedRoles : folder.assignedRoles,
+            assignedUsers: ancestor.assignedUsers.map(au => ({
+              ...au,
+              upload: true, // output subfolders are always upload destinations for the owner
+              download: true, // owner can also download what they uploaded
+            })),
+            parentFolderId: outputPrefix,
+          }
         }
+        ancestorId = ancestor?.parentFolderId || null
       }
     }
     return folder
@@ -2043,8 +2210,10 @@ Pushakin Flows — Sistem Manajemen Produksi`
                           </div>
                           <div className="space-y-1.5 max-h-40 overflow-y-auto">
                             {folderSubfolders.map(sub => {
-                              // Check if this user subfolder has output-type subfolders inside it
+                              // Check if this user subfolder has output-type subfolders
+                              // OR division folders (UMUM/PRIVATE) inside it
                               const outputSubfolders = getOutputSubfolders(sub.folderId)
+                              const divisionSubfolders = getSubfolders(sub.folderId).filter(d => isDivisionFolderId(d.folderId))
                               return (
                                 <div key={sub.id} className="flex flex-col bg-stone-50 rounded-lg border border-stone-100 overflow-hidden">
                                   <div className="flex items-center gap-2 p-2">
@@ -2065,7 +2234,43 @@ Pushakin Flows — Sistem Manajemen Produksi`
                                       <Lock className="w-3 h-3" />
                                     </div>
                                   </div>
-                                  {/* Show output-type subfolders inside user folder */}
+                                  {/* NEW STRUCTURE: UMUM/PRIVATE divisions inside the
+                                      user folder, each with its own output folders */}
+                                  {divisionSubfolders.length > 0 && (
+                                    <div className="px-2 pb-2 pt-1 border-t border-stone-100/50 space-y-1.5">
+                                      {divisionSubfolders.map(divSub => {
+                                        const divOutputs = getOutputSubfolders(divSub.folderId)
+                                        const divIsUmum = getDivisionFromFolderId(divSub.folderId) === 'umum'
+                                        return (
+                                          <div key={divSub.id} className="rounded-md border border-stone-100 bg-white/60 p-1.5">
+                                            <div className="flex items-center gap-1.5 mb-1">
+                                              <Folder className={cn('w-2.5 h-2.5', divIsUmum ? 'text-green-600' : 'text-red-500')} />
+                                              <span className={cn('text-[9px] font-bold', divIsUmum ? 'text-green-700' : 'text-red-600')} title={divSub.desc}>
+                                                {divSub.name}
+                                              </span>
+                                              <span className="text-[7px] text-stone-400 truncate">
+                                                {divIsUmum ? '(boleh dibagi)' : '(rahasia)'}
+                                              </span>
+                                            </div>
+                                            {divOutputs.length > 0 && (
+                                              <div className="flex flex-wrap gap-1">
+                                                {divOutputs.map(outSub => (
+                                                  <span key={outSub.id} className={cn(
+                                                    'inline-flex items-center gap-0.5 text-[8px] px-1.5 py-0.5 rounded border font-medium',
+                                                    divIsUmum ? 'bg-green-50/70 text-green-700 border-green-100' : 'bg-red-50/70 text-red-600 border-red-100'
+                                                  )} title={outSub.name}>
+                                                    <Folder className={cn('w-2.5 h-2.5', divIsUmum ? 'text-green-500' : 'text-red-400')} />
+                                                    {outSub.name}
+                                                  </span>
+                                                ))}
+                                              </div>
+                                            )}
+                                          </div>
+                                        )
+                                      })}
+                                    </div>
+                                  )}
+                                  {/* LEGACY: output-type subfolders directly inside user folder */}
                                   {outputSubfolders.length > 0 && (
                                     <div className="px-2 pb-2 pt-1 border-t border-stone-100/50">
                                       <div className="text-[8px] font-bold text-stone-400 uppercase tracking-wider mb-1">
@@ -3105,15 +3310,29 @@ function TaskCard({
   // Helper: format folder label for display. For output subfolders (Foto/, Video/),
   // append the worker's name so users can distinguish multiple output folders.
   // e.g. "Foto" → "Foto — Haitami"
+  //
+  // DIVISION-AWARE: for the new UMUM/PRIVATE structure, output folders exist in
+  // BOTH divisions (UMUM/Foto and PRIVATE/Foto) — the division is included in
+  // the label so workers can tell them apart: "UMUM/Foto — Haitami".
   const formatFolderLabel = (f: DriveFolder): string => {
     const baseName = f.name.split(' (')[0]
+    const division = getDivisionFromFolderId(f.folderId)
+    const divisionPrefix = division === 'umum' ? 'UMUM/' : division === 'private' ? 'PRIVATE/' : ''
     if (isOutputSubfolder(f)) {
       const workerName = f.assignedUsers?.[0]?.userName
       if (workerName) {
         // Use just the first name for brevity in button labels
         const firstName = workerName.split(' ')[0]
-        return `${baseName} — ${firstName}`
+        return `${divisionPrefix}${baseName} — ${firstName}`
       }
+      return `${divisionPrefix}${baseName}`
+    }
+    // Division folders themselves (UMUM/PRIVATE) get the worker name appended
+    // when available, so managers/reviewers see whose folder it is.
+    if (isDivisionFolderId(f.folderId)) {
+      const workerName = f.assignedUsers?.[0]?.userName
+      const firstName = workerName?.split(' ')[0]
+      return firstName ? `${baseName} — ${firstName}` : baseName
     }
     return baseName
   }
@@ -3125,6 +3344,10 @@ function TaskCard({
     // and their folderId does NOT contain '-output-'
     return !f.folderId.includes('-output-')
   }
+
+  // Shared helper: check if folder is a division folder (UMUM/PRIVATE inside a
+  // PRODUKSI user subfolder — new merged structure)
+  const isDivisionFolder = (f: DriveFolder) => isDivisionFolderId(f.folderId)
 
   // Shared helper: check if folder is an output-type subfolder inside a user subfolder
   const isOutputSubfolder = (f: DriveFolder) => {
@@ -3152,15 +3375,20 @@ function TaskCard({
     // 2. Output subfolders (Foto/, Video/) inside parent folders where user has DL
     //    This lets Tahap 2 editors directly open a worker's Foto/ folder without
     //    navigating through the HS_ user subfolder in Google Drive.
+    //
+    //    DIVISION-AWARE: output folders may be nested one level deeper in the new
+    //    structure (Foto → UMUM division → HS_ user folder → PRODUKSI), so we walk
+    //    UP the parentFolderId chain until we reach a top-level folder.
     const myParentFolderIds = new Set(myParentFolders.map(f => f.folderId))
     const accessibleOutputSubs = visibleFolders.filter(f => {
       if (!isOutputSubfolder(f)) return false
-      // The output subfolder's parent is a user subfolder (HS_...).
-      // Find the top-level parent (raw/revised/etc.) that the user subfolder belongs to.
-      const userSub = visibleFolders.find(us => us.folderId === f.parentFolderId)
-      const topLevelParentId = userSub?.parentFolderId
-      if (topLevelParentId && myParentFolderIds.has(topLevelParentId)) {
-        return true
+      // Walk up the parent chain (max 4 hops: output → division → user sub →
+      // top-level) looking for a top-level folder the user has DL on.
+      let ancestorId: string | null | undefined = f.parentFolderId
+      for (let hop = 0; hop < 4 && ancestorId; hop++) {
+        if (myParentFolderIds.has(ancestorId)) return true
+        const ancestor = visibleFolders.find(us => us.folderId === ancestorId)
+        ancestorId = ancestor?.parentFolderId
       }
       // Fallback: check by folderId prefix (legacy)
       const parentType = ['raw', 'revised', 'final', 'desain', 'lainnya', 'public', 'private'].find(t => f.folderId.startsWith(t + '-'))
@@ -3174,6 +3402,12 @@ function TaskCard({
   // Jika tidak ada output subfolder, tampilkan user subfolder
   // Jika tidak ada user subfolder, fallback ke parent folder yang manager centang UL
   // Super Admin & Manager: akses penuh ke semua parent folder (Mode Override)
+  //
+  // DIVISION-AWARE: with the new UMUM/PRIVATE structure a T1 worker's upload
+  // destinations are the division OUTPUT folders (UMUM/Foto, PRIVATE/Foto, ...).
+  // When the worker has NO output folders configured, the DIVISION folders
+  // themselves (UMUM/, PRIVATE/) are the destinations — NOT the HS_ user folder,
+  // so every upload is always sorted into a division.
   const getUploadFolders = () => {
     const myUserId = currentUser?.id || ''
 
@@ -3205,6 +3439,13 @@ function TaskCard({
     })
 
     if (mySubfolders.length > 0) {
+      // If the worker has UMUM/PRIVATE divisions, use ONLY those as upload
+      // destinations — the HS_ user folder itself is excluded so files are
+      // always sorted into a division at upload time.
+      const myDivisions = mySubfolders.filter(f => isDivisionFolder(f))
+      if (myDivisions.length > 0) {
+        return myDivisions
+      }
       return mySubfolders
     }
 

@@ -29,8 +29,42 @@ import { readDriveSettings } from '@/lib/drive-helpers'
 //     parentDriveId: "Drive folder ID of the stage folder",
 //     users: [{ userId, userName, role, stage }],
 //     workerOutputs: { userId: ["Foto", "Video", ...] },
-//     workerCustomOutput: { userId: "custom text" }
+//     workerCustomOutput: { userId: "custom text" },
+//     divisions?: ["umum", "private"]  // NEW — only for folderType "raw"
 //   }
+//
+// DIVISIONS (UMUM/PRIVATE merge into PRODUKSI):
+// Previously PUBLIC/UMUM and PRIVATE/RAHASIA were separate TOP-LEVEL folders,
+// each getting its own user subfolders + output folders. A stage-1 worker with
+// outputs [Foto, Video] ended up with 3 identically-named "Foto" folders
+// (PRODUKSI, PUBLIC-UMUM, PRIVATE-RAHASIA) — confusing and duplicative.
+//
+// With `divisions`, the sorting happens INSIDE the worker's own PRODUKSI
+// subfolder instead:
+//
+//   1. PRODUKSI (Berkas Mentah)/
+//     └── HS_Ahmad_Photographer.../          ← worker's ONE folder
+//         ├── UMUM/                           ← division
+//         │   ├── Foto/                       ← auto-named output folder
+//         │   └── Video/
+//         └── PRIVATE/                        ← division
+//             ├── Foto/
+//             └── Video/
+//
+// Logical folder IDs (stored in the drive_folders table):
+//   User subfolder:  raw-{role}-{userId}                      (unchanged)
+//   UMUM division:   raw-{role}-{userId}-umum
+//   PRIVATE division:raw-{role}-{userId}-private
+//   Division output: raw-{role}-{userId}-{umum|private}-output-{i}
+//
+// When `divisions` is NOT passed (backward compatibility — e.g. regenerating
+// an OLD project that still has top-level PUBLIC/PRIVATE folders), the flat
+// legacy structure is created (outputs directly inside the user subfolder).
+//
+// Subrequest budget with divisions (worst case, 5 users × 3 outputs):
+//   5 × (1 user folder + 2 divisions + 6 division outputs) = 45 calls — still
+//   within the 50 limit, but tight. The frontend batches per folder type and
+//   the access token is cached, so this is acceptable.
 //
 // Returns:
 //   { success: true, subfolders: [{ folderId, name, webViewLink, ... }] }
@@ -94,12 +128,14 @@ export async function POST(request: NextRequest) {
 
   try {
     const body = await request.json()
-    const { folderType, parentDriveId, users, workerOutputs, workerCustomOutput } = body as {
+    const { folderType, parentDriveId, users, workerOutputs, workerCustomOutput, divisions } = body as {
       folderType: string
       parentDriveId: string
       users: AssignedUser[]
       workerOutputs?: Record<string, string[]>
       workerCustomOutput?: Record<string, string>
+      /** NEW: create UMUM/PRIVATE divisions inside each PRODUKSI user subfolder */
+      divisions?: string[]
     }
 
     if (!folderType || !parentDriveId) {
@@ -108,6 +144,18 @@ export async function POST(request: NextRequest) {
     if (!users || !Array.isArray(users) || users.length === 0) {
       return NextResponse.json({ success: true, subfolders: [] })
     }
+
+    // Divisions only apply to PRODUKSI ('raw') — other folder types (PASCA
+    // PRODUKSI, custom) keep the flat user-subfolder → output structure.
+    const useDivisions = folderType === 'raw'
+      && Array.isArray(divisions)
+      && divisions.some(d => d === 'umum' || d === 'private')
+    // Sanitize the division list (order preserved: UMUM first for a natural layout)
+    const divisionList = useDivisions
+      ? (divisions!.includes('umum') && divisions!.includes('private')
+          ? ['umum', 'private']
+          : divisions!.filter(d => d === 'umum' || d === 'private'))
+      : []
 
     const settings = await readDriveSettings()
     if (!settings?.driveServiceAccountKey) {
@@ -123,6 +171,12 @@ export async function POST(request: NextRequest) {
     const accessToken = await getCachedAccessToken(settings.driveServiceAccountKey, settings.driveMode === "folder" ? settings.driveAdminEmail : undefined)
 
     const createdSubfolders: CreatedFolder[] = []
+
+    // Resolve the display name for a single output type (handles "Lainnya" → custom text)
+    const resolveOutputName = (userId: string, outputType: string) =>
+      outputType === 'Lainnya' && workerCustomOutput?.[userId]
+        ? workerCustomOutput[userId]
+        : outputType
 
     // Create user subfolders + output subfolders for this ONE folder type
     for (const user of users) {
@@ -144,15 +198,48 @@ export async function POST(request: NextRequest) {
         folderId: userSubfolderLogicalId,
       })
 
-      // Create output-type subfolders inside user's folder
-      if (workerOutputs && workerOutputs[user.userId] && workerOutputs[user.userId].length > 0) {
-        const outputTypes = workerOutputs[user.userId]
-        for (let i = 0; i < outputTypes.length; i++) {
-          const outputType = outputTypes[i]
-          const outputName = outputType === 'Lainnya' && workerCustomOutput?.[user.userId]
-            ? workerCustomOutput[user.userId]
-            : outputType
+      const outputTypes = workerOutputs?.[user.userId] || []
 
+      if (useDivisions) {
+        // === NEW STRUCTURE: UMUM/PRIVATE divisions inside the user subfolder ===
+        // The stage-1 worker gets ONE folder with the public/private sorting
+        // built in. Output folders are created inside EACH division.
+        for (const division of divisionList) {
+          const divisionName = division === 'umum' ? 'UMUM' : 'PRIVATE'
+          const divisionFolder = await createFolder(
+            accessToken,
+            divisionName,
+            userSubfolder.id,
+            driveIdForCreate
+          )
+          const divisionLogicalId = `${userSubfolderLogicalId}-${division}`
+
+          createdSubfolders.push({
+            ...divisionFolder,
+            folderId: divisionLogicalId,
+          })
+
+          // Output-type subfolders inside this division
+          for (let i = 0; i < outputTypes.length; i++) {
+            const outputName = resolveOutputName(user.userId, outputTypes[i])
+            const outputSubfolder = await createFolder(
+              accessToken,
+              outputName,
+              divisionFolder.id,
+              driveIdForCreate
+            )
+            createdSubfolders.push({
+              ...outputSubfolder,
+              folderId: `${divisionLogicalId}-output-${i}`,
+            })
+          }
+        }
+      } else {
+        // === LEGACY FLAT STRUCTURE (backward compatibility) ===
+        // Output-type subfolders directly inside the user's folder.
+        // Used for non-raw folder types AND old-structure regeneration.
+        for (let i = 0; i < outputTypes.length; i++) {
+          const outputName = resolveOutputName(user.userId, outputTypes[i])
           const outputSubfolder = await createFolder(
             accessToken,
             outputName,
@@ -171,6 +258,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({
       success: true,
       folderType,
+      divisions: divisionList,
       subfolders: createdSubfolders,
     })
   } catch (error) {

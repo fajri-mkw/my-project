@@ -438,10 +438,26 @@ export function getStage2Dependency(
 }
 
 export const FOLDER_OPTIONS = [
-  { id: 'raw', title: '1. FOLDER', name: 'PRODUKSI (Berkas Mentah)', desc: 'Untuk upload mentahan: Reporter, Photographer, Videographer, Content Creator, Audio, Desain Grafis. Untuk upload Petugas Tahap 1.', color: 'text-stone-600', bg: 'bg-stone-100', border: 'border-stone-200', accessHint: 'T1: UL | T2: DL' },
+  {
+    id: 'raw',
+    title: '1. FOLDER',
+    name: 'PRODUKSI (Berkas Mentah)',
+    desc: 'Untuk upload mentahan: Reporter, Photographer, Videographer, Content Creator, Audio, Desain Grafis. Setiap Petugas Tahap 1 otomatis mendapat 1 subfolder berisi pembagian UMUM (boleh dibagi) dan PRIVATE (rahasia) dengan folder output di dalamnya.',
+    color: 'text-stone-600',
+    bg: 'bg-stone-100',
+    border: 'border-stone-200',
+    accessHint: 'T1: UL (UMUM+PRIVATE) | T2: DL',
+  },
   { id: 'revised', title: '2. FOLDER', name: 'PASCA PRODUKSI (Draft & Editing)', desc: 'Untuk Editor, Reviewer, dan Publisher. Direview oleh QC.', color: 'text-orange-600', bg: 'bg-orange-50', border: 'border-orange-200', accessHint: 'T2: UL | T3: DL+UL | T4: DL+UL | T5: DL' },
-  { id: 'public', title: '3. FOLDER', name: 'PUBLIC/UMUM (Untuk Dibagi)', desc: 'Foto/file yang sudah dipilih untuk dibagikan ke publik atau pihak eksternal. Petugas Tahap 1 dapat filter lebih awal foto mana yang boleh dibagikan.', color: 'text-green-600', bg: 'bg-green-50', border: 'border-green-200', accessHint: 'T1: UL' },
-  { id: 'private', title: '4. FOLDER', name: 'PRIVATE/RAHASIA (Tidak untuk Dibagi)', desc: 'Foto/file yang TIDAK boleh dibagikan ke publik. Petugas Tahap 1 dapat filter lebih awal foto mana yang harus tetap rahasia.', color: 'text-red-600', bg: 'bg-red-50', border: 'border-red-200', accessHint: 'T1: UL' },
+  // === DEPRECATED — kept for backward compatibility ===
+  // Folder 'public' dan 'private' TIDAK lagi dibuat sebagai folder terpisah.
+  // Pembagiannya kini otomatis ADA DI DALAM subfolder setiap petugas pada
+  // folder PRODUKSI (UMUM/ + PRIVATE/ berisi folder output). Entry ini tetap
+  // ada supaya project LAMA yang sudah punya folder public/private terpisah
+  // tetap tampil di project-detail-view. FOLDER_OPTIONS.filter(f => !f.hidden)
+  // dipakai di create form untuk sembunyikan entry ini.
+  { id: 'public', title: '3. FOLDER', name: 'PUBLIC/UMUM (Untuk Dibagi)', desc: 'Foto/file yang sudah dipilih untuk dibagikan ke publik atau pihak eksternal. Petugas Tahap 1 dapat filter lebih awal foto mana yang boleh dibagikan.', color: 'text-green-600', bg: 'bg-green-50', border: 'border-green-200', accessHint: 'T1: UL', hidden: true },
+  { id: 'private', title: '4. FOLDER', name: 'PRIVATE/RAHASIA (Tidak untuk Dibagi)', desc: 'Foto/file yang TIDAK boleh dibagikan ke publik. Petugas Tahap 1 dapat filter lebih awal foto mana yang harus tetap rahasia.', color: 'text-red-600', bg: 'bg-red-50', border: 'border-red-200', accessHint: 'T1: UL', hidden: true },
   // === DEPRECATED — kept for backward compatibility ===
   // Folder 'desain' dan 'lainnya' dihapus dari form inisiasi (diganti dengan
   // PUBLIC/PRIVATE). Entry ini tetap ada supaya project LAMA yang sudah punya
@@ -450,6 +466,25 @@ export const FOLDER_OPTIONS = [
   { id: 'desain', title: '3. FOLDER', name: 'DESAIN FOLDER (Aset Visual)', desc: 'Khusus untuk penyimpanan file project desain.', color: 'text-blue-600', bg: 'bg-blue-50', border: 'border-blue-200', hidden: true },
   { id: 'lainnya', title: '4. FOLDER', name: 'Additional Asset (Tambahan Foto/Footage)', desc: 'Folder kustom tambahan selain file kebutuhan output utama.', color: 'text-purple-600', bg: 'bg-purple-50', border: 'border-purple-200', hidden: true },
 ]
+
+// Division folder suffixes for the merged UMUM/PRIVATE structure inside
+// PRODUKSI user subfolders. Logical folder IDs:
+//   raw-{role}-{userId}-umum            → UMUM division
+//   raw-{role}-{userId}-private         → PRIVATE division
+//   raw-{role}-{userId}-{div}-output-{i} → output folder inside a division
+export const DRIVE_DIVISIONS = ['umum', 'private'] as const
+export type DriveDivision = (typeof DRIVE_DIVISIONS)[number]
+
+/** Detect a division folder ID ('raw-...-umum' / 'raw-...-private'). */
+export function isDivisionFolderId(folderId: string): boolean {
+  return /^raw-.+-(umum|private)$/.test(folderId)
+}
+
+/** Extract the division ('umum' | 'private') from a division folder/output ID. */
+export function getDivisionFromFolderId(folderId: string): DriveDivision | null {
+  const m = folderId.match(/-(umum|private)(?:-output-\d+)?$/)
+  return m ? (m[1] as DriveDivision) : null
+}
 
 // Default access policy per folder per workflow stage.
 // Used to auto-assign roles + Download/Upload toggles when a project is initiated,
@@ -477,11 +512,14 @@ export const FOLDER_ACCESS_DEFAULTS: Record<string, Record<number, { download: b
     3: { download: true, upload: true },
     4: { download: true, upload: false },
   },
-  // PUBLIC/UMUM: T1 (UL only) — petugas Tahap 1 filter foto yang boleh dibagi
+  // PUBLIC/UMUM & PRIVATE/RAHASIA (LEGACY — struktur lama):
+  // Folder terpisah ini tidak lagi dibuat untuk proyek baru; pembagian
+  // UMUM/PRIVATE kini otomatis ada di dalam subfolder PRODUKSI setiap
+  // petugas. Entry ini dipertahankan untuk proyek lama yang masih
+  // menggunakan struktur folder terpisah.
   public: {
     1: { download: false, upload: true },
   },
-  // PRIVATE/RAHASIA: T1 (UL only) — petugas Tahap 1 filter foto yang rahasia
   private: {
     1: { download: false, upload: true },
   },

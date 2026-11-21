@@ -126,6 +126,17 @@ export async function POST(request: NextRequest) {
     }
 
     // 3. Cari folder PUBLIC di drive_folders project ini
+    //
+    // DUAL STRUCTURE:
+    //   - OLD: top-level folder with folderId='public' (PUBLIC-UMUM folder).
+    //   - NEW: UMUM division folders INSIDE each T1 worker's PRODUKSI subfolder
+    //     (folderId like 'raw-{role}-{userId}-umum'). The PUBLIC/PRIVATE sorting
+    //     was merged into PRODUKSI — there is no top-level PUBLIC folder anymore.
+    //
+    // For new-structure projects we use the first UMUM division folder found.
+    // If a project has multiple T1 workers, each has their own UMUM division —
+    // we publish the first one and include a warning listing the others so the
+    // manager can publish them separately via LIHUM if needed.
     const folderRes = await client.execute({
       sql: `SELECT folderId, link, name FROM drive_folders
             WHERE projectId = ? AND folderId = 'public' AND parentFolderId IS NULL
@@ -143,9 +154,37 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    // NEW-STRUCTURE FALLBACK: no top-level PUBLIC folder → look for UMUM
+    // division folders (folderId ends with '-umum', e.g.
+    // 'raw-photographervideographeraudio-{userId}-umum').
+    let umumDivisionWarning: string | undefined
+    if (!publicFolder || !publicFolder.link) {
+      const divisionRes = await client.execute({
+        sql: `SELECT folderId, link, name FROM drive_folders
+              WHERE projectId = ? AND folderId LIKE '%-umum' AND link IS NOT NULL
+              ORDER BY folderId ASC`,
+        args: [bind(projectId)],
+      })
+      const divisionRows = divisionRes.rows as Array<Record<string, unknown>>
+      if (divisionRows.length > 0) {
+        const row = divisionRows[0]
+        publicFolder = {
+          folderId: String(row.folderId || ''),
+          link: (row.link as string) || null,
+          name: String(row.name || ''),
+        }
+        if (divisionRows.length > 1) {
+          umumDivisionWarning =
+            `Project ini memiliki ${divisionRows.length} folder UMUM (satu per petugas Tahap 1). ` +
+            `Gallery dibuat dari folder UMUM petugas pertama. Folder UMUM petugas lain dapat ` +
+            `dipublikasikan terpisah dari LIHUM.`
+        }
+      }
+    }
+
     if (!publicFolder || !publicFolder.link) {
       return NextResponse.json({
-        error: 'Folder PUBLIC tidak ditemukan untuk project ini. Pastikan folder PUBLIC/UMUM sudah dibuat saat inisiasi proyek.',
+        error: 'Folder UMUM tidak ditemukan untuk project ini. Pastikan folder PRODUKSI (dengan pembagian UMUM/PRIVATE per petugas) sudah dibuat saat inisiasi proyek.',
       }, { status: 400 })
     }
 
@@ -225,7 +264,7 @@ export async function POST(request: NextRequest) {
       success: true,
       lihumGalleryId,
       lihumUrl: `${LIHUM_BASE}/?gallery=${lihumGalleryId}`,
-      warning: lihumData.warning,
+      warning: umumDivisionWarning || lihumData.warning,
       message: 'Gallery berhasil dibuat di LIHUM. Link siap dibagikan atau di-embed.',
     })
   } catch (error) {

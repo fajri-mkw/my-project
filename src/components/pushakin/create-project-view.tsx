@@ -9,7 +9,7 @@ import { Checkbox } from '@/components/ui/checkbox'
 import { Badge } from '@/components/ui/badge'
 import { Switch } from '@/components/ui/switch'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { useAppStore, ROLES, ROLE_CONFIG, FOLDER_OPTIONS, FOLDER_ACCESS_DEFAULTS, STAGES, getRoleDisplayName } from '@/lib/store'
+import { useAppStore, ROLES, ROLE_CONFIG, FOLDER_OPTIONS, FOLDER_ACCESS_DEFAULTS, STAGES, getRoleDisplayName, isDivisionFolderId, getDivisionFromFolderId, DRIVE_DIVISIONS } from '@/lib/store'
 import {
   Rocket,
   Users,
@@ -171,10 +171,11 @@ export function CreateProjectView() {
   const [picName, setPicName] = useState('')
   const [picWhatsApp, setPicWhatsApp] = useState('')
   const [selectedUsers, setSelectedUsers] = useState<Record<string, string[]>>({}) // role → list of selected user IDs
-  // Default-checked workflow folders. Folder 1 (PRODUKSI), 2 (PASCA PRODUKSI),
-  // 3 (PUBLIC/UMUM), dan 4 (PRIVATE/RAHASIA) auto-checked.
-  // Folder desain & lainnya sudah dihapus — diganti dengan PUBLIC/PRIVATE.
-  const [selectedFolders, setSelectedFolders] = useState(['raw', 'revised', 'public', 'private'])
+  // Default-checked workflow folders. Hanya PRODUKSI (1) dan PASCA PRODUKSI (2)
+  // yang auto-checked. Folder PUBLIC/UMUM dan PRIVATE/RAHASIA TIDAK lagi dibuat
+  // terpisah — pembagian UMUM/PRIVATE kini otomatis ada DI DALAM subfolder
+  // PRODUKSI setiap Petugas Tahap 1 (lihat create-user-subfolders divisions).
+  const [selectedFolders, setSelectedFolders] = useState(['raw', 'revised'])
   const [folderRoles, setFolderRoles] = useState<Record<string, string[]>>({})
   // Track roles the manager explicitly removed from a folder, so the auto-assign
   // effect does not re-add them. Entries are `${folderId}:${role}` strings.
@@ -1068,6 +1069,11 @@ export function CreateProjectView() {
               // For each folder type that has users with upload access, call
               // /api/drive/create-user-subfolders. Each call creates ~20 Drive
               // folders (5 users × 4 subfolders) — well within the limit.
+              //
+              // For PRODUKSI ('raw') we pass `divisions` so each Petugas Tahap 1
+              // gets ONE subfolder containing UMUM/ + PRIVATE/ divisions with
+              // the auto-named output folders inside each division (instead of
+              // the old 3 duplicate Foto folders across PRODUKSI/PUBLIC/PRIVATE).
               if (driveData.folderIdMap) {
                 const allUsers = assignedUsersData
                 for (const folderType of selectedFolders) {
@@ -1080,7 +1086,11 @@ export function CreateProjectView() {
                   )
 
                   if (usersWithUpload.length > 0) {
-                    setDriveCreatingStatus(`Membuat subfolder petugas untuk ${folderType}...`)
+                    setDriveCreatingStatus(
+                      folderType === 'raw'
+                        ? 'Membuat subfolder petugas (UMUM/PRIVATE) untuk PRODUKSI...'
+                        : `Membuat subfolder petugas untuk ${folderType}...`
+                    )
                     try {
                       const subResp = await fetch('/api/drive/create-user-subfolders', {
                         method: 'POST',
@@ -1091,27 +1101,43 @@ export function CreateProjectView() {
                           users: usersWithUpload,
                           workerOutputs,
                           workerCustomOutput,
+                          // NEW: PRODUKSI user folders get UMUM/PRIVATE divisions
+                          ...(folderType === 'raw' ? { divisions: [...DRIVE_DIVISIONS] } : {}),
                         })
                       })
 
                       if (subResp.ok) {
                         const subData = await subResp.json()
                         if (subData.success && subData.subfolders) {
-                          // Map subfolders to the same format as the main folders
+                          // Map subfolders to the same format as the main folders.
+                          // Handles FOUR shapes (new division structure + legacy flat):
+                          //   1. Division folder:        raw-{role}-{userId}-umum | -private
+                          //   2. Division output folder: raw-{role}-{userId}-{umum|private}-output-{i}
+                          //   3. Legacy output folder:   raw-{role}-{userId}-output-{i}
+                          //   4. User subfolder:         raw-{role}-{userId}
                           const mappedSubs = subData.subfolders.map((f: { folderId: string; name: string; webViewLink: string }) => {
                             const isOutputSub = f.folderId.includes('-output-')
+                            const division = getDivisionFromFolderId(f.folderId)
+                            const divisionLabel = division === 'umum' ? 'UMUM' : division === 'private' ? 'PRIVATE' : ''
+
                             if (isOutputSub) {
                               const outputPrefix = f.folderId.substring(0, f.folderId.indexOf('-output-'))
                               const parentType = ['raw', 'revised', 'final', 'desain', 'lainnya', 'public', 'private'].find(t => outputPrefix.startsWith(t + '-')) || ''
-                              const matchedUser = users.find(u => outputPrefix.endsWith('-' + u.id))
+                              // For division outputs, strip the '-umum'/'-private' suffix
+                              // before matching the owning user (outputPrefix ends with
+                              // the division, not the userId).
+                              const userPrefix = division ? outputPrefix.slice(0, -(division.length + 1)) : outputPrefix
+                              const matchedUser = users.find(u => userPrefix.endsWith('-' + u.id))
                               const parentAccess = folderUserAccess[parentType] || {}
                               return {
                                 folderId: f.folderId,
                                 name: f.name,
-                                desc: `Output ${f.name}${matchedUser ? ' - ' + matchedUser.name : ''}`,
-                                color: 'text-stone-400',
-                                bg: 'bg-stone-50/50',
-                                border: 'border-stone-100',
+                                desc: division
+                                  ? `Output ${f.name} (${divisionLabel})${matchedUser ? ' - ' + matchedUser.name : ''}`
+                                  : `Output ${f.name}${matchedUser ? ' - ' + matchedUser.name : ''}`,
+                                color: division === 'umum' ? 'text-green-500' : division === 'private' ? 'text-red-400' : 'text-stone-400',
+                                bg: division === 'umum' ? 'bg-green-50/50' : division === 'private' ? 'bg-red-50/50' : 'bg-stone-50/50',
+                                border: division === 'umum' ? 'border-green-100' : division === 'private' ? 'border-red-100' : 'border-stone-100',
                                 link: f.webViewLink,
                                 assignedRoles: matchedUser ? [matchedUser.role] : [],
                                 assignedUsers: matchedUser ? [{
@@ -1123,6 +1149,32 @@ export function CreateProjectView() {
                                 parentFolderId: outputPrefix
                               }
                             }
+
+                            // Division folder (UMUM/PRIVATE inside a PRODUKSI user subfolder)
+                            if (isDivisionFolderId(f.folderId)) {
+                              const userPrefix = f.folderId.slice(0, -(division!.length + 1))
+                              const matchedUser = users.find(u => userPrefix.endsWith('-' + u.id))
+                              return {
+                                folderId: f.folderId,
+                                name: f.name,
+                                desc: division === 'umum'
+                                  ? `Hasil yang boleh dibagikan${matchedUser ? ' - ' + matchedUser.name : ''}`
+                                  : `Hasil yang TIDAK boleh dibagikan${matchedUser ? ' - ' + matchedUser.name : ''}`,
+                                color: division === 'umum' ? 'text-green-600' : 'text-red-500',
+                                bg: division === 'umum' ? 'bg-green-50' : 'bg-red-50',
+                                border: division === 'umum' ? 'border-green-200' : 'border-red-200',
+                                link: f.webViewLink,
+                                assignedRoles: matchedUser ? [matchedUser.role] : [],
+                                assignedUsers: matchedUser ? [{
+                                  userId: matchedUser.id,
+                                  userName: matchedUser.name,
+                                  download: true,
+                                  upload: true
+                                }] : [],
+                                parentFolderId: userPrefix
+                              }
+                            }
+
                             // User subfolder (not output)
                             const parentType = ['raw', 'revised', 'final', 'desain', 'lainnya', 'public', 'private'].find(t => f.folderId.startsWith(t + '-')) || ''
                             const remaining = f.folderId.substring(parentType.length + 1)
@@ -2767,6 +2819,8 @@ export function CreateProjectView() {
             </p>
             <p className="text-xs text-indigo-600/70 mb-4 ml-8">
               ✅ Folder <span className="font-semibold">PRODUKSI</span> &amp; <span className="font-semibold">PASCA PRODUKSI</span> sudah tercentang otomatis. Akses <span className="font-semibold">Download/Upload</span> terisi otomatis sesuai tahapan kerja: T1 (UL) · T2 PRODUKSI (DL) · T2 PASCA PRODUKSI (UL) · T3 (DL+UL) · T4 (DL+UL) · T5 (DL). Manager tetap dapat menyesuaikan manual.
+              <br />
+              📁 Setiap <span className="font-semibold">Petugas Tahap 1</span> otomatis mendapat <span className="font-semibold">1 subfolder di PRODUKSI</span> yang sudah berisi pembagian <span className="font-semibold">UMUM</span> (boleh dibagikan) dan <span className="font-semibold">PRIVATE</span> (rahasia), masing-masing berisi folder output sesuai kebutuhan — tidak ada lagi folder Foto duplikat di 3 folder utama.
             </p>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 ml-8">
               {FOLDER_OPTIONS.filter(f => !(f as { hidden?: boolean }).hidden).map(folder => {
