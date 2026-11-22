@@ -395,7 +395,8 @@ Pushakin Flows — Sistem Manajemen Produksi`
         : `Buat ulang folder Google Drive untuk proyek "${project.title}"?\n\n`) +
       `Tindakan ini akan:\n` +
       `• Membuat folder BARU di Google Drive (struktur: PRODUKSI, PASCA PRODUKSI + subfolder per petugas & output)\n` +
-      `• Setiap Petugas Tahap 1 mendapat 1 subfolder di PRODUKSI berisi pembagian UMUM/PRIVATE dengan folder output di dalamnya\n` +
+      `• Petugas Photographer, Videographer, Content Creator & Audio mendapat 1 subfolder di PRODUKSI berisi pembagian UMUM/PRIVATE dengan folder output di dalamnya\n` +
+      `• Reporter & Graphic Designer mendapat subfolder biasa (folder output langsung di dalamnya, tanpa pembagian)\n` +
       (hasNoFolders
         ? `• Folder belum pernah dibuat untuk proyek ini — folder standar akan dibuat dan seluruh petugas mendapat akses upload/download\n\n`
         : `• Mengganti folder lama (mock/placeholder) dengan folder asli yang dapat menerima upload\n\n`) +
@@ -657,8 +658,12 @@ Pushakin Flows — Sistem Manajemen Produksi`
           // Cloudflare Workers' 50-subrequest-per-invocation limit.
           //
           // For PRODUKSI ('raw') on NEW-structure projects we pass `divisions`
-          // so each T1 worker gets ONE subfolder containing UMUM/ + PRIVATE/
-          // divisions with the auto-named output folders inside each division.
+          // so T1 workers whose output becomes LIHUM gallery content
+          // (Photographer, Videographer, Content Creator, Audio) get ONE
+          // subfolder containing UMUM/ + PRIVATE/ divisions with the
+          // auto-named output folders inside each division. Role lain
+          // (Reporter, Graphic Designer) otomatis dapat struktur flat —
+          // difilter per role di backend (DRIVE_DIVISION_ROLES).
           if (driveData.folderIdMap) {
             for (const folderType of folderTypes) {
               const parentDriveId = driveData.folderIdMap[folderType]
@@ -679,9 +684,11 @@ Pushakin Flows — Sistem Manajemen Produksi`
                     users: usersWithUpload,
                     workerOutputs: project.workerOutputs || {},
                     workerCustomOutput: project.workerCustomOutput || {},
-                    // NEW structure: UMUM/PRIVATE divisions inside each PRODUKSI
-                    // user subfolder (skipped for legacy projects that still have
-                    // top-level PUBLIC/PRIVATE folders).
+                    // NEW structure: UMUM/PRIVATE divisions inside each
+                    // PRODUKSI user subfolder — hanya utk role Photographer,
+                    // Videographer, Content Creator & Audio (backend filter).
+                    // (Skipped for legacy projects that still have top-level
+                    // PUBLIC/PRIVATE folders.)
                     ...(folderType === 'raw' && useDivisions ? { divisions: [...DRIVE_DIVISIONS] } : {}),
                   }),
                 })
@@ -814,7 +821,7 @@ Pushakin Flows — Sistem Manajemen Produksi`
           showAlert(
             `Berhasil! ${newFolders.length} folder Google Drive telah dibuat ulang untuk proyek "${project.title}".\n\n` +
             (useDivisions
-              ? `Setiap Petugas Tahap 1 mendapat 1 subfolder PRODUKSI berisi pembagian UMUM/PRIVATE dengan folder output di dalamnya.\n\n`
+              ? `Petugas Photographer, Videographer, Content Creator & Audio mendapat 1 subfolder PRODUKSI berisi pembagian UMUM/PRIVATE dengan folder output di dalamnya. Reporter & Graphic Designer mendapat subfolder biasa.\n\n`
               : '') +
             `Petugas sekarang dapat mengunggah tugas tanpa error "Folder tidak valid".`,
           )

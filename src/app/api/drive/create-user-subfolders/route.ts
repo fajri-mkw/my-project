@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { checkMaintenanceMode } from '@/lib/maintenance-check'
 import { getCachedAccessToken, resolveDriveTarget } from '@/lib/drive-service'
 import { readDriveSettings } from '@/lib/drive-helpers'
+import { roleGetsDriveDivisions, DRIVE_DIVISION_ROLES } from '@/lib/store'
 
 // ============================================================================
 // POST /api/drive/create-user-subfolders
@@ -51,6 +52,19 @@ import { readDriveSettings } from '@/lib/drive-helpers'
 //             ├── Foto/
 //             └── Video/
 //
+// DIVISION ELIGIBILITY (role whitelist — see DRIVE_DIVISION_ROLES in store.ts):
+// Pembagian UMUM/PRIVATE hanya untuk petugas yang hasil kerjanya menjadi isi
+// galeri LIHUM: Photographer, Videographer, Content Creator, dan Audio
+// (role 'PhotographerVideographerAudio'). Petugas Tahap 1 lainnya — Reporter
+// dan Graphic Designer — TIDAK mendapat pembagian karena tugasnya memang tidak
+// akan dibagikan; subfolder mereka memakai struktur flat (folder output
+// langsung di dalam subfolder petugas), sama seperti legacy.
+//
+//   1. PRODUKSI (Berkas Mentah)/
+//     └── RH_Rudi_GraphicDesigner/
+//         ├── Desain Feed/                    ← flat output folders
+//         └── Desain Banner/                  ← (NO UMUM/PRIVATE division)
+//
 // Logical folder IDs (stored in the drive_folders table):
 //   User subfolder:  raw-{role}-{userId}                      (unchanged)
 //   UMUM division:   raw-{role}-{userId}-umum
@@ -61,9 +75,10 @@ import { readDriveSettings } from '@/lib/drive-helpers'
 // an OLD project that still has top-level PUBLIC/PRIVATE folders), the flat
 // legacy structure is created (outputs directly inside the user subfolder).
 //
-// Subrequest budget with divisions (worst case, 5 users × 3 outputs):
-//   5 × (1 user folder + 2 divisions + 6 division outputs) = 45 calls — still
-//   within the 50 limit, but tight. The frontend batches per folder type and
+// Subrequest budget with divisions (worst case: mixed roles, 5 users × 3 outputs):
+//   2 division users × (1 user folder + 2 divisions + 6 division outputs) = 18
+//   3 flat users × (1 user folder + 3 outputs) = 12 → total ~30 calls —
+//   comfortably within the 50 limit. The frontend batches per folder type and
 //   the access token is cached, so this is acceptable.
 //
 // Returns:
@@ -147,6 +162,8 @@ export async function POST(request: NextRequest) {
 
     // Divisions only apply to PRODUKSI ('raw') — other folder types (PASCA
     // PRODUKSI, custom) keep the flat user-subfolder → output structure.
+    // NOTE: even for 'raw', divisions are only created for ELIGIBLE roles
+    // (see DRIVE_DIVISION_ROLES) — enforced per-user inside the loop below.
     const useDivisions = folderType === 'raw'
       && Array.isArray(divisions)
       && divisions.some(d => d === 'umum' || d === 'private')
@@ -183,6 +200,12 @@ export async function POST(request: NextRequest) {
       const userCode = generateUserCode(user.userName)
       const subfolderName = `${userCode}_${user.userName.replace(/\s+/g, '_')}_${user.role.replace(/\s*&\s*/g, '_')}`
 
+      // DIVISION ELIGIBILITY (per user): hanya Photographer, Videographer,
+      // Content Creator, dan Audio (isi galeri LIHUM) yang mendapat pembagian
+      // UMUM/PRIVATE. Reporter & Graphic Designer (dan role lain) mendapat
+      // struktur flat — output langsung di dalam subfolder petugas.
+      const userUseDivisions = useDivisions && roleGetsDriveDivisions(user.role)
+
       // Create user-named subfolder
       const userSubfolder = await createFolder(
         accessToken,
@@ -200,8 +223,8 @@ export async function POST(request: NextRequest) {
 
       const outputTypes = workerOutputs?.[user.userId] || []
 
-      if (useDivisions) {
-        // === NEW STRUCTURE: UMUM/PRIVATE divisions inside the user subfolder ===
+      if (userUseDivisions) {
+        // === DIVISION STRUCTURE (eligible roles only — gallery content) ===
         // The stage-1 worker gets ONE folder with the public/private sorting
         // built in. Output folders are created inside EACH division.
         for (const division of divisionList) {
@@ -235,9 +258,11 @@ export async function POST(request: NextRequest) {
           }
         }
       } else {
-        // === LEGACY FLAT STRUCTURE (backward compatibility) ===
+        // === FLAT STRUCTURE (non-eligible roles: Reporter, Graphic Designer,
+        // etc. — AND legacy regeneration) ===
         // Output-type subfolders directly inside the user's folder.
-        // Used for non-raw folder types AND old-structure regeneration.
+        // Used for non-raw folder types, old-structure regeneration, and
+        // Tahap-1 roles whose work is never shared publicly.
         for (let i = 0; i < outputTypes.length; i++) {
           const outputName = resolveOutputName(user.userId, outputTypes[i])
           const outputSubfolder = await createFolder(
@@ -259,6 +284,7 @@ export async function POST(request: NextRequest) {
       success: true,
       folderType,
       divisions: divisionList,
+      divisionEligibleRoles: DRIVE_DIVISION_ROLES,
       subfolders: createdSubfolders,
     })
   } catch (error) {

@@ -442,11 +442,11 @@ export const FOLDER_OPTIONS = [
     id: 'raw',
     title: '1. FOLDER',
     name: 'PRODUKSI (Berkas Mentah)',
-    desc: 'Untuk upload mentahan: Reporter, Photographer, Videographer, Content Creator, Audio, Desain Grafis. Setiap Petugas Tahap 1 otomatis mendapat 1 subfolder berisi pembagian UMUM (boleh dibagi) dan PRIVATE (rahasia) dengan folder output di dalamnya.',
+    desc: 'Untuk upload mentahan: Reporter, Photographer, Videographer, Content Creator, Audio, Desain Grafis. Petugas Photographer, Videographer, Content Creator, dan Audio otomatis mendapat subfolder berisi pembagian UMUM (isi galeri LIHUM) dan PRIVATE (rahasia) dengan folder output di dalamnya. Reporter & Graphic Designer mendapat subfolder biasa — folder output langsung di dalamnya, TANPA pembagian UMUM/PRIVATE karena tugasnya tidak akan dibagikan.',
     color: 'text-stone-600',
     bg: 'bg-stone-100',
     border: 'border-stone-200',
-    accessHint: 'T1: UL (UMUM+PRIVATE) | T2: DL',
+    accessHint: 'T1: UL | T2: DL (UMUM/PRIVATE hanya utk Photographer, Videographer, Content Creator & Audio)',
   },
   { id: 'revised', title: '2. FOLDER', name: 'PASCA PRODUKSI (Draft & Editing)', desc: 'Untuk Editor, Reviewer, dan Publisher. Direview oleh QC.', color: 'text-orange-600', bg: 'bg-orange-50', border: 'border-orange-200', accessHint: 'T2: UL | T3: DL+UL | T4: DL+UL | T5: DL' },
   // === DEPRECATED — kept for backward compatibility ===
@@ -484,6 +484,23 @@ export function isDivisionFolderId(folderId: string): boolean {
 export function getDivisionFromFolderId(folderId: string): DriveDivision | null {
   const m = folderId.match(/-(umum|private)(?:-output-\d+)?$/)
   return m ? (m[1] as DriveDivision) : null
+}
+
+// Roles yang subfolder PRODUKSInya mendapat pembagian UMUM/PRIVATE.
+// Hanya petugas yang hasil kerjanya menjadi isi galeri LIHUM:
+// Photographer, Videographer, Content Creator, dan Audio (satu role gabungan
+// 'PhotographerVideographerAudio'). Petugas Tahap 1 lainnya — Reporter dan
+// Graphic Designer — TIDAK mendapat pembagian UMUM/PRIVATE karena tugasnya
+// memang tidak akan dibagikan; subfolder mereka berisi folder output secara
+// langsung (struktur flat, sama seperti legacy).
+// 'ContentCreator' diikutkan demi kompatibilitas baris DB lama yang belum
+// termigrasi (role itu sudah digabung ke PhotographerVideographerAudio —
+// Content Creator sendiri tetap berhak dapat pembagian UMUM/PRIVATE).
+export const DRIVE_DIVISION_ROLES: string[] = ['PhotographerVideographerAudio', 'ContentCreator']
+
+/** Apakah role ini mendapat pembagian UMUM/PRIVATE di subfolder PRODUKSInya? */
+export function roleGetsDriveDivisions(role: string): boolean {
+  return DRIVE_DIVISION_ROLES.includes(role)
 }
 
 // Default access policy per folder per workflow stage.

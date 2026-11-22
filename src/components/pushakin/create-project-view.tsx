@@ -1071,9 +1071,13 @@ export function CreateProjectView() {
               // folders (5 users × 4 subfolders) — well within the limit.
               //
               // For PRODUKSI ('raw') we pass `divisions` so each Petugas Tahap 1
-              // gets ONE subfolder containing UMUM/ + PRIVATE/ divisions with
-              // the auto-named output folders inside each division (instead of
-              // the old 3 duplicate Foto folders across PRODUKSI/PUBLIC/PRIVATE).
+              // yang hasil kerjanya jadi isi galeri LIHUM (Photographer,
+              // Videographer, Content Creator, Audio) gets ONE subfolder
+              // containing UMUM/ + PRIVATE/ divisions with the auto-named output
+              // folders inside each division (instead of the old 3 duplicate
+              // Foto folders across PRODUKSI/PUBLIC/PRIVATE). Role lain
+              // (Reporter, Graphic Designer) otomatis dapat struktur flat —
+              // backend yang memfilter per role (DRIVE_DIVISION_ROLES).
               if (driveData.folderIdMap) {
                 const allUsers = assignedUsersData
                 for (const folderType of selectedFolders) {
@@ -1088,7 +1092,7 @@ export function CreateProjectView() {
                   if (usersWithUpload.length > 0) {
                     setDriveCreatingStatus(
                       folderType === 'raw'
-                        ? 'Membuat subfolder petugas (UMUM/PRIVATE) untuk PRODUKSI...'
+                        ? 'Membuat subfolder petugas untuk PRODUKSI (UMUM/PRIVATE utk Photographer, Videographer, Content Creator & Audio)...'
                         : `Membuat subfolder petugas untuk ${folderType}...`
                     )
                     try {
@@ -2820,7 +2824,7 @@ export function CreateProjectView() {
             <p className="text-xs text-indigo-600/70 mb-4 ml-8">
               ✅ Folder <span className="font-semibold">PRODUKSI</span> &amp; <span className="font-semibold">PASCA PRODUKSI</span> sudah tercentang otomatis. Akses <span className="font-semibold">Download/Upload</span> terisi otomatis sesuai tahapan kerja: T1 (UL) · T2 PRODUKSI (DL) · T2 PASCA PRODUKSI (UL) · T3 (DL+UL) · T4 (DL+UL) · T5 (DL). Manager tetap dapat menyesuaikan manual.
               <br />
-              📁 Setiap <span className="font-semibold">Petugas Tahap 1</span> otomatis mendapat <span className="font-semibold">1 subfolder di PRODUKSI</span> yang sudah berisi pembagian <span className="font-semibold">UMUM</span> (boleh dibagikan) dan <span className="font-semibold">PRIVATE</span> (rahasia), masing-masing berisi folder output sesuai kebutuhan — tidak ada lagi folder Foto duplikat di 3 folder utama.
+              📁 Petugas <span className="font-semibold">Photographer, Videographer, Content Creator, dan Audio</span> otomatis mendapat <span className="font-semibold">1 subfolder di PRODUKSI</span> berisi pembagian <span className="font-semibold">UMUM</span> (isi galeri LIHUM) dan <span className="font-semibold">PRIVATE</span> (rahasia), masing-masing berisi folder output sesuai kebutuhan. Reporter &amp; Graphic Designer mendapat subfolder biasa dengan folder output langsung di dalamnya (tanpa pembagian) karena tugasnya tidak akan dibagikan.
             </p>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 ml-8">
               {FOLDER_OPTIONS.filter(f => !(f as { hidden?: boolean }).hidden).map(folder => {
