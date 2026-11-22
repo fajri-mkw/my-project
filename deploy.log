@@ -251,3 +251,28 @@ Deployed app triggers (0.54 sec)
 Current Version ID: ddd64bf9-9c3d-4bb2-81a4-147aed2a36ac
 (node:4303) [DEP0190] DeprecationWarning: Passing args to a child process with shell option true can lead to security vulnerabilities, as the arguments are not escaped, only concatenated.
 (Use `node --trace-deprecation ...` to show where the warning was created)
+
+=== Deploy: UMUM/PRIVATE divisions only for LIHUM gallery roles ===
+Date: 2026-11-22 (WITA)
+Commit: 16224a2
+Version ID: 56108ca6-f806-449c-b0f0-9ecb1f649b8b
+URL: https://app.pushakin-flows.workers.dev
+Total Upload: 27662.25 KiB / gzip: 2910.29 KiB
+Changes:
+- UMUM/PRIVATE divisions in PRODUKSI subfolders now only created for
+  Photographer, Videographer, Content Creator & Audio (role
+  PhotographerVideographerAudio, isi galeri LIHUM).
+- Reporter & Graphic Designer get flat subfolders (output folders
+  directly inside, no UMUM/PRIVATE) — their work is never shared.
+- Backend enforces whitelist (DRIVE_DIVISION_ROLES) per user;
+  frontend texts (folder desc, access hint, info box, status messages,
+  regenerate confirm) updated to match.
+Verification:
+- bunx tsc --noEmit: PASS
+- Local browser (agent-browser): login → create form → new folder card
+  text + access pill verified (verify-division-role-text.png)
+- roleGetsDriveDivisions(): P/V/CC/A=true, GraphicDesigner=false,
+  Reporter=false
+- Production: /api/health 200 OK, home 200 OK, login page renders,
+  no page errors; deployed bundle contains new client chunks +
+  server handler code.
