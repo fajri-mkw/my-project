@@ -153,8 +153,20 @@ export async function setupWorkerDriveFolders(params: {
   const client = getLibsql()
 
   // ------------------------------------------------------------------
-  // 2. Parent folders proyek (parentFolderId IS NULL → 'raw', 'revised',
-  //    'public', 'private', atau folder kustom)
+  // 2b. Muat SEMUA folderId logis proyek SEKALI untuk pengecekan idempotensi
+  //     (prefix match di JS). TIDAK memakai LIKE — D1 menolak pola LIKE
+  //     panjang dengan "LIKE or GLOB pattern too complex" (bug yang sama
+  //     yang dulu membuat background setup add-task gagal senyap).
+  // ------------------------------------------------------------------
+  const allFolderIdsRes = await client.execute({
+    sql: `SELECT folderId FROM drive_folders WHERE projectId = ?`,
+    args: [bind(projectId)],
+  })
+  const existingFolderIds = allFolderIdsRes.rows.map(r => String((r as Record<string, unknown>).folderId))
+
+  // ------------------------------------------------------------------
+  // 2c. Parent folders proyek (parentFolderId IS NULL → 'raw', 'revised',
+  //     'public', 'private', atau folder kustom)
   // ------------------------------------------------------------------
   const parentsRes = await client.execute({
     sql: `SELECT id, folderId, name, link, assignedUsers
@@ -168,7 +180,7 @@ export async function setupWorkerDriveFolders(params: {
   }
 
   // ------------------------------------------------------------------
-  // 3. Deteksi struktur legacy (folder top-level PUBLIC/PRIVATE terpisah).
+  // 2d. Deteksi struktur legacy (folder top-level PUBLIC/PRIVATE terpisah).
   //    Proyek legacy → TIDAK membuat pembagian UMUM/PRIVATE di dalam user
   //    subfolder (output dibuat flat), konsisten dengan struktur proyeknya.
   // ------------------------------------------------------------------
@@ -252,13 +264,11 @@ export async function setupWorkerDriveFolders(params: {
       continue
     }
 
-    // 5a. Subfolder petugas sudah ada? → idempotent skip
-    const existingSubRes = await client.execute({
-      sql: `SELECT id FROM drive_folders
-            WHERE projectId = ? AND folderId LIKE ?`,
-      args: [bind(projectId), bind(`${parentType}-${userSubPattern}%`)],
-    })
-    const subfolderExists = existingSubRes.rows.length > 0
+    // 5a. Subfolder petugas sudah ada? → idempotent skip.
+    //     Prefix match di JS dari daftar folderId yang sudah dimuat (2b) —
+    //     TANPA SQL LIKE (D1 menolak pola LIKE panjang).
+    const subfolderPrefix = `${parentType}-${userSubPattern}`
+    const subfolderExists = existingFolderIds.some(id => id.startsWith(subfolderPrefix))
 
     if (!subfolderExists) {
       // 5b. Buat user subfolder di Google Drive

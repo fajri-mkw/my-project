@@ -220,14 +220,23 @@ export async function POST(request: NextRequest) {
     //     parent folder di Drive UI kalau perlu.
     try {
       const userSubfolderPattern = `${taskRole.toLowerCase().replace(/\s*&\s*/g, '-')}-${taskAssigneeId}`
-      await client.execute({
-        sql: `DELETE FROM drive_folders
-              WHERE projectId = ? AND folderId LIKE ?`,
-        args: [
-          bind(projectId),
-          bind(`%-${userSubfolderPattern}%`), // matches parent-role-userId or parent-role-userId-output-*
-        ],
+      // D1 menolak pola LIKE panjang ("LIKE or GLOB pattern too complex") —
+      // match dilakukan di JS lalu hapus per row id. (Pola LIKE lama
+      // `%-${userSubfolderPattern}%` selalu gagal senyap di production D1.)
+      const foldersRes = await client.execute({
+        sql: `SELECT id, folderId FROM drive_folders WHERE projectId = ?`,
+        args: [bind(projectId)],
       })
+      const idsToDelete = foldersRes.rows
+        .map(r => r as Record<string, unknown>)
+        .filter(r => String(r.folderId).includes(`-${userSubfolderPattern}`))
+        .map(r => String(r.id))
+      for (const fid of idsToDelete) {
+        await client.execute({
+          sql: `DELETE FROM drive_folders WHERE id = ?`,
+          args: [bind(fid)],
+        })
+      }
     } catch (folderCleanupErr) {
       console.error('[REMOVE-TASK] Failed to cleanup drive_folders rows:', folderCleanupErr)
       // Non-fatal — task sudah dihapus, folder rows orphaned tidak fatal
