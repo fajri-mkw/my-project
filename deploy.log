@@ -276,3 +276,43 @@ Verification:
 - Production: /api/health 200 OK, home 200 OK, login page renders,
   no page errors; deployed bundle contains new client chunks +
   server handler code.
+
+=== Deploy: fix petugas tidak bisa upload (folder tidak pernah dibuat) ===
+Date: 2026-11-28 (WITA)
+Commits: 66993f4 → 783649d, 497cca7 (LIKE fix)
+Version ID: 2d41fa0b-175d-4cce-a22a-beeb2717d7c3
+URL: https://app.pushakin-flows.workers.dev
+
+Root cause (D1 prod diverifikasi):
+1. add-task membuat folder petugas di background (deferToBackground) yang
+   memakai pola SQL LIKE panjang → D1 tolak "LIKE or GLOB pattern too
+   complex" → setup gagal SENYAP. 4 petugas di 4 proyek (semua photographer
+   tambahan) tanpa folder → error "Anda tidak memiliki akses ke folder
+   yang sesuai untuk tahapan ini" saat upload.
+2. reassign-task tidak pernah mengatur folder untuk petugas pengganti.
+
+Fix:
+- lib/drive-worker-folders.ts: setupWorkerDriveFolders — setup folder
+  petugas (user sub + output + UMUM/PRIVATE utk role galeri LIHUM)
+  idempotent, TANPA SQL LIKE (prefix match JS)
+- add-task & reassign-task: setup folder SINKRON + folderWarning di
+  response bila gagal (task tetap dibuat)
+- POST /api/projects/repair-task-folders + tombol "Perbaiki Folder
+  Petugas" utk Manager/Admin di detail proyek
+- remove-task: cleanup folder rows diperbaiki (LIKE bug yang sama)
+
+Perbaikan data production (POST repair, global scan):
+- Jamal Ripani (PRJ-034355): 7 folder dibuat (user sub + UMUM + PRIVATE
+  + Foto/Audio di masing-masing) + akses parent raw — SUDAH BISA UPLOAD
+- Achmad Magfur (PRJ-262829 & PRJ-440046): 3 folder masing-masing
+- Rudi Hermawan (PRJ-097427): 9 folder
+Rerun repair: idempotent ("tidak ada yang perlu diperbaiki").
+
+Verifikasi:
+- Lokal: typecheck bersih; tombol repair tampil & alert benar;
+  login sebagai photographer → "Unggah Hasil Kerja" menampilkan
+  UMUM/Foto, UMUM/Audio, PRIVATE/Foto, PRIVATE/Audio dengan tombol
+  "Buka di Drive"; error akses hilang (screenshot
+  verify-photographer-upload-fixed.png)
+- Production: link folder Drive valid (HTTP 200), assignedUsers parent
+  sesuai kebijakan tahap (T1: UL only)
