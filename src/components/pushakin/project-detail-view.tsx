@@ -68,7 +68,8 @@ import {
   ChevronLeft,
   UserCog,
   RefreshCw,
-  UserPlus
+  UserPlus,
+  Wrench
 } from 'lucide-react'
 import { useState, useMemo, useCallback, useEffect, useRef } from 'react'
 import { cn } from '@/lib/utils'
@@ -127,6 +128,7 @@ export function ProjectDetailView() {
   const [isUploadingDetailDoc, setIsUploadingDetailDoc] = useState(false)
   const [revisionTaskId, setRevisionTaskId] = useState<string | null>(null)
   const [isRegeneratingDrive, setIsRegeneratingDrive] = useState(false)
+  const [isRepairingFolders, setIsRepairingFolders] = useState(false)
   
   // === LIHUM integration state ===
   // Manager bisa klik "Publikasikan ke LIHUM" untuk buat gallery publik
@@ -373,6 +375,91 @@ Pushakin Flows — Sistem Manajemen Produksi`
       return false
     })
   }, [project.driveFolders])
+
+  /**
+   * Perbaiki folder Drive untuk petugas proyek ini yang belum punya folder.
+   *
+   * Use case: petugas yang ditambahkan di tengah proyek (Tambah Petugas /
+   * Ganti Petugas) kadang tidak mendapat subfolder Drive (bug lama: folder
+   * dibuat di background job yang tidak reliable) — petugas melihat error
+   * "Anda tidak memiliki akses ke folder yang sesuai untuk tahapan ini"
+   * dan tidak bisa upload tugas.
+   *
+   * Memanggil /api/projects/repair-task-folders yang menjalankan
+   * setupWorkerDriveFolders (idempotent) untuk SEMUA petugas pending di
+   * proyek ini: yang sudah punya folder dilewati, yang kurang dilengkapi
+   * (user subfolder + output + pembagian UMUM/PRIVATE utk role galeri
+   * LIHUM + entri akses parent folder).
+   */
+  const handleRepairTaskFolders = async () => {
+    if (!project) return
+    setIsRepairingFolders(true)
+    try {
+      const response = await fetch('/api/projects/repair-task-folders', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ projectId: project.id }),
+      })
+
+      let result: {
+        error?: string
+        repaired?: Array<{
+          ok: boolean
+          userName: string
+          role: string
+          createdLogicalIds: string[]
+          updatedParentIds: string[]
+          error?: string
+        }>
+        summary?: string
+      }
+      try {
+        result = await response.json()
+      } catch {
+        result = {}
+      }
+
+      if (!response.ok) {
+        showAlert(result?.error || 'Gagal memperbaiki folder petugas')
+        return
+      }
+
+      const repaired = result.repaired || []
+      const fixed = repaired.filter(r => r.ok && (r.createdLogicalIds.length > 0 || r.updatedParentIds.length > 0))
+      const failed = repaired.filter(r => !r.ok)
+
+      if (failed.length > 0) {
+        const detail = failed.map(f => `${f.userName} (${f.error || 'unknown'})`).join('; ')
+        showAlert(
+          `Perbaikan folder selesai dengan ERROR untuk ${failed.length} petugas:\n\n${detail}\n\n` +
+          (fixed.length > 0
+            ? `${fixed.length} petugas lain berhasil diperbaiki. `
+            : '') +
+          'Coba lagi beberapa saat atau cek koneksi Google Drive di Pengaturan.'
+        )
+      } else if (fixed.length > 0) {
+        showAlert(
+          `Berhasil! Folder Drive dibuat/dilengkapi untuk ${fixed.length} petugas:\n\n` +
+          fixed.map(f => `• ${f.userName}`).join('\n') +
+          `\n\nPetugas tersebut sekarang bisa upload tugasnya.`
+        )
+        // Sync store dengan data folder terbaru dari server
+        fetch('/api/projects')
+          .then(r => r.ok ? r.json() : null)
+          .then(data => { if (data) useAppStore.getState().setProjects(data) })
+          .catch(() => {})
+      } else {
+        showAlert('Semua petugas di proyek ini sudah memiliki folder Drive yang sesuai. Tidak ada yang perlu diperbaiki.')
+      }
+    } catch (err) {
+      showAlert(
+        'Gagal memperbaiki folder petugas: ' +
+        (err instanceof Error ? err.message : 'Koneksi terputus')
+      )
+    } finally {
+      setIsRepairingFolders(false)
+    }
+  }
 
   /**
    * Regenerate real Google Drive folders for this project.
@@ -1151,10 +1238,25 @@ Pushakin Flows — Sistem Manajemen Produksi`
       updateProject(updatedProject)
 
       const newAssignee = users.find(u => u.id === newAssigneeId)
-      showAlert(
-        `Petugas berhasil diganti menjadi ${newAssignee?.name || 'petugas baru'}. ` +
-        `Tugas direset ke status "Menunggu Aksi".`
-      )
+
+      // Refresh folder data dari server (folder Drive petugas pengganti dibuat
+      // sinkron oleh API — store perlu di-sync supaya folder langsung muncul).
+      fetch('/api/projects')
+        .then(r => r.ok ? r.json() : null)
+        .then(data => { if (data) useAppStore.getState().setProjects(data) })
+        .catch(() => {})
+
+      if (result.folderWarning) {
+        showAlert(
+          `Petugas berhasil diganti menjadi ${newAssignee?.name || 'petugas baru'}, TETAPI pembuatan folder Drive gagal: ${result.folderWarning}. ` +
+          `Petugas sementara tidak bisa upload — klik tombol "Perbaiki Folder Petugas" di bagian Workspace Drive untuk mencoba lagi.`
+        )
+      } else {
+        showAlert(
+          `Petugas berhasil diganti menjadi ${newAssignee?.name || 'petugas baru'}. ` +
+          `Folder Drive petugas pengganti sudah otomatis disiapkan. Tugas direset ke status "Menunggu Aksi".`
+        )
+      }
       return true
     } catch (err) {
       showAlert(
@@ -1291,11 +1393,25 @@ Pushakin Flows — Sistem Manajemen Produksi`
       const updatedProject = { ...project, tasks: [...project.tasks, newTask] }
       updateProject(updatedProject)
 
+      // Refresh folder data dari server (folder Drive petugas baru dibuat
+      // sinkron oleh API — store perlu di-sync supaya folder langsung muncul).
+      fetch('/api/projects')
+        .then(r => r.ok ? r.json() : null)
+        .then(data => { if (data) useAppStore.getState().setProjects(data) })
+        .catch(() => {})
+
       const newAssignee = users.find(u => u.id === assigneeId)
-      showAlert(
-        `Petugas ${newAssignee?.name || 'baru'} berhasil ditambahkan ke tahap ini. ` +
-        `Status tugas: "Menunggu Aksi".`
-      )
+      if (result.folderWarning) {
+        showAlert(
+          `Petugas ${newAssignee?.name || 'baru'} berhasil ditambahkan, TETAPI pembuatan folder Drive gagal: ${result.folderWarning}. ` +
+          `Petugas sementara tidak bisa upload — klik tombol "Perbaiki Folder Petugas" di bagian Workspace Drive untuk mencoba lagi.`
+        )
+      } else {
+        showAlert(
+          `Petugas ${newAssignee?.name || 'baru'} berhasil ditambahkan ke tahap ini. ` +
+          `Folder Drive petugas sudah otomatis disiapkan. Status tugas: "Menunggu Aksi".`
+        )
+      }
       return true
     } catch (err) {
       showAlert(
@@ -2137,8 +2253,23 @@ Pushakin Flows — Sistem Manajemen Produksi`
                     <Button
                       variant="outline"
                       size="sm"
+                      onClick={handleRepairTaskFolders}
+                      disabled={isRepairingFolders || isRegeneratingDrive}
+                      className="gap-2 text-emerald-600 border-emerald-200 hover:bg-emerald-50"
+                      title="Cek & lengkapi folder Drive untuk petugas yang belum punya folder (mis. petugas yang ditambahkan/diganti di tengah proyek dan melihat error akses folder saat upload)"
+                    >
+                      {isRepairingFolders ? (
+                        <Loader2 className="w-3 h-3 animate-spin" />
+                      ) : (
+                        <Wrench className="w-3 h-3" />
+                      )}
+                      <span>{isRepairingFolders ? 'Memperbaiki...' : 'Perbaiki Folder Petugas'}</span>
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
                       onClick={handleRegenerateDriveFolders}
-                      disabled={isRegeneratingDrive}
+                      disabled={isRegeneratingDrive || isRepairingFolders}
                       className="gap-2 text-violet-600 border-violet-200 hover:bg-violet-50"
                       title={project.driveFolders.length === 0
                         ? 'Buat folder Google Drive untuk proyek ini (folder belum pernah dibuat)'

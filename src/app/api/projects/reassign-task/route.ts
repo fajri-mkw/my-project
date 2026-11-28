@@ -7,6 +7,7 @@ import {
   bind,
   genId,
 } from '@/lib/libsql-client'
+import { setupWorkerDriveFolders } from '@/lib/drive-worker-folders'
 
 // ============================================================================
 // ROLE_CANONICAL_STAGE — inline copy of ROLE_CONFIG[role].stage from @/lib/store.
@@ -171,6 +172,27 @@ export async function PUT(request: NextRequest) {
       args: [bind(newAssigneeId), canonicalStage, ts, bind(taskId)],
     })
 
+    // 3b. Buat subfolder Google Drive untuk petugas PENGGANTI (sinkron).
+    //     SEBELUMNYA reassign-task TIDAK mengatur folder sama sekali — petugas
+    //     pengganti tidak punya subfolder/akses upload (folder masih atas nama
+    //     petugas lama) → error "Anda tidak memiliki akses ke folder yang
+    //     sesuai untuk tahapan ini". setupWorkerDriveFolders idempotent:
+    //     kalau pengganti sudah punya folder (mis. pernah ditugaskan di proyek
+    //     ini), yang sudah ada dilewati, hanya akses parent dilengkapi.
+    let folderWarning: string | undefined
+    try {
+      await setupWorkerDriveFolders({
+        projectId,
+        userId: newAssigneeId,
+        userName: String(newUser.name),
+        role: taskRole,
+        stage: canonicalStage,
+      })
+    } catch (folderErr) {
+      console.error('[REASSIGN-TASK] setupWorkerDriveFolders failed:', folderErr)
+      folderWarning = folderErr instanceof Error ? folderErr.message : 'Unknown error'
+    }
+
     // 4. Mark old assignee's active surat_tugas as completed (so it stops
     //    showing in their Inbox as "Aktif")
     if (oldAssigneeId) {
@@ -254,7 +276,10 @@ export async function PUT(request: NextRequest) {
         revisionCount: 0,
       },
       currentStage: Number(taskRow.currentStage),
-      message: 'Petugas berhasil diganti',
+      folderWarning,
+      message: folderWarning
+        ? 'Petugas berhasil diganti, tetapi pembuatan folder Drive gagal'
+        : 'Petugas berhasil diganti',
     })
   } catch (error) {
     console.error('[REASSIGN-TASK] Error:', error)
